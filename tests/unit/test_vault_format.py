@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from gpg_meister.models.kdf_params import KDFAlgorithm
 from gpg_meister.models.vault import (
     NONCE_LEN,
     CipherAlgorithm,
@@ -31,7 +32,7 @@ def _b64(raw: bytes) -> str:
 def sample_header() -> VaultHeader:
     return VaultHeader(
         kdf=KDFFields(
-            algorithm="argon2id",
+            algorithm=KDFAlgorithm.ARGON2ID,
             salt_b64=_b64(b"\x01" * 16),
             time_cost=3,
             memory_cost=262_144,

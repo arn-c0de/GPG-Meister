@@ -11,6 +11,7 @@ from gpg_meister.models import (
     VAULT_FORMAT_TAG,
     CipherAlgorithm,
     CipherParams,
+    KDFAlgorithm,
     KDFFields,
     KDFParams,
     KDFProfile,
@@ -137,7 +138,7 @@ def test_vault_header_rejects_unknown_format() -> None:
             format="OTHER",
             version=2,
             kdf=KDFFields(
-                algorithm="argon2id",
+                algorithm=KDFAlgorithm.ARGON2ID,
                 salt_b64=_b64(b"\x00" * 16),
                 time_cost=3,
                 memory_cost=262_144,
@@ -154,7 +155,7 @@ def test_vault_header_rejects_unknown_format() -> None:
 def test_vault_header_accepts_default_format() -> None:
     h = VaultHeader(
         kdf=KDFFields(
-            algorithm="argon2id",
+            algorithm=KDFAlgorithm.ARGON2ID,
             salt_b64=_b64(b"\x00" * 16),
             time_cost=3,
             memory_cost=262_144,
