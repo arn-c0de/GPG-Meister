@@ -151,9 +151,20 @@ class GPGService:
 
     # ------------------------------------------------------------------ inventory
 
+    def _secret_fingerprints(self) -> set[str]:
+        rows: Iterable[dict[str, Any]] = self._gpg.list_keys(secret=True)
+        return {str(r.get("fingerprint", "")).upper() for r in rows if r.get("fingerprint")}
+
     def list_keys(self, *, secret: bool = False) -> list[KeyInfo]:
         rows: Iterable[dict[str, Any]] = self._gpg.list_keys(secret=secret)
-        return [_to_key_info(row) for row in rows]
+        secret_fps = self._secret_fingerprints()
+        infos: list[KeyInfo] = []
+        for row in rows:
+            info = _to_key_info(row)
+            if info.fingerprint in secret_fps:
+                info = info.model_copy(update={"has_private_key": True})
+            infos.append(info)
+        return infos
 
     def find_key(self, fingerprint: str) -> KeyInfo:
         fp = validate_fingerprint(fingerprint)
@@ -257,10 +268,24 @@ class GPGService:
 
     # -------------------------------------------------------------------- delete
 
-    def delete_key(self, fingerprint: str, *, including_secret: bool = False) -> None:
+    def delete_key(
+        self,
+        fingerprint: str,
+        *,
+        including_secret: bool = False,
+        passphrase: SecureBytes | None = None,
+    ) -> None:
         fp = validate_fingerprint(fingerprint)
         if including_secret:
-            sec_result = self._gpg.delete_keys(fp, secret=True)
+            if passphrase is None:
+                raise GPGValidationError("deleting a secret key requires a passphrase")
+            pass_bytes = bytes(passphrase.view())
+            reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+            sec_result = self._gpg.delete_keys(
+                fp,
+                secret=True,
+                passphrase=pass_bytes.decode("utf-8"),
+            )
             if str(sec_result) not in ("ok", "No such key"):
                 raise GPGProcessError(f"failed to delete secret key {fp}: {sec_result}")
         pub_result = self._gpg.delete_keys(fp, secret=False)
