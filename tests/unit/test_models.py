@@ -94,6 +94,20 @@ def test_key_info_is_not_expired_when_no_expiry() -> None:
     assert not info.is_expired
 
 
+def test_key_info_context_fields_default_to_empty_strings() -> None:
+    info = KeyInfo(
+        fingerprint=VALID_FP,
+        user_ids=("u",),
+        algorithm=KeyAlgorithm.RSA,
+        length=4096,
+        created_at=_now_utc(),
+    )
+    assert info.label == ""
+    assert info.purpose == ""
+    assert info.platform == ""
+    assert info.notes == ""
+
+
 def test_kdf_high_memory_params_match_rfc9106() -> None:
     p = high_memory_params()
     assert p.time_cost == 3

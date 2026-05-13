@@ -31,6 +31,9 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS key_metadata (
     fingerprint         TEXT PRIMARY KEY,
     label               TEXT NOT NULL DEFAULT '',
+    purpose             TEXT NOT NULL DEFAULT '',
+    platform            TEXT NOT NULL DEFAULT '',
+    notes               TEXT NOT NULL DEFAULT '',
     import_timestamp    TEXT NOT NULL,
     last_used_timestamp TEXT
 );
@@ -70,6 +73,18 @@ class MetadataStore:
                     os.chmod(sidecar, 0o600)
         with self._conn:
             self._conn.executescript(_SCHEMA)
+            self._migrate_key_metadata()
+
+    def _migrate_key_metadata(self) -> None:
+        columns = {
+            str(row["name"])
+            for row in self._conn.execute("PRAGMA table_info(key_metadata)").fetchall()
+        }
+        for name in ("purpose", "platform", "notes"):
+            if name not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE key_metadata ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
+                )
 
     @contextmanager
     def _tx(self) -> Generator[sqlite3.Connection, None, None]:
@@ -80,7 +95,15 @@ class MetadataStore:
     # key_metadata
     # ------------------------------------------------------------------
 
-    def upsert_key(self, fingerprint: str, *, label: str = "") -> None:
+    def upsert_key(
+        self,
+        fingerprint: str,
+        *,
+        label: str | None = None,
+        purpose: str | None = None,
+        platform: str | None = None,
+        notes: str | None = None,
+    ) -> None:
         """Insert or update a key metadata row."""
         with self._tx() as conn:
             existing = conn.execute(
@@ -89,14 +112,27 @@ class MetadataStore:
             ).fetchone()
             if existing:
                 conn.execute(
-                    "UPDATE key_metadata SET label = ? WHERE fingerprint = ?",
-                    (label, fingerprint),
+                    "UPDATE key_metadata SET "
+                    "label = COALESCE(?, label), "
+                    "purpose = COALESCE(?, purpose), "
+                    "platform = COALESCE(?, platform), "
+                    "notes = COALESCE(?, notes) "
+                    "WHERE fingerprint = ?",
+                    (label, purpose, platform, notes, fingerprint),
                 )
             else:
                 conn.execute(
-                    "INSERT INTO key_metadata (fingerprint, label, import_timestamp)"
-                    " VALUES (?, ?, ?)",
-                    (fingerprint, label, _utc_now()),
+                    "INSERT INTO key_metadata "
+                    "(fingerprint, label, purpose, platform, notes, import_timestamp)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        fingerprint,
+                        label or "",
+                        purpose or "",
+                        platform or "",
+                        notes or "",
+                        _utc_now(),
+                    ),
                 )
 
     def touch_key(self, fingerprint: str) -> None:

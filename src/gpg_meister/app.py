@@ -142,11 +142,11 @@ def main() -> None:
     from gpg_meister.ui.vault.vault_export_viewmodel import VaultExportViewModel
     from gpg_meister.ui.vault.vault_tab import VaultTabView
 
+    metadata = MetadataStore(paths.metadata_db)
     gpg_svc = GPGService(GPGServiceConfig(binary_path=gpg.path, home_dir=paths.gnupg_home))
-    key_svc = KeyService(gpg=gpg_svc, audit=audit)
+    key_svc = KeyService(gpg=gpg_svc, audit=audit, metadata=metadata)
     msg_svc = MessageService(gpg=gpg_svc, audit=audit)
     vault_svc = VaultService(gpg=gpg_svc, audit=audit)
-    metadata = MetadataStore(paths.metadata_db)
 
     window = MainWindow()
     window.show_startup_results(check_result)

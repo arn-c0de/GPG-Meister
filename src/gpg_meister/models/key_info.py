@@ -38,6 +38,10 @@ class KeyInfo(BaseModel):
     is_revoked: bool = False
     has_private_key: bool = False
     trust: TrustLevel = TrustLevel.UNKNOWN
+    label: str = ""
+    purpose: str = ""
+    platform: str = ""
+    notes: str = ""
 
     @field_validator("fingerprint")
     @classmethod

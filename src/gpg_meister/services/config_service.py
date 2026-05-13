@@ -11,7 +11,6 @@ import sys
 import tomllib
 from pathlib import Path
 
-import tomli_w
 from pydantic import ValidationError
 
 from gpg_meister.models.config import AppConfig
@@ -22,6 +21,41 @@ from gpg_meister.storage.permissions import is_safe_for_secrets
 
 class ConfigServiceError(ServiceError):
     """Raised for malformed config files."""
+
+
+def _format_toml_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        escaped = (
+            value.replace("\\", "\\\\")
+            .replace("\n", "\\n")
+            .replace('"', '\\"')
+        )
+        return f'"{escaped}"'
+    raise TypeError(f"unsupported config value type: {type(value).__name__}")
+
+
+def _dump_toml(obj: dict[str, object]) -> bytes:
+    lines: list[str] = []
+    tables: list[tuple[str, dict[str, object]]] = []
+
+    for key, value in obj.items():
+        if isinstance(value, dict):
+            tables.append((key, value))
+            continue
+        lines.append(f"{key} = {_format_toml_value(value)}")
+
+    for table_name, table in tables:
+        if lines:
+            lines.append("")
+        lines.append(f"[{table_name}]")
+        for key, value in table.items():
+            lines.append(f"{key} = {_format_toml_value(value)}")
+
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 def load(path: Path) -> AppConfig:
@@ -51,7 +85,7 @@ def save(config: AppConfig, path: Path) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     obj = config.model_dump(mode="json", exclude_none=True)
-    data = tomli_w.dumps(obj).encode("utf-8")
+    data = _dump_toml(obj)
     atomic_write_bytes(path, data, mode=0o600)
 
 

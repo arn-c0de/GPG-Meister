@@ -128,7 +128,7 @@ class KeyListView(QWidget):
         self._keys = keys
         self._table.setRowCount(len(keys))
         for row, key in enumerate(keys):
-            uid = key.user_ids[0] if key.user_ids else "—"
+            uid = _display_name(key)
             self._table.setItem(row, _COL_UID, _cell(uid))
             self._table.setItem(row, _COL_ALGO, _cell(key.algorithm.value))
             self._table.setItem(row, _COL_FP, _cell(key.fingerprint[-16:]))
@@ -220,6 +220,7 @@ class KeyListView(QWidget):
         if key is None:
             return
         dlg = KeyDetailView(key, self._vm._svc, parent=self)
+        dlg.key_updated.connect(lambda _updated: self._vm.refresh())
         dlg.exec()
 
 
@@ -227,3 +228,10 @@ def _cell(text: str) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
     return item
+
+
+def _display_name(key: KeyInfo) -> str:
+    primary_uid = key.user_ids[0] if key.user_ids else "—"
+    if not key.label:
+        return primary_uid
+    return f"{key.label} | {primary_uid}"

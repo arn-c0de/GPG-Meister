@@ -18,6 +18,7 @@ from gpg_meister.services.errors import GPGKeyNotFoundError
 from gpg_meister.services.gpg_service import GPGService
 from gpg_meister.services.validation import validate_fingerprint
 from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
+from gpg_meister.storage.metadata_store import MetadataStore
 
 
 class ImportConflict(StrEnum):
@@ -35,17 +36,58 @@ class ImportPlanEntry:
 
 
 class KeyService:
-    def __init__(self, *, gpg: GPGService, audit: AuditLog) -> None:
+    def __init__(
+        self,
+        *,
+        gpg: GPGService,
+        audit: AuditLog,
+        metadata: MetadataStore | None = None,
+    ) -> None:
         self._gpg = gpg
         self._audit = audit
+        self._metadata = metadata
 
     # ------------------------------------------------------------------ listing
 
     def list_keys(self) -> list[KeyInfo]:
-        return self._gpg.list_keys(secret=False)
+        keys = self._gpg.list_keys(secret=False)
+        if self._metadata is None:
+            return keys
+
+        metadata_rows = {
+            str(row["fingerprint"]): row
+            for row in self._metadata.list_keys()
+        }
+        return [self._merge_key_metadata(key, metadata_rows.get(key.fingerprint)) for key in keys]
 
     def find(self, fingerprint: str) -> KeyInfo:
-        return self._gpg.find_key(fingerprint)
+        key = self._gpg.find_key(fingerprint)
+        if self._metadata is None:
+            return key
+        return self._merge_key_metadata(key, self._metadata.get_key(key.fingerprint))
+
+    def update_context(
+        self,
+        fingerprint: str,
+        *,
+        label: str | None = None,
+        purpose: str | None = None,
+        platform: str | None = None,
+        notes: str | None = None,
+    ) -> KeyInfo:
+        fp = validate_fingerprint(fingerprint)
+        # Ensure the key exists in the keyring before persisting user context.
+        self._gpg.find_key(fp)
+        if self._metadata is None:
+            return self.find(fp)
+        self._metadata.upsert_key(
+            fp,
+            label=label,
+            purpose=purpose,
+            platform=platform,
+            notes=notes,
+        )
+        return self.find(fp)
 
     # ----------------------------------------------------------------- mutation
 
@@ -215,3 +257,17 @@ class KeyService:
                 raise GPGKeyNotFoundError(str(exc)) from exc
             result[info.fingerprint] = info.user_ids
         return result
+
+    def _merge_key_metadata(
+        self,
+        key: KeyInfo,
+        row: dict[str, str | None] | None,
+    ) -> KeyInfo:
+        if row is None:
+            return key
+        return key.model_copy(update={
+            "label": row.get("label") or "",
+            "purpose": row.get("purpose") or "",
+            "platform": row.get("platform") or "",
+            "notes": row.get("notes") or "",
+        })

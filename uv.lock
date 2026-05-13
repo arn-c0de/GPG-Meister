@@ -583,6 +583,7 @@ dependencies = [
     { name = "pyside6" },
     { name = "python-gnupg" },
     { name = "structlog" },
+    { name = "tomli-w" },
 ]
 
 [package.optional-dependencies]
@@ -619,6 +620,7 @@ requires-dist = [
     { name = "python-gnupg", specifier = ">=0.5.3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "structlog", specifier = ">=24.0" },
+    { name = "tomli-w", specifier = ">=1.2" },
 ]
 provides-extras = ["dev", "packaging"]
 

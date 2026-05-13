@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import stat
 import sys
 from pathlib import Path
@@ -11,10 +12,19 @@ from gpg_meister.storage.metadata_store import MetadataStore
 
 def test_upsert_and_get_key(tmp_path: Path) -> None:
     with MetadataStore(tmp_path / "meta.sqlite3") as store:
-        store.upsert_key("AAAA" * 10, label="test key")
+        store.upsert_key(
+            "AAAA" * 10,
+            label="test key",
+            purpose="signing",
+            platform="GitHub",
+            notes="primary key",
+        )
         row = store.get_key("AAAA" * 10)
     assert row is not None
     assert row["label"] == "test key"
+    assert row["purpose"] == "signing"
+    assert row["platform"] == "GitHub"
+    assert row["notes"] == "primary key"
     assert row["import_timestamp"] is not None
     assert row["last_used_timestamp"] is None
 
@@ -23,10 +33,23 @@ def test_upsert_updates_label(tmp_path: Path) -> None:
     with MetadataStore(tmp_path / "meta.sqlite3") as store:
         fp = "BBBB" * 10
         store.upsert_key(fp, label="old")
-        store.upsert_key(fp, label="new")
+        store.upsert_key(fp, label="new", purpose="Code Signing")
         row = store.get_key(fp)
     assert row is not None
     assert row["label"] == "new"
+    assert row["purpose"] == "Code Signing"
+
+
+def test_upsert_updates_only_provided_fields(tmp_path: Path) -> None:
+    with MetadataStore(tmp_path / "meta.sqlite3") as store:
+        fp = "ABCD" * 10
+        store.upsert_key(fp, label="work", platform="GitHub", notes="before")
+        store.upsert_key(fp, notes="after")
+        row = store.get_key(fp)
+    assert row is not None
+    assert row["label"] == "work"
+    assert row["platform"] == "GitHub"
+    assert row["notes"] == "after"
 
 
 def test_touch_key_sets_timestamp(tmp_path: Path) -> None:
@@ -122,3 +145,28 @@ def test_persists_across_reopen(tmp_path: Path) -> None:
         row = store.get_key("EEEE" * 10)
     assert row is not None
     assert row["label"] == "persistent"
+
+
+def test_existing_database_is_migrated_with_new_context_columns(tmp_path: Path) -> None:
+    path = tmp_path / "meta.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE key_metadata (
+            fingerprint         TEXT PRIMARY KEY,
+            label               TEXT NOT NULL DEFAULT '',
+            import_timestamp    TEXT NOT NULL,
+            last_used_timestamp TEXT
+        );
+        """
+    )
+    conn.close()
+
+    with MetadataStore(path) as store:
+        store.upsert_key("FFFF" * 10, purpose="Encryption", platform="GitLab")
+        row = store.get_key("FFFF" * 10)
+
+    assert row is not None
+    assert row["purpose"] == "Encryption"
+    assert row["platform"] == "GitLab"
+    assert row["notes"] == ""

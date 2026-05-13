@@ -22,3 +22,6 @@ build/
 .idea/
 .vscode/
 .DS_Store
+.agents/
+.claude/
+.codex/
