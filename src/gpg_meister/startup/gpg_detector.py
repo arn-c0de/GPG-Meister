@@ -65,9 +65,18 @@ class DetectionReason(StrEnum):
 class GPGDetectionError(Exception):
     """Raised when GPG cannot be resolved to a usable binary."""
 
-    def __init__(self, reason: DetectionReason, message: str) -> None:
+    def __init__(
+        self,
+        reason: DetectionReason,
+        message: str,
+        *,
+        path: Path | None = None,
+        new_sha: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.reason = reason
+        self.path = path
+        self.new_sha = new_sha
 
 
 @dataclass(frozen=True)
@@ -171,11 +180,15 @@ def detect(
             raise GPGDetectionError(
                 DetectionReason.USER_OVERRIDE_UNTRUSTED,
                 f"{override} is not in the standard whitelist and has no trusted hash",
+                path=override,
+                new_sha=sha,
             )
         if trusted_hash.lower() != sha.lower():
             raise GPGDetectionError(
                 DetectionReason.HASH_MISMATCH,
                 f"{override} hash mismatch — refusing to execute",
+                path=override,
+                new_sha=sha,
             )
         return DetectedGPG(
             path=override,

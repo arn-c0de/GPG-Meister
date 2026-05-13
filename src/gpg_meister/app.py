@@ -13,9 +13,71 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 if TYPE_CHECKING:
+    from gpg_meister.models.config import AppConfig
     from gpg_meister.services.gpg_service import GPGService
+    from gpg_meister.startup.gpg_detector import DetectedGPG
+    from gpg_meister.storage.audit_log import AuditLog
     from gpg_meister.storage.metadata_store import MetadataStore
+    from gpg_meister.storage.paths import AppPaths
     from gpg_meister.ui.main_window import MainWindow
+
+
+def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> DetectedGPG:
+    """Resolve a trusted GPG binary, showing a trust-pinning dialog when needed.
+
+    Handles USER_OVERRIDE_UNTRUSTED and HASH_MISMATCH interactively; all other
+    detection failures are fatal.
+    """
+    from gpg_meister.models.config import GPGBinaryTrust
+    from gpg_meister.services import config_service
+    from gpg_meister.startup.gpg_detector import DetectionReason, GPGDetectionError, detect
+    from gpg_meister.ui.gpg_trust_dialog import GpgTrustDialog
+
+    while True:
+        try:
+            return detect(
+                user_override_path=config.gpg_binary_path,
+                trusted_hash=config.gpg_binary_trusted_hash.sha256
+                if config.gpg_binary_trusted_hash
+                else None,
+            )
+        except GPGDetectionError as exc:
+            if exc.reason not in (
+                DetectionReason.USER_OVERRIDE_UNTRUSTED,
+                DetectionReason.HASH_MISMATCH,
+            ):
+                QMessageBox.critical(
+                    None,
+                    "GnuPG not found",
+                    "GPG Meister needs GnuPG installed on this computer, but none was found.\n\n"
+                    f"Detail: {exc}",
+                )
+                audit.close()
+                sys.exit(1)
+
+            assert exc.path is not None and exc.new_sha is not None  # set for these two reasons
+            old_sha = (
+                config.gpg_binary_trusted_hash.sha256
+                if config.gpg_binary_trusted_hash
+                else None
+            )
+            dlg = GpgTrustDialog(
+                exc.path,
+                exc.new_sha,
+                mismatch=(exc.reason == DetectionReason.HASH_MISMATCH),
+                old_sha=old_sha,
+            )
+            if not dlg.exec():
+                audit.close()
+                sys.exit(1)
+
+            config = config.model_copy(update={
+                "gpg_binary_trusted_hash": GPGBinaryTrust(
+                    path=str(exc.path),
+                    sha256=exc.new_sha,
+                )
+            })
+            config_service.save(config, paths.config_file)
 
 
 def main() -> None:
@@ -33,7 +95,6 @@ def main() -> None:
     from gpg_meister.i18n import install_translator, resolve_locale
     from gpg_meister.services import config_service
     from gpg_meister.startup.environment_check import EnvironmentCheckError, run_all_checks
-    from gpg_meister.startup.gpg_detector import GPGDetectionError, detect
     from gpg_meister.storage.audit_log import AuditLog
     from gpg_meister.ui.main_window import MainWindow
 
@@ -44,22 +105,7 @@ def main() -> None:
 
     audit = AuditLog(paths.audit_log, hash_chain=config.audit.hash_chain)
 
-    try:
-        gpg = detect(
-            user_override_path=config.gpg_binary_path,
-            trusted_hash=config.gpg_binary_trusted_hash.sha256
-            if config.gpg_binary_trusted_hash
-            else None,
-        )
-    except GPGDetectionError as exc:
-        QMessageBox.critical(
-            None,
-            "GnuPG not found",
-            f"GPG Meister needs GnuPG installed on this computer, but none was found.\n\n"
-            f"Detail: {exc}",
-        )
-        audit.close()
-        sys.exit(1)
+    gpg = _resolve_gpg(config, paths, audit)
 
     audit.emit("gpg_binary_resolved", path=str(gpg.path), sha256=gpg.sha256)
 

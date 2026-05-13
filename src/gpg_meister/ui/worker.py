@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import typing
 from collections.abc import Callable
 from threading import Lock
 from typing import Any
@@ -18,7 +19,7 @@ class _Signals(QObject):
 class Worker(QRunnable):
     """Run a callable in a QThreadPool thread and emit result/error signals."""
 
-    _live_workers: set["Worker"] = set()
+    _live_workers: typing.ClassVar[set[Worker]] = set()
     _live_workers_lock = Lock()
 
     def __init__(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
