@@ -52,6 +52,7 @@ Prebuilt releases for Linux, Windows, and macOS are available here:
 - [App and Startup Flow](docs/app-startup.md)
 - [Service Layer](docs/services.md)
 - [Security Policy](SECURITY.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Storage Layer](docs/storage.md)
 - [UI Layer](docs/ui.md)
 

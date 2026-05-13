@@ -2,6 +2,8 @@
 
 Contributions are welcome, especially language and translation work.
 
+Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md) when participating in issues, pull requests, translation work, or other project communication.
+
 GPG Meister currently ships with:
 
 - English (`en`)
