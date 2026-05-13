@@ -38,7 +38,7 @@ Prebuilt releases for Linux, Windows, and macOS are available here:
 - [Plan vs Code](docs/plan-vs-code.md)
 - [App and Startup Flow](docs/app-startup.md)
 - [Service Layer](docs/services.md)
-- [Security Modules](docs/security.md)
+- [Security Policy](SECURITY.md)
 - [Storage Layer](docs/storage.md)
 - [UI Layer](docs/ui.md)
 
@@ -48,6 +48,7 @@ Prebuilt releases for Linux, Windows, and macOS are available here:
 - Dedicated audit logging for security-relevant events
 - Safer GnuPG binary detection and trust pinning
 - Local metadata store that does not keep private keys or passphrases
+- Security reporting policy: [SECURITY.md](SECURITY.md)
 
 ## Tech
 - Python 3.11+
