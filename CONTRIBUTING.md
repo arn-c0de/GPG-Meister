@@ -56,6 +56,8 @@ uv run mypy
 
 Keep changes focused. Security-sensitive code, cryptography, vault handling, GPG process handling, and key deletion flows need extra review and tests.
 
+Voluntary UI/UX improvements are tracked in [issue #2](https://github.com/arn-c0de/GPG-Meister/issues/2). Small layout, spacing, accessibility, and interaction improvements are welcome; larger redesign ideas should be discussed there first.
+
 ## Hall of Fame
 
 Contributors who add, maintain, or significantly review language support can be listed here.
