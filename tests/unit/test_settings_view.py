@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from pathlib import Path
+
+from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
+
+from gpg_meister.models.config import AppConfig
+from gpg_meister.storage.paths import AppPaths
+from gpg_meister.ui.settings.settings_view import SettingsView
+from gpg_meister.ui.settings.settings_viewmodel import SettingsViewModel
+
+
+def _paths(root: Path) -> AppPaths:
+    return AppPaths(
+        config_dir=root / "config",
+        data_dir=root / "data",
+        state_dir=root / "state",
+        cache_dir=root / "cache",
+    )
+
+
+def test_factory_reset_requires_second_confirmation(tmp_path: Path, monkeypatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    view = SettingsView(SettingsViewModel(AppConfig(), _paths(tmp_path)))
+    scheduled: list[bool] = []
+    view._vm.factory_reset_scheduled.connect(lambda: scheduled.append(True))
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr(
+        QInputDialog,
+        "getText",
+        lambda *args, **kwargs: ("nope", True),
+    )
+
+    view._confirm_factory_reset()
+    app.processEvents()
+
+    assert scheduled == []
+
+
+def test_factory_reset_schedules_when_second_confirmation_matches(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    paths = _paths(tmp_path)
+    view = SettingsView(SettingsViewModel(AppConfig(), paths))
+    scheduled: list[bool] = []
+    view._vm.factory_reset_scheduled.connect(lambda: scheduled.append(True))
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr(
+        QInputDialog,
+        "getText",
+        lambda *args, **kwargs: ("RESET", True),
+    )
+
+    view._confirm_factory_reset()
+    app.processEvents()
+
+    assert scheduled == [True]
+    assert (paths.config_dir / ".factory-reset-pending").exists()

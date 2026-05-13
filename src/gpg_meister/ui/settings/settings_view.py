@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -25,6 +26,8 @@ from gpg_meister.ui.settings.settings_viewmodel import SettingsViewModel
 
 class SettingsView(QWidget):
     """Settings form: locale, cipher, KDF, clipboard, backup reminder, flags."""
+
+    _FACTORY_RESET_CONFIRM_TEXT = "RESET"
 
     def __init__(self, viewmodel: SettingsViewModel, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -206,7 +209,13 @@ class SettingsView(QWidget):
             QMessageBox.StandardButton.Cancel,
         )
         if answer == QMessageBox.StandardButton.Yes:
-            self._vm.schedule_factory_reset()
+            confirmation, ok = QInputDialog.getText(
+                self,
+                "Confirm factory reset",
+                "Type RESET to confirm the factory reset.",
+            )
+            if ok and confirmation.strip().upper() == self._FACTORY_RESET_CONFIRM_TEXT:
+                self._vm.schedule_factory_reset()
 
     def _on_factory_reset_scheduled(self) -> None:
         QMessageBox.information(
