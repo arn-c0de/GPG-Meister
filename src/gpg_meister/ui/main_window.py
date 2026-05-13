@@ -107,6 +107,10 @@ class MainWindow(QMainWindow):
         """Replace the placeholder Messages tab with the real MessagesTabView."""
         self.replace_tab(1, view, "Messages")
 
+    def install_vault_tab(self, view: QWidget) -> None:
+        """Replace the placeholder Vault tab with the real VaultTabView."""
+        self.replace_tab(2, view, "Vault")
+
     def replace_tab(self, index: int, widget: QWidget, label: str) -> None:
         """Replace a placeholder tab with a real view."""
         self._tabs.removeTab(index)

@@ -8,8 +8,14 @@ and exit without opening the main window.
 from __future__ import annotations
 
 import sys
+from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QApplication, QMessageBox
+
+if TYPE_CHECKING:
+    from gpg_meister.services.gpg_service import GPGService
+    from gpg_meister.storage.metadata_store import MetadataStore
+    from gpg_meister.ui.main_window import MainWindow
 
 
 def main() -> None:
@@ -75,6 +81,7 @@ def main() -> None:
     from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
     from gpg_meister.services.key_service import KeyService
     from gpg_meister.services.message_service import MessageService
+    from gpg_meister.services.vault_service import VaultService
     from gpg_meister.storage.metadata_store import MetadataStore
     from gpg_meister.ui.keys.key_list_view import KeyListView
     from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
@@ -83,10 +90,13 @@ def main() -> None:
     from gpg_meister.ui.messages.messages_tab import MessagesTabView
     from gpg_meister.ui.messages.sign_viewmodel import SignViewModel
     from gpg_meister.ui.messages.verify_viewmodel import VerifyViewModel
+    from gpg_meister.ui.vault.vault_export_viewmodel import VaultExportViewModel
+    from gpg_meister.ui.vault.vault_tab import VaultTabView
 
     gpg_svc = GPGService(GPGServiceConfig(binary_path=gpg.path, home_dir=paths.gnupg_home))
     key_svc = KeyService(gpg=gpg_svc, audit=audit)
     msg_svc = MessageService(gpg=gpg_svc, audit=audit)
+    vault_svc = VaultService(gpg=gpg_svc, audit=audit)
     metadata = MetadataStore(paths.metadata_db)
 
     window = MainWindow()
@@ -102,6 +112,10 @@ def main() -> None:
     verify_vm = VerifyViewModel(msg_svc)
     messages_view = MessagesTabView(encrypt_vm, decrypt_vm, sign_vm, verify_vm)
     window.install_messages_tab(messages_view)
+
+    export_vm = VaultExportViewModel(vault_svc, key_svc)
+    vault_view = VaultTabView(export_vm, vault_svc)
+    window.install_vault_tab(vault_view)
 
     def _on_key_created(key: object) -> None:
         from gpg_meister.models.key_info import KeyInfo
@@ -120,10 +134,51 @@ def main() -> None:
 
     window.show()
 
+    # §14.3 Backup-staleness reminder: warn if private keys are newer than last vault export.
+    _check_backup_staleness(gpg_svc, metadata, window)
+
     exit_code = app.exec()
     metadata.close()
     audit.close()
     sys.exit(exit_code)
+
+
+def _check_backup_staleness(
+    gpg_svc: GPGService,
+    metadata: MetadataStore,
+    window: MainWindow,
+) -> None:
+    """Emit a status-bar warning if private keys exist that are not in any vault (§14.3)."""
+    try:
+        private_keys = [k for k in gpg_svc.list_keys() if k.has_private_key]
+    except Exception:
+        return
+    if not private_keys:
+        return
+
+    latest_vault_ts = metadata.latest_vault_timestamp()
+    if latest_vault_ts is None:
+        count = len(private_keys)
+        window.show_status(
+            f"No vault backup exists — {count} private key(s) are not backed up. "
+            "Go to the Vault tab to create a backup.",
+            timeout_ms=10_000,
+        )
+        return
+
+    # Compare newest key import timestamp against latest vault timestamp.
+    key_records = {r["fingerprint"]: r["import_timestamp"] for r in metadata.list_keys()}
+    vault_ts: str = latest_vault_ts  # narrowed: None branch returned above
+    newer = [
+        k for k in private_keys
+        if (key_records.get(k.fingerprint) or "0") > vault_ts
+    ]
+    if newer:
+        window.show_status(
+            f"{len(newer)} private key(s) added since last vault backup. "
+            "Go to the Vault tab to update your backup.",
+            timeout_ms=10_000,
+        )
 
 
 if __name__ == "__main__":
