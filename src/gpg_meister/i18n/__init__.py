@@ -6,13 +6,23 @@ The locale is resolved from AppConfig.locale (auto → OS locale → 'en' fallba
 
 from __future__ import annotations
 
-from pathlib import Path
+from contextlib import ExitStack
+from importlib.resources import as_file, files
 
 from PySide6.QtCore import QCoreApplication, QLocale, QTranslator
 
-_TRANSLATIONS_DIR = Path(__file__).parent
-
 _LOADED_TRANSLATOR: QTranslator | None = None
+_RESOURCE_STACK = ExitStack()
+
+
+def available_translation_codes() -> set[str]:
+    """Return locale codes for bundled `.qm` translation resources."""
+    package_files = files("gpg_meister.i18n")
+    return {
+        resource.name.removesuffix(".qm")
+        for resource in package_files.iterdir()
+        if resource.is_file() and resource.name.endswith(".qm")
+    }
 
 
 def resolve_locale(locale_setting: str) -> str:
@@ -26,7 +36,7 @@ def resolve_locale(locale_setting: str) -> str:
 
     system_locale = QLocale.system().name()
     lang = system_locale.split("_")[0].lower()
-    bundled = {p.stem for p in _TRANSLATIONS_DIR.glob("*.qm")}
+    bundled = available_translation_codes()
     return lang if lang in bundled else "en"
 
 
@@ -45,10 +55,11 @@ def install_translator(locale_code: str) -> bool:
     if locale_code == "en":
         return False
 
-    qm_path = _TRANSLATIONS_DIR / f"{locale_code}.qm"
-    if not qm_path.exists():
+    if locale_code not in available_translation_codes():
         return False
 
+    resource = files("gpg_meister.i18n").joinpath(f"{locale_code}.qm")
+    qm_path = _RESOURCE_STACK.enter_context(as_file(resource))
     translator = QTranslator()
     if translator.load(str(qm_path)):
         QCoreApplication.installTranslator(translator)

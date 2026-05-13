@@ -32,7 +32,7 @@ class _FakeLogger:
 
 
 def _apply(event_dict: dict[str, object]) -> dict[str, object]:
-    return sensitive_data_filter(_FakeLogger(), "info", event_dict)  # type: ignore[arg-type]
+    return dict(sensitive_data_filter(_FakeLogger(), "info", event_dict))
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.arn-c0de.GPGMeister</id>
+  <name>GPG Meister</name>
+  <summary>Local-first GPG desktop application</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <launchable type="desktop-id">io.github.arn-c0de.GPGMeister.desktop</launchable>
+  <description>
+    <p>
+      GPG Meister manages OpenPGP keys locally, encrypts and decrypts messages,
+      and creates encrypted vault backups without sending data to any server.
+    </p>
+  </description>
+  <categories>
+    <category>Security</category>
+    <category>Utility</category>
+  </categories>
+</component>

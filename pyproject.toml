@@ -1,6 +1,6 @@
 [project]
 name = "gpg-meister"
-version = "0.1.0"
+version = "1.0.1"
 description = "Local-first GPG key management, message encryption, and encrypted vault backup."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,6 +30,10 @@ dev = [
     "pip-audit>=2.7",
     "cyclonedx-bom>=4.0",
 ]
+packaging = [
+    "PyInstaller>=6.10",
+    "py2app>=0.28",
+]
 
 [project.scripts]
 gpg-meister = "gpg_meister.app:main"
@@ -37,6 +41,11 @@ gpg-meister = "gpg_meister.app:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+artifacts = [
+    "src/gpg_meister/i18n/*.qm",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gpg_meister"]

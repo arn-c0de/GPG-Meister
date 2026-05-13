@@ -307,7 +307,10 @@ class GPGService:
         kwargs: dict[str, Any] = {
             "recipients": recipients,
             "armor": True,
-            "always_trust": False,
+            # The app performs its own recipient confirmation in the UI. A freshly
+            # imported vault key may not carry local ownertrust yet, but encryption
+            # should still succeed after explicit user confirmation.
+            "always_trust": True,
         }
         if signer:
             kwargs["sign"] = signer
