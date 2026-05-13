@@ -1,51 +1,24 @@
 # Contributing to GPG Meister
 
-Contributions are welcome, especially language and translation work.
+Contributions are welcome. Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md) when participating in issues, pull requests, translation work, or other project communication.
 
-Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md) when participating in issues, pull requests, translation work, or other project communication.
+## Languages
 
-GPG Meister currently ships with:
+GPG Meister currently ships with English (`en`) and German (`de`). More languages are tracked in [issue #1](https://github.com/arn-c0de/GPG-Meister/issues/1).
 
-- English (`en`)
-- German (`de`)
+Languages are discovered from bundled Qt `.qm` files in `src/gpg_meister/i18n/`. To add one, add a translated `.ts` file, build the matching `.qm` with `python scripts/build_translations.py`, and verify that it appears in Settings.
 
-## Currently Wanted: More Languages
+Keep security terms precise, do not weaken warnings or delete confirmations, and add a `terms_<language>.md` glossary when needed.
 
-Language expansion is tracked in [issue #1](https://github.com/arn-c0de/GPG-Meister/issues/1). The project is actively looking for contributors who can add and maintain more UI languages. Good first language contributions include:
+## UI and Design
 
-- Translating the Qt translation source files in `src/gpg_meister/i18n/`
-- Reviewing cryptographic and security terminology for accuracy
-- Adding or improving glossary terms for non-English users
-- Checking that translated UI text still fits in the desktop interface
-- Testing language selection on Linux, Windows, and macOS
+Small voluntary UI/UX improvements are tracked in [issue #2](https://github.com/arn-c0de/GPG-Meister/issues/2).
 
-If you want to add a new language, comment on issue #1 first so the language code and terminology approach can be agreed before implementation.
+Useful contributions include cleaner spacing, better layout behavior, clearer feedback, accessibility improvements, and more consistent visual hierarchy. Larger redesign ideas should be discussed in issue #2 first.
 
-## Adding a Language
+## Development
 
-Languages are discovered from bundled Qt `.qm` files in `src/gpg_meister/i18n/`. After a compiled translation file exists, the language appears automatically in Settings.
-
-To add a language:
-
-1. Add a new Qt translation source file such as `fr.ts` in `src/gpg_meister/i18n/`.
-2. Add a glossary file such as `terms_fr.md` if the language needs canonical security terms.
-3. Translate all entries and keep destructive-action warnings precise.
-4. Run `python scripts/build_translations.py` to create the matching `fr.qm`.
-5. Start the app and verify that the language appears in Settings.
-6. Select the language, save settings, restart, and check the translated UI.
-
-## Translation Guidelines
-
-- Keep security terms precise and consistent.
-- Prefer clear wording over literal translation.
-- Do not soften warnings or destructive-action confirmations.
-- Preserve product names such as GPG, GnuPG, OpenPGP, and GPG Meister unless the target language has a standard form.
-- Update or add a `terms_<language>.md` glossary when a language needs canonical security vocabulary.
-- Rebuild translation files with `python scripts/build_translations.py` before submitting.
-
-## Development Contributions
-
-For code changes, use the existing development workflow:
+Use the existing development workflow:
 
 ```bash
 uv sync --extra dev
@@ -56,11 +29,9 @@ uv run mypy
 
 Keep changes focused. Security-sensitive code, cryptography, vault handling, GPG process handling, and key deletion flows need extra review and tests.
 
-Voluntary UI/UX improvements are tracked in [issue #2](https://github.com/arn-c0de/GPG-Meister/issues/2). Small layout, spacing, accessibility, and interaction improvements are welcome; larger redesign ideas should be discussed there first.
-
 ## Hall of Fame
 
-Contributors who add, maintain, or significantly review language support can be listed here.
+Contributors who add, maintain, or significantly review language support or UI improvements can be listed here.
 
 | Contributor | Area | Notes |
 | --- | --- | --- |
@@ -73,5 +44,5 @@ To be added, include your preferred name, contribution area, and optional profil
 - The change has a clear purpose.
 - Tests or manual verification steps are included.
 - UI text is in English unless the change is specifically for translations.
-- New translation work follows the terminology guidance above.
+- Translation work follows the terminology guidance above.
 - No private keys, passphrases, secrets, or personal key material are committed.
