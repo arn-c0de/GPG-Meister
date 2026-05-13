@@ -19,8 +19,8 @@ OPTIONS = {
         "CFBundleDisplayName": "GPG Meister",
         "CFBundleName": "GPG Meister",
         "CFBundleIdentifier": "io.github.arn-c0de.GPGMeister",
-        "CFBundleShortVersionString": "1.0.1",
-        "CFBundleVersion": "1.0.1",
+        "CFBundleShortVersionString": "1.0.2",
+        "CFBundleVersion": "1.0.2",
     },
 }
 

@@ -34,7 +34,7 @@ def _vault_preview(description: str) -> VaultPreview:
     return VaultPreview(
         path=Path("/tmp/example.gpgm"),
         created_at=datetime(2026, 1, 2, 3, 4, tzinfo=UTC),
-        app_version="1.0.1",
+        app_version="1.0.2",
         description=description,
         keys=(
             VaultKeyEntry(
@@ -79,7 +79,7 @@ def test_untrusted_labels_use_plain_text() -> None:
     preview_page = _SelectPage()
     preview_page._keys = _vault_preview(malicious).keys
     preview_page._meta_label.setText(
-        "Vault created: 2026-01-02 03:04 UTC  |  App version: 1.0.1  |  "
+        "Vault created: 2026-01-02 03:04 UTC  |  App version: 1.0.2  |  "
         f"Description: {malicious}"
     )
     app.processEvents()
