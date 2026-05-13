@@ -27,11 +27,18 @@ class KeyListViewModel(QObject):
     operation_failed: Signal = Signal(str)
     key_created: Signal = Signal(object)
 
-    def __init__(self, key_service: KeyService, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        key_service: KeyService,
+        *,
+        require_delete_text_confirmation: bool = True,
+        parent: QObject | None = None,
+    ) -> None:
         super().__init__(parent)
         self._svc = key_service
         self._pool = QThreadPool.globalInstance()
         self._keys: list[KeyInfo] = []
+        self._require_delete_text_confirmation = require_delete_text_confirmation
 
     @property
     def keys(self) -> list[KeyInfo]:
@@ -44,6 +51,13 @@ class KeyListViewModel(QObject):
         w.signals.error.connect(self._on_error)
         w.signals.finished.connect(self._on_finished)
         self._pool.start(w)
+
+    @property
+    def require_delete_text_confirmation(self) -> bool:
+        return self._require_delete_text_confirmation
+
+    def set_require_delete_text_confirmation(self, on: bool) -> None:
+        self._require_delete_text_confirmation = on
 
     def _on_keys_loaded(self, keys: object) -> None:
         if not isinstance(keys, list):

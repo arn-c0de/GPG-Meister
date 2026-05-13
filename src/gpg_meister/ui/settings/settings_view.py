@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+from typing import TypeVar
+
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -18,10 +21,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gpg_meister.models.config import Locale
+from gpg_meister.models.config import AppearanceMode, Locale
 from gpg_meister.models.kdf_params import KDFProfile
 from gpg_meister.models.vault import CipherAlgorithm
 from gpg_meister.ui.settings.settings_viewmodel import SettingsViewModel
+
+_EnumT = TypeVar("_EnumT", bound=StrEnum)
 
 
 class SettingsView(QWidget):
@@ -45,9 +50,9 @@ class SettingsView(QWidget):
         locale_box = QGroupBox("Language")
         locale_form = QFormLayout(locale_box)
         self._locale_combo = QComboBox()
-        self._locale_combo.addItem("Auto-detect (follow OS)", Locale.AUTO)
-        self._locale_combo.addItem("English", Locale.EN)
-        self._locale_combo.addItem("Deutsch (German)", Locale.DE)
+        self._locale_combo.addItem("Auto-detect (follow OS)", Locale.AUTO.value)
+        self._locale_combo.addItem("English", Locale.EN.value)
+        self._locale_combo.addItem("Deutsch (German)", Locale.DE.value)
         self._locale_combo.setAccessibleName("Language")
         locale_form.addRow("Language:", self._locale_combo)
         locale_form.addRow("", QLabel("Language change takes effect on next launch."))
@@ -58,14 +63,17 @@ class SettingsView(QWidget):
         crypto_form = QFormLayout(crypto_box)
 
         self._cipher_combo = QComboBox()
-        self._cipher_combo.addItem("ChaCha20-Poly1305 (recommended)", CipherAlgorithm.CHACHA20_POLY1305)
-        self._cipher_combo.addItem("AES-256-GCM", CipherAlgorithm.AES_256_GCM)
+        self._cipher_combo.addItem(
+            "ChaCha20-Poly1305 (recommended)",
+            CipherAlgorithm.CHACHA20_POLY1305.value,
+        )
+        self._cipher_combo.addItem("AES-256-GCM", CipherAlgorithm.AES_256_GCM.value)
         self._cipher_combo.setAccessibleName("Vault cipher algorithm")
         crypto_form.addRow("Vault cipher:", self._cipher_combo)
 
         self._kdf_combo = QComboBox()
-        self._kdf_combo.addItem("High memory (safer, ~1 s)", KDFProfile.HIGH_MEMORY)
-        self._kdf_combo.addItem("Balanced (faster, ~0.2 s)", KDFProfile.BALANCED)
+        self._kdf_combo.addItem("High memory (safer, ~1 s)", KDFProfile.HIGH_MEMORY.value)
+        self._kdf_combo.addItem("Balanced (faster, ~0.2 s)", KDFProfile.BALANCED.value)
         self._kdf_combo.setAccessibleName("KDF profile")
         crypto_form.addRow("KDF profile:", self._kdf_combo)
 
@@ -82,6 +90,12 @@ class SettingsView(QWidget):
         self._clipboard_spin.setAccessibleName("Clipboard auto-clear delay")
         ui_form.addRow("Clear clipboard after:", self._clipboard_spin)
 
+        self._appearance_combo = QComboBox()
+        self._appearance_combo.addItem("Dark mode", AppearanceMode.SYSTEM.value)
+        self._appearance_combo.addItem("Day mode", AppearanceMode.LIGHT.value)
+        self._appearance_combo.setAccessibleName("Appearance")
+        ui_form.addRow("Color mode:", self._appearance_combo)
+
         self._backup_spin = QSpinBox()
         self._backup_spin.setRange(1, 365)
         self._backup_spin.setSuffix(" days")
@@ -90,7 +104,7 @@ class SettingsView(QWidget):
 
         self._high_contrast_check = QCheckBox("Enable high-contrast theme")
         self._high_contrast_check.setAccessibleDescription(
-            "Increases foreground/background contrast ratio (takes effect on next launch)"
+            "Increases foreground/background contrast ratio"
         )
         ui_form.addRow("", self._high_contrast_check)
 
@@ -112,6 +126,18 @@ class SettingsView(QWidget):
         )
         audit_form.addRow("", self._hash_chain_check)
         root.addWidget(audit_box)
+
+        # --- Deletion safety ---
+        delete_box = QGroupBox("Deletion safety")
+        delete_form = QFormLayout(delete_box)
+        self._delete_text_confirmation_check = QCheckBox(
+            "Require typing DELETE before removing a key"
+        )
+        self._delete_text_confirmation_check.setAccessibleDescription(
+            "When disabled, key deletion only uses the existing delete dialog."
+        )
+        delete_form.addRow("", self._delete_text_confirmation_check)
+        root.addWidget(delete_box)
 
         # --- Reset ---
         reset_box = QGroupBox("Factory reset")
@@ -151,45 +177,63 @@ class SettingsView(QWidget):
         self._locale_combo.currentIndexChanged.connect(self._on_locale_changed)
         self._cipher_combo.currentIndexChanged.connect(self._on_cipher_changed)
         self._kdf_combo.currentIndexChanged.connect(self._on_kdf_changed)
+        self._appearance_combo.currentIndexChanged.connect(self._on_appearance_changed)
         self._clipboard_spin.valueChanged.connect(self._vm.set_clipboard_clear_seconds)
         self._backup_spin.valueChanged.connect(self._vm.set_backup_reminder_days)
         self._high_contrast_check.toggled.connect(self._vm.set_high_contrast)
         self._reduce_motion_check.toggled.connect(self._vm.set_reduce_motion)
+        self._delete_text_confirmation_check.toggled.connect(
+            self._vm.set_require_delete_text_confirmation
+        )
         self._hash_chain_check.toggled.connect(self._vm.set_audit_hash_chain)
         self._btn_save.clicked.connect(self._vm.save)
         self._btn_factory_reset.clicked.connect(self._confirm_factory_reset)
 
     def _load_current(self) -> None:
         cfg = self._vm.config
-        idx = self._locale_combo.findData(cfg.locale)
+        idx = self._locale_combo.findData(cfg.locale.value)
         if idx >= 0:
             self._locale_combo.setCurrentIndex(idx)
-        idx = self._cipher_combo.findData(cfg.cipher)
+        idx = self._cipher_combo.findData(cfg.cipher.value)
         if idx >= 0:
             self._cipher_combo.setCurrentIndex(idx)
-        idx = self._kdf_combo.findData(cfg.kdf_profile)
+        idx = self._kdf_combo.findData(cfg.kdf_profile.value)
         if idx >= 0:
             self._kdf_combo.setCurrentIndex(idx)
+        appearance = (
+            AppearanceMode.SYSTEM
+            if cfg.appearance == AppearanceMode.DARK
+            else cfg.appearance
+        )
+        idx = self._appearance_combo.findData(appearance.value)
+        if idx >= 0:
+            self._appearance_combo.setCurrentIndex(idx)
         self._clipboard_spin.setValue(cfg.clipboard_clear_seconds)
         self._backup_spin.setValue(cfg.backup_reminder_days)
         self._high_contrast_check.setChecked(cfg.high_contrast)
         self._reduce_motion_check.setChecked(cfg.reduce_motion)
+        self._delete_text_confirmation_check.setChecked(cfg.require_delete_text_confirmation)
         self._hash_chain_check.setChecked(cfg.audit.hash_chain)
 
     def _on_locale_changed(self, idx: int) -> None:
-        locale = self._locale_combo.itemData(idx)
-        if isinstance(locale, Locale):
+        locale = _combo_enum_value(self._locale_combo, idx, Locale)
+        if locale is not None:
             self._vm.set_locale(locale)
 
     def _on_cipher_changed(self, idx: int) -> None:
-        cipher = self._cipher_combo.itemData(idx)
-        if isinstance(cipher, CipherAlgorithm):
+        cipher = _combo_enum_value(self._cipher_combo, idx, CipherAlgorithm)
+        if cipher is not None:
             self._vm.set_cipher(cipher)
 
     def _on_kdf_changed(self, idx: int) -> None:
-        profile = self._kdf_combo.itemData(idx)
-        if isinstance(profile, KDFProfile):
+        profile = _combo_enum_value(self._kdf_combo, idx, KDFProfile)
+        if profile is not None:
             self._vm.set_kdf_profile(profile)
+
+    def _on_appearance_changed(self, idx: int) -> None:
+        appearance = _combo_enum_value(self._appearance_combo, idx, AppearanceMode)
+        if appearance is not None:
+            self._vm.set_appearance(appearance)
 
     def _set_status(self, msg: str, *, ok: bool) -> None:
         self._status_label.setText(msg)
@@ -227,3 +271,14 @@ class SettingsView(QWidget):
         app = QApplication.instance()
         if app is not None:
             app.quit()
+
+
+def _combo_enum_value(
+    combo: QComboBox,
+    idx: int,
+    enum_type: type[_EnumT],
+) -> _EnumT | None:
+    try:
+        return enum_type(combo.itemData(idx))
+    except (TypeError, ValueError):
+        return None

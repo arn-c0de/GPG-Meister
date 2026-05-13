@@ -19,6 +19,12 @@ class Locale(StrEnum):
     AUTO = "auto"
 
 
+class AppearanceMode(StrEnum):
+    SYSTEM = "system"
+    LIGHT = "light"
+    DARK = "dark"
+
+
 class AuditConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -39,6 +45,7 @@ class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     locale: Locale = Locale.AUTO
+    appearance: AppearanceMode = AppearanceMode.SYSTEM
     gpg_binary_path: str | None = None
     gpg_binary_trusted_hash: GPGBinaryTrust | None = None
     cipher: CipherAlgorithm = CipherAlgorithm.CHACHA20_POLY1305
@@ -47,4 +54,5 @@ class AppConfig(BaseModel):
     backup_reminder_days: int = Field(default=30, ge=1, le=365)
     high_contrast: bool = False
     reduce_motion: bool = False
+    require_delete_text_confirmation: bool = True
     audit: AuditConfig = Field(default_factory=AuditConfig)

@@ -10,8 +10,10 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QTableWidget,
@@ -61,6 +63,8 @@ class _KeyTableWidget(QTableWidget):
 
 
 class KeyListView(QWidget):
+    _DELETE_CONFIRM_TEXT = "DELETE"
+
     def __init__(self, viewmodel: KeyListViewModel, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._vm = viewmodel
@@ -202,8 +206,6 @@ class KeyListView(QWidget):
         key = self._selected_key()
         if key is None:
             return
-        from PySide6.QtWidgets import QInputDialog, QMessageBox
-
         if key.has_private_key:
             passphrase_text, ok = QInputDialog.getText(
                 self,
@@ -212,6 +214,8 @@ class KeyListView(QWidget):
                 echo=QLineEdit.EchoMode.Password,
             )
             if not ok or not passphrase_text:
+                return
+            if not self._confirm_delete(key, "Delete key pair"):
                 return
             with SecureBytes.from_bytes(passphrase_text.encode()) as pp:
                 self._vm.request_delete(
@@ -224,7 +228,19 @@ class KeyListView(QWidget):
                 f"Delete public key {key.fingerprint[-16:]}?",
             )
             if answer == QMessageBox.StandardButton.Yes:
+                if not self._confirm_delete(key, "Delete public key"):
+                    return
                 self._vm.request_delete(key.fingerprint, including_secret=False)
+
+    def _confirm_delete(self, key: KeyInfo, title: str) -> bool:
+        if not self._vm.require_delete_text_confirmation:
+            return True
+        confirmation, ok = QInputDialog.getText(
+            self,
+            title,
+            f"Type DELETE to permanently remove key {key.fingerprint[-16:]}.",
+        )
+        return ok and confirmation.strip().upper() == self._DELETE_CONFIRM_TEXT
 
     def _open_detail(self) -> None:
         key = self._selected_key()

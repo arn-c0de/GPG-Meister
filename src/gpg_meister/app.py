@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING
 
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 if TYPE_CHECKING:
@@ -20,6 +21,10 @@ if TYPE_CHECKING:
     from gpg_meister.storage.metadata_store import MetadataStore
     from gpg_meister.storage.paths import AppPaths
     from gpg_meister.ui.main_window import MainWindow
+
+
+_DEFAULT_STYLESHEET: str | None = None
+_DEFAULT_PALETTE: QPalette | None = None
 
 
 def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> DetectedGPG:
@@ -84,6 +89,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("GPG Meister")
     app.setOrganizationName("GPG Meister")
+    _remember_default_appearance(app)
 
     from gpg_meister.storage.log_config import configure_logging
     from gpg_meister.storage.factory_reset import perform_pending_factory_reset
@@ -105,6 +111,7 @@ def main() -> None:
     from gpg_meister.ui.main_window import MainWindow
 
     config = config_service.load(paths.config_file)
+    _apply_appearance(app, config)
 
     locale_code = resolve_locale(config.locale.value)
     install_translator(locale_code)
@@ -157,7 +164,10 @@ def main() -> None:
     window = MainWindow()
     window.show_startup_results(check_result)
 
-    key_vm = KeyListViewModel(key_svc)
+    key_vm = KeyListViewModel(
+        key_svc,
+        require_delete_text_confirmation=config.require_delete_text_confirmation,
+    )
     key_view = KeyListView(key_vm)
     window.install_keys_tab(key_view)
 
@@ -174,7 +184,14 @@ def main() -> None:
     window.install_vault_tab(vault_view)
 
     settings_vm = SettingsViewModel(config, paths)
-    window.install_settings_tab(SettingsView(settings_vm))
+    settings_view = SettingsView(settings_vm)
+    settings_vm.config_saved.connect(lambda: _apply_appearance(app, settings_vm.config))
+    settings_vm.config_saved.connect(
+        lambda: key_vm.set_require_delete_text_confirmation(
+            settings_vm.config.require_delete_text_confirmation
+        )
+    )
+    window.install_settings_tab(settings_view)
     window.install_help_tab(HelpView())
 
     def _on_key_created(key: object) -> None:
@@ -268,6 +285,72 @@ def _check_backup_staleness(
             "Go to the Vault tab to update your backup.",
             timeout_ms=10_000,
         )
+
+
+def _apply_appearance(app: QApplication, config: AppConfig) -> None:
+    from gpg_meister.models.config import AppearanceMode
+
+    _remember_default_appearance(app)
+    if config.appearance == AppearanceMode.LIGHT:
+        app.setPalette(_light_palette(config.high_contrast))
+        app.setStyleSheet(_DEFAULT_STYLESHEET or "")
+        return
+
+    if _DEFAULT_PALETTE is not None:
+        app.setPalette(_DEFAULT_PALETTE)
+    app.setStyleSheet(
+        _default_mode_stylesheet(config.high_contrast)
+        if config.high_contrast
+        else (_DEFAULT_STYLESHEET or "")
+    )
+
+
+def _remember_default_appearance(app: QApplication) -> None:
+    global _DEFAULT_STYLESHEET, _DEFAULT_PALETTE
+    if _DEFAULT_STYLESHEET is None:
+        _DEFAULT_STYLESHEET = app.styleSheet()
+    if _DEFAULT_PALETTE is None:
+        _DEFAULT_PALETTE = QPalette(app.palette())
+
+
+def _light_palette(high_contrast: bool) -> QPalette:
+    palette = QPalette()
+    window = QColor("#ffffff")
+    base = QColor("#ffffff")
+    text = QColor("#000000") if high_contrast else QColor("#1e1e1e")
+    button = QColor("#ffffff")
+    accent = QColor("#005fcc") if high_contrast else QColor("#2f6feb")
+    mid = QColor("#000000") if high_contrast else QColor("#d0d7de")
+
+    palette.setColor(QPalette.ColorRole.Window, window)
+    palette.setColor(QPalette.ColorRole.WindowText, text)
+    palette.setColor(QPalette.ColorRole.Base, base)
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#f6f8fa"))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, base)
+    palette.setColor(QPalette.ColorRole.ToolTipText, text)
+    palette.setColor(QPalette.ColorRole.Text, text)
+    palette.setColor(QPalette.ColorRole.Button, button)
+    palette.setColor(QPalette.ColorRole.ButtonText, text)
+    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Link, accent)
+    palette.setColor(QPalette.ColorRole.Highlight, accent)
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Mid, mid)
+    return palette
+
+
+def _default_mode_stylesheet(high_contrast: bool) -> str:
+    if not high_contrast:
+        return _DEFAULT_STYLESHEET or ""
+    focus = "#ffd60a"
+    return (_DEFAULT_STYLESHEET or "") + f"""
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QTableWidget, QTabWidget::pane, QGroupBox {{
+    border: 1px solid #ffffff;
+}}
+QPushButton:focus, QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus, QTableWidget:focus {{
+    border: 2px solid {focus};
+}}
+"""
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from gpg_meister.models.config import AppConfig, Locale
+from gpg_meister.models.config import AppConfig, AppearanceMode, Locale
 from gpg_meister.models.kdf_params import KDFProfile
 from gpg_meister.models.vault import CipherAlgorithm
 from gpg_meister.services.config_service import (
@@ -27,12 +27,14 @@ def test_roundtrip(tmp_path: Path) -> None:
     target = tmp_path / "config.toml"
     original = AppConfig(
         locale=Locale.DE,
+        appearance=AppearanceMode.DARK,
         cipher=CipherAlgorithm.AES_256_GCM,
         kdf_profile=KDFProfile.BALANCED,
         clipboard_clear_seconds=30,
         backup_reminder_days=14,
         high_contrast=True,
         reduce_motion=True,
+        require_delete_text_confirmation=False,
     )
     save(original, target)
     reloaded = load(target)

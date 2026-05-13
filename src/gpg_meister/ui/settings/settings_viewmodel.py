@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
-from gpg_meister.models.config import AppConfig, AuditConfig, Locale
+from gpg_meister.models.config import AppConfig, AppearanceMode, AuditConfig, Locale
 from gpg_meister.models.kdf_params import KDFProfile
 from gpg_meister.models.vault import CipherAlgorithm
 from gpg_meister.services import config_service
@@ -45,6 +45,9 @@ class SettingsViewModel(QObject):
     def set_locale(self, locale: Locale) -> None:
         self._pending.locale = locale
 
+    def set_appearance(self, appearance: AppearanceMode) -> None:
+        self._pending.appearance = appearance
+
     def set_cipher(self, cipher: CipherAlgorithm) -> None:
         self._pending.cipher = cipher
 
@@ -62,6 +65,9 @@ class SettingsViewModel(QObject):
 
     def set_reduce_motion(self, on: bool) -> None:
         self._pending.reduce_motion = on
+
+    def set_require_delete_text_confirmation(self, on: bool) -> None:
+        self._pending.require_delete_text_confirmation = on
 
     def set_audit_hash_chain(self, on: bool) -> None:
         self._pending.audit = AuditConfig(
