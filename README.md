@@ -4,6 +4,7 @@
 [![UI](https://img.shields.io/badge/UI-Qt%206-0A7EA4)](#tech)
 [![Runtime](https://img.shields.io/badge/runtime-local--first-2ea043)](#security)
 [![Crypto](https://img.shields.io/badge/crypto-GnuPG-F0B400)](#tech)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/arn-c0de/GPG-Meister)
 
 Desktop app for working with GPG keys, encrypted messages, and backups.
 
