@@ -1,0 +1,106 @@
+"""Main application window — tab container and startup check display (planv2.md §4.8)."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QLabel,
+    QMainWindow,
+    QStatusBar,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from gpg_meister.ui.errors.user_error import ErrorSeverity
+from gpg_meister.ui.widgets.warning_banner import WarningBanner
+
+if TYPE_CHECKING:
+    from gpg_meister.startup.environment_check import CheckResult
+
+
+class _PlaceholderTab(QWidget):
+    """Placeholder tab shown while a feature is not yet loaded."""
+
+    def __init__(self, name: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        label = QLabel(f"{name} — not yet implemented")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+
+
+class MainWindow(QMainWindow):
+    """Application main window.
+
+    Tab order: Keys | Messages | Vault | Settings | Help
+    Startup warnings from environment_check are displayed as dismissible banners
+    at the top of the window.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("GPG Meister")
+        self.setMinimumSize(820, 560)
+        self._banners: list[WarningBanner] = []
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        central = QWidget()
+        self.setCentralWidget(central)
+        self._root_layout = QVBoxLayout(central)
+        self._root_layout.setContentsMargins(0, 0, 0, 0)
+        self._root_layout.setSpacing(0)
+
+        self._banner_container = QWidget()
+        self._banner_layout = QVBoxLayout(self._banner_container)
+        self._banner_layout.setContentsMargins(8, 4, 8, 0)
+        self._banner_layout.setSpacing(4)
+        self._root_layout.addWidget(self._banner_container)
+
+        self._tabs = QTabWidget()
+        self._tabs.setDocumentMode(True)
+        self._tabs.setMovable(False)
+        self._root_layout.addWidget(self._tabs, stretch=1)
+
+        self._tabs.addTab(_PlaceholderTab("Keys"), "Keys")
+        self._tabs.addTab(_PlaceholderTab("Messages"), "Messages")
+        self._tabs.addTab(_PlaceholderTab("Vault"), "Vault")
+        self._tabs.addTab(_PlaceholderTab("Settings"), "Settings")
+        self._tabs.addTab(_PlaceholderTab("Help"), "Help")
+
+        self._status_bar = QStatusBar()
+        self.setStatusBar(self._status_bar)
+
+    def show_startup_results(self, result: CheckResult) -> None:
+        """Display banners for warnings produced by environment_check.run_all_checks()."""
+        for warning in result.warnings:
+            severity = (
+                ErrorSeverity.ERROR
+                if warning.code in {"config_world_readable", "missing_packages"}
+                else ErrorSeverity.WARNING
+            )
+            banner = WarningBanner(warning.message, severity=severity, dismissible=True)
+            self._banner_layout.addWidget(banner)
+            self._banners.append(banner)
+
+        if not result.mlock_available:
+            info_banner = WarningBanner(
+                "mlock is not available on this system. "
+                "Key material may be paged to disk during low-memory conditions.",
+                severity=ErrorSeverity.INFO,
+                dismissible=True,
+            )
+            self._banner_layout.addWidget(info_banner)
+            self._banners.append(info_banner)
+
+    def show_status(self, message: str, timeout_ms: int = 4000) -> None:
+        self._status_bar.showMessage(message, timeout_ms)
+
+    def replace_tab(self, index: int, widget: QWidget, label: str) -> None:
+        """Replace a placeholder tab with a real view."""
+        self._tabs.removeTab(index)
+        self._tabs.insertTab(index, widget, label)
+        self._tabs.setCurrentIndex(index)
