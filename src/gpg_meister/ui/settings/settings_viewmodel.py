@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
-from gpg_meister.models.config import AppConfig, AppearanceMode, AppPage, AuditConfig, Locale
+from gpg_meister.models.config import AppConfig, AppearanceMode, AppPage, AuditConfig
 from gpg_meister.models.kdf_params import KDFProfile
 from gpg_meister.models.vault import CipherAlgorithm
 from gpg_meister.services import config_service
@@ -43,7 +43,7 @@ class SettingsViewModel(QObject):
     def config(self) -> AppConfig:
         return self._pending
 
-    def set_locale(self, locale: Locale) -> None:
+    def set_locale(self, locale: str) -> None:
         self._pending.locale = locale
 
     def set_appearance(self, appearance: AppearanceMode) -> None:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from gpg_meister.models.config import AppConfig, AppearanceMode, AppPage, Locale
+from gpg_meister.models.config import AppConfig, AppearanceMode, AppPage
 from gpg_meister.models.kdf_params import KDFProfile
 from gpg_meister.models.vault import CipherAlgorithm
 from gpg_meister.services.config_service import (
@@ -26,7 +26,7 @@ def test_load_returns_defaults_when_missing(tmp_path: Path) -> None:
 def test_roundtrip(tmp_path: Path) -> None:
     target = tmp_path / "config.toml"
     original = AppConfig(
-        locale=Locale.DE,
+        locale="de",
         appearance=AppearanceMode.DARK,
         last_open_page=AppPage.VAULT,
         cipher=CipherAlgorithm.AES_256_GCM,
@@ -40,6 +40,16 @@ def test_roundtrip(tmp_path: Path) -> None:
     save(original, target)
     reloaded = load(target)
     assert reloaded == original
+
+
+def test_roundtrip_accepts_new_language_code(tmp_path: Path) -> None:
+    target = tmp_path / "config.toml"
+    original = AppConfig(locale="pt-BR")
+
+    save(original, target)
+    reloaded = load(target)
+
+    assert reloaded.locale == "pt-BR"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")

@@ -19,6 +19,19 @@ Language expansion is tracked in [issue #1](https://github.com/arn-c0de/GPG-Meis
 
 If you want to add a new language, comment on issue #1 first so the language code and terminology approach can be agreed before implementation.
 
+## Adding a Language
+
+Languages are discovered from bundled Qt `.qm` files in `src/gpg_meister/i18n/`. After a compiled translation file exists, the language appears automatically in Settings.
+
+To add a language:
+
+1. Add a new Qt translation source file such as `fr.ts` in `src/gpg_meister/i18n/`.
+2. Add a glossary file such as `terms_fr.md` if the language needs canonical security terms.
+3. Translate all entries and keep destructive-action warnings precise.
+4. Run `python scripts/build_translations.py` to create the matching `fr.qm`.
+5. Start the app and verify that the language appears in Settings.
+6. Select the language, save settings, restart, and check the translated UI.
+
 ## Translation Guidelines
 
 - Keep security terms precise and consistent.

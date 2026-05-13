@@ -91,6 +91,20 @@ def test_persist_last_open_page_does_not_save_pending_settings(tmp_path: Path) -
     assert vm.config.last_open_page == AppPage.HELP
 
 
+def test_language_combo_uses_available_translation_resources(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    view = SettingsView(SettingsViewModel(AppConfig(locale="de"), _paths(tmp_path)))
+
+    codes = {
+        view._locale_combo.itemData(index)
+        for index in range(view._locale_combo.count())
+    }
+
+    assert {"auto", "en", "de"}.issubset(codes)
+    assert view._locale_combo.currentData() == "de"
+    app.processEvents()
+
+
 def test_factory_reset_schedules_when_second_confirmation_matches(
     tmp_path: Path,
     monkeypatch,

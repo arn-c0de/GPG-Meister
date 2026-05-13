@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gpg_meister.models.config import AppearanceMode, Locale
+from gpg_meister.i18n import available_language_options
+from gpg_meister.models.config import AppearanceMode
 from gpg_meister.models.kdf_params import KDFProfile
 from gpg_meister.models.vault import CipherAlgorithm
 from gpg_meister.ui.settings.settings_viewmodel import SettingsViewModel
@@ -50,9 +51,8 @@ class SettingsView(QWidget):
         locale_box = QGroupBox("Language")
         locale_form = QFormLayout(locale_box)
         self._locale_combo = QComboBox()
-        self._locale_combo.addItem("Auto-detect (follow OS)", Locale.AUTO.value)
-        self._locale_combo.addItem("English", Locale.EN.value)
-        self._locale_combo.addItem("Deutsch (German)", Locale.DE.value)
+        for language in available_language_options():
+            self._locale_combo.addItem(language.label, language.code)
         self._locale_combo.setAccessibleName("Language")
         locale_form.addRow("Language:", self._locale_combo)
         locale_form.addRow("", QLabel("Language change takes effect on next launch."))
@@ -191,7 +191,7 @@ class SettingsView(QWidget):
 
     def _load_current(self) -> None:
         cfg = self._vm.config
-        idx = self._locale_combo.findData(cfg.locale.value)
+        idx = self._locale_combo.findData(cfg.locale)
         if idx >= 0:
             self._locale_combo.setCurrentIndex(idx)
         idx = self._cipher_combo.findData(cfg.cipher.value)
@@ -216,8 +216,8 @@ class SettingsView(QWidget):
         self._hash_chain_check.setChecked(cfg.audit.hash_chain)
 
     def _on_locale_changed(self, idx: int) -> None:
-        locale = _combo_enum_value(self._locale_combo, idx, Locale)
-        if locale is not None:
+        locale = self._locale_combo.itemData(idx)
+        if isinstance(locale, str):
             self._vm.set_locale(locale)
 
     def _on_cipher_changed(self, idx: int) -> None:

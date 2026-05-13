@@ -1,6 +1,6 @@
 """Pydantic domain models for GPG Meister."""
 
-from gpg_meister.models.config import AppConfig, AuditConfig, GPGBinaryTrust, Locale
+from gpg_meister.models.config import AppConfig, AppPage, AuditConfig, GPGBinaryTrust, Locale
 from gpg_meister.models.kdf_params import (
     KDFAlgorithm,
     KDFParams,
@@ -39,6 +39,7 @@ __all__ = [
     "VAULT_FORMAT_TAG",
     "VAULT_FORMAT_VERSION",
     "AppConfig",
+    "AppPage",
     "AuditConfig",
     "CipherAlgorithm",
     "CipherParams",

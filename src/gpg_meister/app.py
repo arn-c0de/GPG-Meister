@@ -113,7 +113,7 @@ def main() -> None:
     config = config_service.load(paths.config_file)
     _apply_appearance(app, config)
 
-    locale_code = resolve_locale(config.locale.value)
+    locale_code = resolve_locale(config.locale)
     install_translator(locale_code)
 
     audit = AuditLog(paths.audit_log, hash_chain=config.audit.hash_chain)
