@@ -33,11 +33,25 @@ Keep changes focused. Security-sensitive code, cryptography, vault handling, GPG
 
 Contributors who add, maintain, or significantly review language support or UI improvements can be listed here.
 
-| Contributor | Area | Notes |
-| --- | --- | --- |
-| arn-c0de | Project maintainer | English and German baseline |
+<table>
+  <tr>
+    <th>Contributor</th>
+    <th>Area</th>
+    <th>Notes</th>
+  </tr>
+  <tr>
+    <td>
+      <a href="https://github.com/arn-c0de">
+        <img src="https://github.com/arn-c0de.png?size=64" width="48" height="48" alt="arn-c0de avatar"><br>
+        arn-c0de
+      </a>
+    </td>
+    <td>Project maintainer</td>
+    <td>English and German baseline</td>
+  </tr>
+</table>
 
-To be added, include your preferred name, contribution area, and optional profile link in the pull request.
+To be added, include your preferred name, contribution area, optional profile link, and optional avatar URL in the pull request.
 
 ## Pull Request Checklist
 
