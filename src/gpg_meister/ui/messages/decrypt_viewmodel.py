@@ -61,5 +61,8 @@ class DecryptViewModel(QObject):
         w = Worker(_do)
         w.signals.result.connect(self.operation_succeeded.emit)
         w.signals.error.connect(self.operation_failed.emit)
-        w.signals.finished.connect(lambda: self.loading_changed.emit(False))
+        w.signals.finished.connect(self._on_finished)
         self._pool.start(w)
+
+    def _on_finished(self) -> None:
+        self.loading_changed.emit(False)

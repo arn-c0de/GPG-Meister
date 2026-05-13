@@ -42,7 +42,7 @@ class KeyListViewModel(QObject):
         w = Worker(self._svc.list_keys)
         w.signals.result.connect(self._on_keys_loaded)
         w.signals.error.connect(self._on_error)
-        w.signals.finished.connect(lambda: self.loading_changed.emit(False))
+        w.signals.finished.connect(self._on_finished)
         self._pool.start(w)
 
     def _on_keys_loaded(self, keys: object) -> None:
@@ -69,14 +69,20 @@ class KeyListViewModel(QObject):
             return fingerprint
 
         w = Worker(_do)
-        w.signals.result.connect(lambda _fp: self.refresh())
+        w.signals.result.connect(self._on_delete_succeeded)
         w.signals.error.connect(self._on_error)
-        w.signals.finished.connect(lambda: self.loading_changed.emit(False))
+        w.signals.finished.connect(self._on_finished)
         self._pool.start(w)
 
     def notify_key_created(self, key: KeyInfo) -> None:
         self.key_created.emit(key)
         self.refresh()
+
+    def _on_delete_succeeded(self, _fingerprint: object) -> None:
+        self.refresh()
+
+    def _on_finished(self) -> None:
+        self.loading_changed.emit(False)
 
     def _on_error(self, msg: str) -> None:
         self.operation_failed.emit(msg)
