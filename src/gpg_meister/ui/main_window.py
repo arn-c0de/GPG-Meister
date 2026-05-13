@@ -111,6 +111,14 @@ class MainWindow(QMainWindow):
         """Replace the placeholder Vault tab with the real VaultTabView."""
         self.replace_tab(2, view, "Vault")
 
+    def install_settings_tab(self, view: QWidget) -> None:
+        """Replace the placeholder Settings tab with the real SettingsView."""
+        self.replace_tab(3, view, "Settings")
+
+    def install_help_tab(self, view: QWidget) -> None:
+        """Replace the placeholder Help tab with the real HelpView."""
+        self.replace_tab(4, view, "Help")
+
     def replace_tab(self, index: int, widget: QWidget, label: str) -> None:
         """Replace a placeholder tab with a real view."""
         self._tabs.removeTab(index)

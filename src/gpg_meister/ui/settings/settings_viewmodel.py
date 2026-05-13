@@ -1,0 +1,74 @@
+"""ViewModel for the Settings tab (planv2.md §4.8)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6.QtCore import QObject, Signal
+
+from gpg_meister.models.config import AppConfig, AuditConfig, Locale
+from gpg_meister.models.kdf_params import KDFProfile
+from gpg_meister.models.vault import CipherAlgorithm
+from gpg_meister.services import config_service
+
+
+class SettingsViewModel(QObject):
+    """Manages editable copy of AppConfig and persists changes.
+
+    Signals
+    -------
+    config_saved     Emitted after a successful save.
+    save_failed      Human-readable error string.
+    """
+
+    config_saved: Signal = Signal()
+    save_failed: Signal = Signal(str)
+
+    def __init__(
+        self,
+        config: AppConfig,
+        config_path: Path,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._path = config_path
+        # Work on a mutable snapshot; original is not mutated until save().
+        self._pending = config.model_copy(deep=True)
+
+    @property
+    def config(self) -> AppConfig:
+        return self._pending
+
+    def set_locale(self, locale: Locale) -> None:
+        self._pending.locale = locale
+
+    def set_cipher(self, cipher: CipherAlgorithm) -> None:
+        self._pending.cipher = cipher
+
+    def set_kdf_profile(self, profile: KDFProfile) -> None:
+        self._pending.kdf_profile = profile
+
+    def set_clipboard_clear_seconds(self, secs: int) -> None:
+        self._pending.clipboard_clear_seconds = max(0, min(3600, secs))
+
+    def set_backup_reminder_days(self, days: int) -> None:
+        self._pending.backup_reminder_days = max(1, min(365, days))
+
+    def set_high_contrast(self, on: bool) -> None:
+        self._pending.high_contrast = on
+
+    def set_reduce_motion(self, on: bool) -> None:
+        self._pending.reduce_motion = on
+
+    def set_audit_hash_chain(self, on: bool) -> None:
+        self._pending.audit = AuditConfig(
+            enabled=self._pending.audit.enabled,
+            hash_chain=on,
+        )
+
+    def save(self) -> None:
+        try:
+            config_service.save(self._pending, self._path)
+            self.config_saved.emit()
+        except Exception as exc:
+            self.save_failed.emit(str(exc))

@@ -1,0 +1,172 @@
+"""Settings tab view (planv2.md §4.8)."""
+
+from __future__ import annotations
+
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from gpg_meister.models.config import Locale
+from gpg_meister.models.kdf_params import KDFProfile
+from gpg_meister.models.vault import CipherAlgorithm
+from gpg_meister.ui.settings.settings_viewmodel import SettingsViewModel
+
+
+class SettingsView(QWidget):
+    """Settings form: locale, cipher, KDF, clipboard, backup reminder, flags."""
+
+    def __init__(self, viewmodel: SettingsViewModel, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._vm = viewmodel
+        self._build_ui()
+        self._connect_signals()
+        self._load_current()
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        # --- Localisation ---
+        locale_box = QGroupBox("Language")
+        locale_form = QFormLayout(locale_box)
+        self._locale_combo = QComboBox()
+        self._locale_combo.addItem("Auto-detect (follow OS)", Locale.AUTO)
+        self._locale_combo.addItem("English", Locale.EN)
+        self._locale_combo.addItem("Deutsch (German)", Locale.DE)
+        self._locale_combo.setAccessibleName("Language")
+        locale_form.addRow("Language:", self._locale_combo)
+        locale_form.addRow("", QLabel("Language change takes effect on next launch."))
+        root.addWidget(locale_box)
+
+        # --- Cryptography ---
+        crypto_box = QGroupBox("Cryptography")
+        crypto_form = QFormLayout(crypto_box)
+
+        self._cipher_combo = QComboBox()
+        self._cipher_combo.addItem("ChaCha20-Poly1305 (recommended)", CipherAlgorithm.CHACHA20_POLY1305)
+        self._cipher_combo.addItem("AES-256-GCM", CipherAlgorithm.AES_256_GCM)
+        self._cipher_combo.setAccessibleName("Vault cipher algorithm")
+        crypto_form.addRow("Vault cipher:", self._cipher_combo)
+
+        self._kdf_combo = QComboBox()
+        self._kdf_combo.addItem("High memory (safer, ~1 s)", KDFProfile.HIGH_MEMORY)
+        self._kdf_combo.addItem("Balanced (faster, ~0.2 s)", KDFProfile.BALANCED)
+        self._kdf_combo.setAccessibleName("KDF profile")
+        crypto_form.addRow("KDF profile:", self._kdf_combo)
+
+        root.addWidget(crypto_box)
+
+        # --- UI behaviour ---
+        ui_box = QGroupBox("Interface")
+        ui_form = QFormLayout(ui_box)
+
+        self._clipboard_spin = QSpinBox()
+        self._clipboard_spin.setRange(0, 3600)
+        self._clipboard_spin.setSuffix(" seconds")
+        self._clipboard_spin.setSpecialValueText("Never clear")
+        self._clipboard_spin.setAccessibleName("Clipboard auto-clear delay")
+        ui_form.addRow("Clear clipboard after:", self._clipboard_spin)
+
+        self._backup_spin = QSpinBox()
+        self._backup_spin.setRange(1, 365)
+        self._backup_spin.setSuffix(" days")
+        self._backup_spin.setAccessibleName("Backup reminder interval")
+        ui_form.addRow("Vault backup reminder every:", self._backup_spin)
+
+        self._high_contrast_check = QCheckBox("Enable high-contrast theme")
+        self._high_contrast_check.setAccessibleDescription(
+            "Increases foreground/background contrast ratio (takes effect on next launch)"
+        )
+        ui_form.addRow("", self._high_contrast_check)
+
+        self._reduce_motion_check = QCheckBox("Reduce animations")
+        self._reduce_motion_check.setAccessibleDescription(
+            "Disables or reduces animated transitions"
+        )
+        ui_form.addRow("", self._reduce_motion_check)
+
+        root.addWidget(ui_box)
+
+        # --- Audit ---
+        audit_box = QGroupBox("Audit log")
+        audit_form = QFormLayout(audit_box)
+        self._hash_chain_check = QCheckBox("Enable hash-chain integrity (append-only proof)")
+        self._hash_chain_check.setAccessibleDescription(
+            "Each audit record includes a hash of the previous record, "
+            "making it detectable if records are deleted or reordered."
+        )
+        audit_form.addRow("", self._hash_chain_check)
+        root.addWidget(audit_box)
+
+        # --- Buttons ---
+        btn_row = QHBoxLayout()
+        self._btn_save = QPushButton("Save Settings")
+        self._btn_save.setDefault(True)
+        self._status_label = QLabel()
+        self._status_label.setWordWrap(True)
+        btn_row.addWidget(self._btn_save)
+        btn_row.addWidget(self._status_label, stretch=1)
+        root.addLayout(btn_row)
+
+        root.addStretch()
+
+    def _connect_signals(self) -> None:
+        self._vm.config_saved.connect(lambda: self._set_status("Settings saved.", ok=True))
+        self._vm.save_failed.connect(lambda msg: self._set_status(f"Save failed: {msg}", ok=False))
+
+        self._locale_combo.currentIndexChanged.connect(self._on_locale_changed)
+        self._cipher_combo.currentIndexChanged.connect(self._on_cipher_changed)
+        self._kdf_combo.currentIndexChanged.connect(self._on_kdf_changed)
+        self._clipboard_spin.valueChanged.connect(self._vm.set_clipboard_clear_seconds)
+        self._backup_spin.valueChanged.connect(self._vm.set_backup_reminder_days)
+        self._high_contrast_check.toggled.connect(self._vm.set_high_contrast)
+        self._reduce_motion_check.toggled.connect(self._vm.set_reduce_motion)
+        self._hash_chain_check.toggled.connect(self._vm.set_audit_hash_chain)
+        self._btn_save.clicked.connect(self._vm.save)
+
+    def _load_current(self) -> None:
+        cfg = self._vm.config
+        idx = self._locale_combo.findData(cfg.locale)
+        if idx >= 0:
+            self._locale_combo.setCurrentIndex(idx)
+        idx = self._cipher_combo.findData(cfg.cipher)
+        if idx >= 0:
+            self._cipher_combo.setCurrentIndex(idx)
+        idx = self._kdf_combo.findData(cfg.kdf_profile)
+        if idx >= 0:
+            self._kdf_combo.setCurrentIndex(idx)
+        self._clipboard_spin.setValue(cfg.clipboard_clear_seconds)
+        self._backup_spin.setValue(cfg.backup_reminder_days)
+        self._high_contrast_check.setChecked(cfg.high_contrast)
+        self._reduce_motion_check.setChecked(cfg.reduce_motion)
+        self._hash_chain_check.setChecked(cfg.audit.hash_chain)
+
+    def _on_locale_changed(self, idx: int) -> None:
+        locale = self._locale_combo.itemData(idx)
+        if isinstance(locale, Locale):
+            self._vm.set_locale(locale)
+
+    def _on_cipher_changed(self, idx: int) -> None:
+        cipher = self._cipher_combo.itemData(idx)
+        if isinstance(cipher, CipherAlgorithm):
+            self._vm.set_cipher(cipher)
+
+    def _on_kdf_changed(self, idx: int) -> None:
+        profile = self._kdf_combo.itemData(idx)
+        if isinstance(profile, KDFProfile):
+            self._vm.set_kdf_profile(profile)
+
+    def _set_status(self, msg: str, *, ok: bool) -> None:
+        self._status_label.setText(msg)
+        color = "#006600" if ok else "#cc0000"
+        self._status_label.setStyleSheet(f"color: {color};")

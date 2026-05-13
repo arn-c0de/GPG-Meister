@@ -83,6 +83,7 @@ def main() -> None:
     from gpg_meister.services.message_service import MessageService
     from gpg_meister.services.vault_service import VaultService
     from gpg_meister.storage.metadata_store import MetadataStore
+    from gpg_meister.ui.help.help_view import HelpView
     from gpg_meister.ui.keys.key_list_view import KeyListView
     from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
     from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
@@ -90,6 +91,8 @@ def main() -> None:
     from gpg_meister.ui.messages.messages_tab import MessagesTabView
     from gpg_meister.ui.messages.sign_viewmodel import SignViewModel
     from gpg_meister.ui.messages.verify_viewmodel import VerifyViewModel
+    from gpg_meister.ui.settings.settings_view import SettingsView
+    from gpg_meister.ui.settings.settings_viewmodel import SettingsViewModel
     from gpg_meister.ui.vault.vault_export_viewmodel import VaultExportViewModel
     from gpg_meister.ui.vault.vault_tab import VaultTabView
 
@@ -116,6 +119,10 @@ def main() -> None:
     export_vm = VaultExportViewModel(vault_svc, key_svc)
     vault_view = VaultTabView(export_vm, vault_svc)
     window.install_vault_tab(vault_view)
+
+    settings_vm = SettingsViewModel(config, paths.config_file)
+    window.install_settings_tab(SettingsView(settings_vm))
+    window.install_help_tab(HelpView())
 
     def _on_key_created(key: object) -> None:
         from gpg_meister.models.key_info import KeyInfo
