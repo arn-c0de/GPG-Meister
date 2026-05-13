@@ -339,6 +339,53 @@ class GPGService:
         valid = bool(result.valid) if signer else False
         return bytes(result.data or b""), signer, valid
 
+    def sign(
+        self,
+        data: bytes,
+        *,
+        fingerprint: str,
+        passphrase: SecureBytes,
+        detached: bool = True,
+    ) -> str:
+        fp = validate_fingerprint(fingerprint)
+        pass_bytes = bytes(passphrase.view())
+        reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+        result = self._gpg.sign(
+            data.decode("utf-8", errors="surrogateescape"),
+            keyid=fp,
+            passphrase=pass_bytes.decode("utf-8"),
+            detach=detached,
+            clearsign=not detached,
+        )
+        if not str(result):
+            raise GPGProcessError(f"signing failed: {result.status}")
+        return str(result)
+
+    def verify(
+        self,
+        data: bytes,
+        *,
+        detached_signature: bytes | None = None,
+    ) -> tuple[bool, str | None, datetime | None]:
+        """Return (valid, signer_fingerprint, signed_at)."""
+        if detached_signature is not None:
+            with tempfile.NamedTemporaryFile(suffix=".asc", delete=False) as tmp:
+                tmp.write(detached_signature)
+                sig_path = tmp.name
+            try:
+                result = self._gpg.verify_data(sig_path, data)
+            finally:
+                os.unlink(sig_path)
+        else:
+            result = self._gpg.verify(data.decode("utf-8", errors="surrogateescape"))
+        valid = bool(result.valid)
+        fp = str(result.fingerprint or "") or None
+        signed_at: datetime | None = None
+        if result.timestamp:
+            with contextlib.suppress(ValueError, OSError):
+                signed_at = datetime.fromtimestamp(float(str(result.timestamp)), tz=UTC)
+        return valid, fp, signed_at
+
     # ---------------------------------------------------------------------- meta
 
     def version(self) -> tuple[int, ...]:

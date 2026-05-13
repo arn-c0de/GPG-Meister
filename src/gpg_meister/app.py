@@ -74,12 +74,19 @@ def main() -> None:
 
     from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
     from gpg_meister.services.key_service import KeyService
+    from gpg_meister.services.message_service import MessageService
     from gpg_meister.storage.metadata_store import MetadataStore
     from gpg_meister.ui.keys.key_list_view import KeyListView
     from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
+    from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
+    from gpg_meister.ui.messages.encrypt_viewmodel import EncryptViewModel
+    from gpg_meister.ui.messages.messages_tab import MessagesTabView
+    from gpg_meister.ui.messages.sign_viewmodel import SignViewModel
+    from gpg_meister.ui.messages.verify_viewmodel import VerifyViewModel
 
     gpg_svc = GPGService(GPGServiceConfig(binary_path=gpg.path, home_dir=paths.gnupg_home))
     key_svc = KeyService(gpg=gpg_svc, audit=audit)
+    msg_svc = MessageService(gpg=gpg_svc, audit=audit)
     metadata = MetadataStore(paths.metadata_db)
 
     window = MainWindow()
@@ -88,6 +95,13 @@ def main() -> None:
     key_vm = KeyListViewModel(key_svc)
     key_view = KeyListView(key_vm)
     window.install_keys_tab(key_view)
+
+    encrypt_vm = EncryptViewModel(msg_svc, key_svc)
+    decrypt_vm = DecryptViewModel(msg_svc)
+    sign_vm = SignViewModel(msg_svc, key_svc)
+    verify_vm = VerifyViewModel(msg_svc)
+    messages_view = MessagesTabView(encrypt_vm, decrypt_vm, sign_vm, verify_vm)
+    window.install_messages_tab(messages_view)
 
     def _on_key_created(key: object) -> None:
         from gpg_meister.models.key_info import KeyInfo

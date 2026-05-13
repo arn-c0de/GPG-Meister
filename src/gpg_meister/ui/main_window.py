@@ -103,6 +103,10 @@ class MainWindow(QMainWindow):
         """Replace the placeholder Keys tab with the real KeyListView."""
         self.replace_tab(0, view, "Keys")
 
+    def install_messages_tab(self, view: QWidget) -> None:
+        """Replace the placeholder Messages tab with the real MessagesTabView."""
+        self.replace_tab(1, view, "Messages")
+
     def replace_tab(self, index: int, widget: QWidget, label: str) -> None:
         """Replace a placeholder tab with a real view."""
         self._tabs.removeTab(index)

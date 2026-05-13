@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from gpg_meister.models.message import DecryptResult, EncryptResult
+from gpg_meister.models.message import DecryptResult, EncryptResult, SignResult, VerifyResult
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.gpg_service import GPGService
 from gpg_meister.services.validation import validate_fingerprint
@@ -97,4 +97,59 @@ class MessageService:
             plaintext=plaintext,
             signer_fingerprint=signer,
             signature_valid=valid,
+        )
+
+    # -------------------------------------------------------------------- sign
+
+    def sign(
+        self,
+        data: bytes,
+        *,
+        fingerprint: str,
+        passphrase: SecureBytes,
+        detached: bool = True,
+    ) -> SignResult:
+        try:
+            armored = self._gpg.sign(
+                data,
+                fingerprint=fingerprint,
+                passphrase=passphrase,
+                detached=detached,
+            )
+        except Exception as exc:
+            self._audit.emit(
+                "message_signed",
+                outcome=OUTCOME_FAILED,
+                fingerprint=fingerprint,
+                reason=type(exc).__name__,
+            )
+            raise
+        self._audit.emit(
+            "message_signed",
+            outcome=OUTCOME_OK,
+            fingerprint=fingerprint,
+            detached=detached,
+        )
+        return SignResult(
+            armored_signature=armored,
+            signing_fingerprint=fingerprint,
+            detached=detached,
+            created_at=datetime.now(UTC),
+        )
+
+    # ------------------------------------------------------------------ verify
+
+    def verify(
+        self,
+        data: bytes,
+        *,
+        detached_signature: bytes | None = None,
+    ) -> VerifyResult:
+        valid, signer, signed_at = self._gpg.verify(
+            data, detached_signature=detached_signature
+        )
+        return VerifyResult(
+            signature_valid=valid,
+            signer_fingerprint=signer,
+            signed_at=signed_at,
         )
