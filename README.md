@@ -9,6 +9,12 @@ Desktop app for working with GPG keys, encrypted messages, and backups.
 
 GPG Meister is a local-first desktop app built around GnuPG. It helps with everyday tasks like creating and importing keys, encrypting or signing messages, and exporting encrypted backups of key material.
 
+## Current Status
+
+GPG Meister is actively being developed.
+
+You can already use it, but it is still a work in progress and some parts may change significantly between releases. Behavior, UI details, workflows, and internal structure can still evolve as the project matures.
+
 ## What it does
 - Create, import, and manage GPG keys
 - Encrypt, decrypt, sign, and verify messages
@@ -74,7 +80,12 @@ python scripts/build_translations.py
 
 ## Contact
 - GitHub Issues: [arn-c0de/GPG-Meister/issues](https://github.com/arn-c0de/GPG-Meister/issues)
+- GitHub Contact Page: [arn-c0de contact](https://github.com/arn-c0de)
 - Email: [arn-c0de@protonmail.com](mailto:arn-c0de@protonmail.com)
+
+If you find bugs, unexpected behavior, or rough edges, please open an issue or get in touch through the GitHub contact options on the user profile.
+
+Contributions, feedback, and collaboration are welcome.
 
 ## License
 MIT. See the `LICENSE` file.
