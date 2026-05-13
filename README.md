@@ -16,11 +16,17 @@ GPG Meister is actively being developed.
 You can already use it, but it is still a work in progress and some parts may change significantly between releases. Behavior, UI details, workflows, and internal structure can still evolve as the project matures.
 
 ## What it does
-- Create, import, and manage GPG keys
-- Encrypt, decrypt, sign, and verify messages
-- Export and import encrypted key vault backups
-- Keep all operations on your own machine
-- Support English and German UI
+- **Key Management**: Create, import, and manage GPG keys.
+  ![Key Management](images/GPG-MEISTER-keys-page.png)
+- **Message Operations**: Encrypt, decrypt, sign, and verify messages.
+  ![Encryption](images/GPG-MEISTER-encrypt-page.png)
+  ![Decryption](images/GPG-MEISTER-decrypt-page.png)
+- **Secure Backups**: Export and import encrypted key vault backups.
+  ![Vault Management](images/GPG-MEISTER-vault.png)
+- **Help System**: Built-in help and glossary.
+  ![Help Page](images/GPG-MEISTER-help-page.png)
+- **Local-First**: Keep all operations on your own machine.
+- **Internationalization**: Support English and German UI.
 
 ### Downloads
 Prebuilt releases for Linux, Windows, and macOS are available here:
