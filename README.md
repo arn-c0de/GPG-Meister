@@ -11,9 +11,10 @@ GPG Meister is a local-first desktop app built around GnuPG. It helps with every
 
 ## Current Status
 
-GPG Meister is actively being developed.
-
-You can already use it, but it is still a work in progress and some parts may change significantly between releases. Behavior, UI details, workflows, and internal structure can still evolve as the project matures.
+> [!NOTE]
+> GPG Meister is actively being developed.
+>
+> You can already use it, but it is still a work in progress and some parts may change significantly between releases. Behavior, UI details, workflows, and internal structure can still evolve as the project matures.
 
 ## What it does
 - **Key Management**: Create, import, and manage GPG keys.

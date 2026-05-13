@@ -17,7 +17,7 @@ At the moment, treat the newest published release and the newest active branch a
 Please do not open a public GitHub issue for a suspected security vulnerability.
 
 Use one of these private contact paths instead:
-
+2
 - Email: `arn-c0de@protonmail.com`
 - GitHub profile contact path: `https://github.com/arn-c0de`
 
