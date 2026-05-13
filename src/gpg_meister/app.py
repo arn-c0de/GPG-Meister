@@ -165,11 +165,11 @@ def main() -> None:
     decrypt_vm = DecryptViewModel(msg_svc)
     sign_vm = SignViewModel(msg_svc, key_svc)
     verify_vm = VerifyViewModel(msg_svc)
-    messages_view = MessagesTabView(encrypt_vm, decrypt_vm, sign_vm, verify_vm)
+    messages_view = MessagesTabView(encrypt_vm, decrypt_vm, sign_vm, verify_vm, key_svc)
     window.install_messages_tab(messages_view)
 
     export_vm = VaultExportViewModel(vault_svc, key_svc)
-    _wire_key_inventory_updates(key_vm, encrypt_vm, sign_vm, export_vm)
+    _wire_key_inventory_updates(key_vm, encrypt_vm, sign_vm, export_vm, messages_view)
     vault_view = VaultTabView(export_vm, vault_svc)
     window.install_vault_tab(vault_view)
 
@@ -208,6 +208,7 @@ def _wire_key_inventory_updates(
     encrypt_vm: object,
     sign_vm: object,
     export_vm: object | None,
+    messages_view: object | None = None,
 ) -> None:
     """Refresh dependent key pickers whenever the key inventory changes."""
 
@@ -223,6 +224,10 @@ def _wire_key_inventory_updates(
             loader = getattr(vm, "load_keys", None)
             if callable(loader):
                 loader()
+        if messages_view is not None:
+            refresh = getattr(messages_view, "refresh_share_keys", None)
+            if callable(refresh):
+                refresh()
 
     connect(_refresh_dependents)
 
