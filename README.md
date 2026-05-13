@@ -1,36 +1,54 @@
 # GPG Meister
 
+[![Architecture](https://img.shields.io/badge/architecture-MVVM-1f6feb)](#tech)
+[![UI](https://img.shields.io/badge/UI-Qt%206-0A7EA4)](#tech)
+[![Runtime](https://img.shields.io/badge/runtime-local--first-2ea043)](#security)
+[![Crypto](https://img.shields.io/badge/crypto-GnuPG-F0B400)](#tech)
+
 Desktop app for working with GPG keys, encrypted messages, and backups.
 
-GPG Meister is a local app built around GnuPG. It helps with common tasks like creating and importing keys, encrypting or signing messages, and exporting protected backups.
+GPG Meister is a local-first desktop app built around GnuPG. It helps with everyday tasks like creating and importing keys, encrypting or signing messages, and exporting encrypted backups of key material.
 
 ## What it does
 - Create, import, and manage GPG keys
 - Encrypt, decrypt, sign, and verify messages
-- Export and import encrypted key backups
-- Run fully on your own machine
-- Support English and German
-
-## Tech
-- Python
-- PySide6 / Qt
-- GnuPG
-
-## Security
-- Local-first: no cloud service required
-- Encrypted vaults for key backups
-- Log filtering for sensitive data
-- Safer GnuPG binary detection
-
-## Getting Started
-### Requirements
-- GnuPG 2.2+
-- Python 3.11+
+- Export and import encrypted key vault backups
+- Keep all operations on your own machine
+- Support English and German UI
 
 ### Downloads
 Prebuilt releases for Linux, Windows, and macOS are available here:
 
 [GitHub Releases](https://github.com/arn-c0de/GPG-Meister/releases)
+
+## Getting Started
+### Requirements
+- GnuPG 2.2+
+- Python 3.11+
+- `uv` for the recommended development workflow
+
+## Docs
+- [Documentation Overview](docs/overview.md)
+- [Plan vs Code](docs/plan-vs-code.md)
+- [App and Startup Flow](docs/app-startup.md)
+- [Service Layer](docs/services.md)
+- [Security Modules](docs/security.md)
+- [Storage Layer](docs/storage.md)
+- [UI Layer](docs/ui.md)
+
+## Security
+- Local-first design with no cloud dependency
+- Encrypted vaults for key backup and transfer
+- Dedicated audit logging for security-relevant events
+- Safer GnuPG binary detection and trust pinning
+- Local metadata store that does not keep private keys or passphrases
+
+## Tech
+- Python 3.11+
+- PySide6 / Qt 6
+- GnuPG
+- `python-gnupg`
+- Pydantic v2
 
 ## Development
 ```bash
