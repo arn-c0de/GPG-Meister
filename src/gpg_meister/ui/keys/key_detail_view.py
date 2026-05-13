@@ -1,16 +1,19 @@
-"""Read-only key detail dialog (planv2.md §4.8)."""
+"""Key detail dialog with optional context editing."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -31,7 +34,9 @@ _TRUST_LABELS: dict[TrustLevel, tuple[str, str]] = {
 
 
 class KeyDetailView(QDialog):
-    """Non-modal details dialog for a single key."""
+    """Details dialog for a single key."""
+
+    key_updated: Signal = Signal(object)
 
     def __init__(
         self, key: KeyInfo, key_service: KeyService, parent: QWidget | None = None
@@ -50,6 +55,7 @@ class KeyDetailView(QDialog):
 
         uid_text = "\n".join(self._key.user_ids) or "—"
         uid_label = QLabel(uid_text)
+        uid_label.setTextFormat(Qt.TextFormat.PlainText)
         uid_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
@@ -88,6 +94,18 @@ class KeyDetailView(QDialog):
             revoked_label.setStyleSheet("color: #cc0000; font-weight: bold;")
             form.addRow("", revoked_label)
 
+        self._label_input = QLineEdit(self._key.label)
+        self._platform_input = QLineEdit(self._key.platform)
+        self._purpose_input = QLineEdit(self._key.purpose)
+        self._notes_input = QTextEdit()
+        self._notes_input.setPlainText(self._key.notes)
+        self._notes_input.setMaximumHeight(120)
+
+        form.addRow("Label:", self._label_input)
+        form.addRow("Platform:", self._platform_input)
+        form.addRow("Purpose:", self._purpose_input)
+        form.addRow("Notes:", self._notes_input)
+
         layout.addLayout(form)
 
         export_btn = ClipboardButton("Copy Public Key")
@@ -102,9 +120,19 @@ class KeyDetailView(QDialog):
         self._armor_view.setPlaceholderText("Public key will appear here after clicking Copy Public Key")
         layout.addWidget(self._armor_view)
 
+        self._btn_edit = QPushButton("Edit")
+        self._btn_edit.clicked.connect(self._toggle_edit_mode)
+
+        self._btn_save = QPushButton("Save")
+        self._btn_save.clicked.connect(self._save_context)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.addButton(self._btn_edit, QDialogButtonBox.ButtonRole.ActionRole)
+        buttons.addButton(self._btn_save, QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+        self._set_edit_mode(False)
 
     def _copy_public_key(self) -> None:
         try:
@@ -116,6 +144,43 @@ class KeyDetailView(QDialog):
                 cb.setText(armored)
         except Exception as exc:
             self._armor_view.setPlainText(f"Error: {exc}")
+
+    def _toggle_edit_mode(self) -> None:
+        self._set_edit_mode(not self._label_input.isEnabled())
+
+    def _set_edit_mode(self, enabled: bool) -> None:
+        self._label_input.setEnabled(enabled)
+        self._platform_input.setEnabled(enabled)
+        self._purpose_input.setEnabled(enabled)
+        self._notes_input.setEnabled(enabled)
+        self._btn_save.setEnabled(enabled)
+        self._btn_edit.setText("Cancel" if enabled else "Edit")
+        if not enabled:
+            self._restore_context_fields()
+
+    def _restore_context_fields(self) -> None:
+        self._label_input.setText(self._key.label)
+        self._platform_input.setText(self._key.platform)
+        self._purpose_input.setText(self._key.purpose)
+        self._notes_input.setPlainText(self._key.notes)
+
+    def _save_context(self) -> None:
+        try:
+            updated = self._svc.update_context(
+                self._key.fingerprint,
+                label=self._label_input.text(),
+                platform=self._platform_input.text(),
+                purpose=self._purpose_input.text(),
+                notes=self._notes_input.toPlainText(),
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Save failed", str(exc))
+            return
+
+        self._key = updated
+        self.key_updated.emit(updated)
+        self._set_edit_mode(False)
+        QMessageBox.information(self, "Key details saved", "Key usage context was updated.")
 
 
 def _monospace_font() -> QFont:

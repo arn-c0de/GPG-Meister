@@ -11,6 +11,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from gpg_meister.storage.permissions import ensure_dir
+
 _APP_DIRNAME = "gpg-meister"
 _APP_DIRNAME_WINDOWS = "GPGMeister"
 
@@ -71,9 +73,7 @@ class AppPaths:
             self.gnupg_home,
             self.vault_dir,
         ):
-            path.mkdir(parents=True, exist_ok=True)
-            if sys.platform != "win32":
-                path.chmod(0o700)
+            ensure_dir(path, mode=0o700)
 
 
 def resolve_paths() -> AppPaths:

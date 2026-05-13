@@ -169,6 +169,8 @@ class _SelectPage(QWizardPage):
 
         layout = QVBoxLayout(self)
         self._meta_label = QLabel()
+        self._meta_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._meta_label.setWordWrap(True)
         layout.addWidget(self._meta_label)
 
         self._table = QTableWidget(0, 4)

@@ -34,10 +34,34 @@ class PermissionReport:
 
 
 def ensure_dir(path: Path, *, mode: int = 0o700) -> None:
-    """Create `path` (and parents) and set permissions to `mode` on POSIX."""
-    path.mkdir(parents=True, exist_ok=True)
-    if sys.platform != "win32":
-        os.chmod(path, mode)
+    """Create `path` (and parents) and set permissions to `mode` on POSIX.
+
+    Newly created directories are made one-by-one with the requested mode so they
+    never transiently appear with broader permissions than intended.
+    """
+    if sys.platform == "win32":
+        path.mkdir(parents=True, exist_ok=True)
+        return
+
+    missing: list[Path] = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    for directory in reversed(missing):
+        try:
+            os.mkdir(directory, mode)
+        except FileExistsError:
+            if not directory.is_dir():
+                raise
+
+    if path.exists() and not path.is_dir():
+        raise NotADirectoryError(path)
+    os.chmod(path, mode)
 
 
 def ensure_file_mode(path: Path, *, mode: int = 0o600) -> None:

@@ -52,6 +52,7 @@ from gpg_meister.services.validation import (
     validate_key_algorithm_and_length,
     validate_user_name,
 )
+from gpg_meister.storage.permissions import ensure_dir
 
 # python-gnupg's `gpg.encrypt`/`gpg.sign`/etc. methods accept `passphrase=` as a
 # Python string. Internally they write it to a pipe linked to `--passphrase-fd`,
@@ -126,9 +127,7 @@ class GPGService:
     def __init__(self, config: GPGServiceConfig) -> None:
         if not config.binary_path.exists():
             raise GPGServiceError(f"GPG binary does not exist: {config.binary_path}")
-        config.home_dir.mkdir(parents=True, exist_ok=True)
-        with contextlib.suppress(OSError):
-            os.chmod(config.home_dir, 0o700)
+        ensure_dir(config.home_dir, mode=0o700)
 
         self._config = config
         self._gpg = gnupg.GPG(
@@ -370,7 +369,11 @@ class GPGService:
     ) -> tuple[bool, str | None, datetime | None]:
         """Return (valid, signer_fingerprint, signed_at)."""
         if detached_signature is not None:
-            with tempfile.NamedTemporaryFile(suffix=".asc", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(
+                suffix=".asc",
+                dir=self._config.home_dir,
+                delete=False,
+            ) as tmp:
                 tmp.write(detached_signature)
                 sig_path = tmp.name
             try:

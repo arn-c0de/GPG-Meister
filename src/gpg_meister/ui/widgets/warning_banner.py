@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from gpg_meister.ui.errors.user_error import ErrorSeverity
@@ -53,6 +53,7 @@ class WarningBanner(QFrame):
         layout.addWidget(icon_label)
 
         self._message_label = QLabel(message)
+        self._message_label.setTextFormat(Qt.TextFormat.PlainText)
         self._message_label.setWordWrap(True)
         self._message_label.setAccessibleName("Warning message")
         layout.addWidget(self._message_label, stretch=1)

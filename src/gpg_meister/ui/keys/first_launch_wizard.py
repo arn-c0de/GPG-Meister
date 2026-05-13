@@ -105,6 +105,7 @@ class _ConfirmPage(QWizardPage):
         self._summary = QLabel("The following keys will be imported:")
         self._layout.addWidget(self._summary)
         self._detail = QLabel()
+        self._detail.setTextFormat(Qt.TextFormat.PlainText)
         self._detail.setWordWrap(True)
         self._layout.addWidget(self._detail)
 
