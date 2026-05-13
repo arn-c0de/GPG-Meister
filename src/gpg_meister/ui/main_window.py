@@ -99,8 +99,21 @@ class MainWindow(QMainWindow):
     def show_status(self, message: str, timeout_ms: int = 4000) -> None:
         self._status_bar.showMessage(message, timeout_ms)
 
+    def install_keys_tab(self, view: QWidget) -> None:
+        """Replace the placeholder Keys tab with the real KeyListView."""
+        self.replace_tab(0, view, "Keys")
+
     def replace_tab(self, index: int, widget: QWidget, label: str) -> None:
         """Replace a placeholder tab with a real view."""
         self._tabs.removeTab(index)
         self._tabs.insertTab(index, widget, label)
-        self._tabs.setCurrentIndex(index)
+
+    def show_backup_reminder(self, uid: str) -> None:
+        """Show a one-time backup banner after a key is created."""
+        banner = WarningBanner(
+            f'New key "{uid}" created. Create a vault backup so you can restore it later.',
+            severity=ErrorSeverity.WARNING,
+            dismissible=True,
+        )
+        self._banner_layout.addWidget(banner)
+        self._banners.append(banner)

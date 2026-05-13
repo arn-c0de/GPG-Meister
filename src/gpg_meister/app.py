@@ -72,11 +72,42 @@ def main() -> None:
         warning_count=str(len(check_result.warnings)),
     )
 
+    from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
+    from gpg_meister.services.key_service import KeyService
+    from gpg_meister.storage.metadata_store import MetadataStore
+    from gpg_meister.ui.keys.key_list_view import KeyListView
+    from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
+
+    gpg_svc = GPGService(GPGServiceConfig(binary_path=gpg.path, home_dir=paths.gnupg_home))
+    key_svc = KeyService(gpg=gpg_svc, audit=audit)
+    metadata = MetadataStore(paths.metadata_db)
+
     window = MainWindow()
     window.show_startup_results(check_result)
+
+    key_vm = KeyListViewModel(key_svc)
+    key_view = KeyListView(key_vm)
+    window.install_keys_tab(key_view)
+
+    def _on_key_created(key: object) -> None:
+        from gpg_meister.models.key_info import KeyInfo
+        if isinstance(key, KeyInfo):
+            uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
+            window.show_backup_reminder(uid)
+            metadata.upsert_key(key.fingerprint, label=uid)
+
+    key_vm.key_created.connect(_on_key_created)
+
+    # Show first-launch wizard if the app keyring is empty.
+    if not gpg_svc.list_keys():
+        from gpg_meister.ui.keys.first_launch_wizard import FirstLaunchWizard
+        wizard = FirstLaunchWizard(gpg.path, key_svc, parent=window)
+        wizard.exec()
+
     window.show()
 
     exit_code = app.exec()
+    metadata.close()
     audit.close()
     sys.exit(exit_code)
 
