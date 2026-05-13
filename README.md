@@ -59,4 +59,4 @@ python scripts/build_translations.py
 - Email: [arn-c0de@protonmail.com](mailto:arn-c0de@protonmail.com)
 
 ## License
-LGPL. See the `LICENSE` file.
+MIT. See the `LICENSE` file.
