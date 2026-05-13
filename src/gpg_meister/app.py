@@ -91,8 +91,8 @@ def main() -> None:
     app.setOrganizationName("GPG Meister")
     _remember_default_appearance(app)
 
-    from gpg_meister.storage.log_config import configure_logging
     from gpg_meister.storage.factory_reset import perform_pending_factory_reset
+    from gpg_meister.storage.log_config import configure_logging
     from gpg_meister.storage.paths import resolve_paths
 
     paths = resolve_paths()
@@ -193,6 +193,18 @@ def main() -> None:
     )
     window.install_settings_tab(settings_view)
     window.install_help_tab(HelpView())
+    window.set_current_page(config.last_open_page)
+
+    def _persist_current_page(page_value: str) -> None:
+        from gpg_meister.models.config import AppPage
+
+        try:
+            page = AppPage(page_value)
+        except ValueError:
+            return
+        settings_vm.persist_last_open_page(page)
+
+    window.current_page_changed.connect(_persist_current_page)
 
     def _on_key_created(key: object) -> None:
         from gpg_meister.models.key_info import KeyInfo

@@ -25,6 +25,14 @@ class AppearanceMode(StrEnum):
     DARK = "dark"
 
 
+class AppPage(StrEnum):
+    KEYS = "keys"
+    MESSAGES = "messages"
+    VAULT = "vault"
+    SETTINGS = "settings"
+    HELP = "help"
+
+
 class AuditConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -46,6 +54,7 @@ class AppConfig(BaseModel):
 
     locale: Locale = Locale.AUTO
     appearance: AppearanceMode = AppearanceMode.SYSTEM
+    last_open_page: AppPage = AppPage.KEYS
     gpg_binary_path: str | None = None
     gpg_binary_trusted_hash: GPGBinaryTrust | None = None
     cipher: CipherAlgorithm = CipherAlgorithm.CHACHA20_POLY1305

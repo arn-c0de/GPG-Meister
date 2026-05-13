@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 from gpg_meister.app import _apply_appearance
-from gpg_meister.models.config import AppConfig, AppearanceMode
+from gpg_meister.models.config import AppConfig, AppearanceMode, AppPage
 from gpg_meister.services.config_service import load
 from gpg_meister.storage.paths import AppPaths
 from gpg_meister.ui.settings.settings_view import SettingsView
@@ -75,6 +75,20 @@ def test_day_mode_keeps_widget_style_and_font() -> None:
     assert app.styleSheet() == stylesheet_before
 
     _apply_appearance(app, AppConfig())
+
+
+def test_persist_last_open_page_does_not_save_pending_settings(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    vm = SettingsViewModel(AppConfig(), paths)
+
+    vm.set_appearance(AppearanceMode.LIGHT)
+    vm.persist_last_open_page(AppPage.HELP)
+
+    saved = load(paths.config_file)
+    assert saved.last_open_page == AppPage.HELP
+    assert saved.appearance == AppearanceMode.SYSTEM
+    assert vm.config.appearance == AppearanceMode.LIGHT
+    assert vm.config.last_open_page == AppPage.HELP
 
 
 def test_factory_reset_schedules_when_second_confirmation_matches(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
-from gpg_meister.models.config import AppConfig, AppearanceMode, AuditConfig, Locale
+from gpg_meister.models.config import AppConfig, AppearanceMode, AppPage, AuditConfig, Locale
 from gpg_meister.models.kdf_params import KDFProfile
 from gpg_meister.models.vault import CipherAlgorithm
 from gpg_meister.services import config_service
@@ -36,6 +36,7 @@ class SettingsViewModel(QObject):
         self._path = paths.config_file
         self._paths = paths
         # Work on a mutable snapshot; original is not mutated until save().
+        self._saved = config.model_copy(deep=True)
         self._pending = config.model_copy(deep=True)
 
     @property
@@ -47,6 +48,16 @@ class SettingsViewModel(QObject):
 
     def set_appearance(self, appearance: AppearanceMode) -> None:
         self._pending.appearance = appearance
+
+    def persist_last_open_page(self, page: AppPage) -> None:
+        saved = self._saved.model_copy(update={"last_open_page": page})
+        try:
+            config_service.save(saved, self._path)
+        except Exception as exc:
+            self.save_failed.emit(str(exc))
+            return
+        self._saved = saved
+        self._pending.last_open_page = page
 
     def set_cipher(self, cipher: CipherAlgorithm) -> None:
         self._pending.cipher = cipher
@@ -78,6 +89,7 @@ class SettingsViewModel(QObject):
     def save(self) -> None:
         try:
             config_service.save(self._pending, self._path)
+            self._saved = self._pending.model_copy(deep=True)
             self.config_saved.emit()
         except Exception as exc:
             self.save_failed.emit(str(exc))
