@@ -50,6 +50,7 @@ class DecryptViewModel(QObject):
         self.loading_changed.emit(True)
         ciphertext_bytes = self._ciphertext.encode()
         pp_bytes = self._passphrase.encode()
+        self._passphrase = ""
 
         def _do() -> DecryptResult:
             with SecureBytes.from_bytes(pp_bytes) as pp:

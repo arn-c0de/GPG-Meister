@@ -119,7 +119,6 @@ class _PassphrasePage(QWizardPage):
         layout.addWidget(self._status_label)
         layout.addStretch()
 
-        self.registerField("vault_passphrase", self._pp_field, "text")
 
     def preview(self) -> VaultPreview | None:
         return self._preview

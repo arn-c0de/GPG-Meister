@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QProgressBar,
     QPushButton,
     QTableWidget,
@@ -197,7 +198,7 @@ class KeyListView(QWidget):
                 self,
                 "Delete key pair",
                 f"Enter the passphrase for key {key.fingerprint[-16:]} to confirm deletion:",
-                echo=__import__("PySide6.QtWidgets", fromlist=["QLineEdit"]).QLineEdit.EchoMode.Password,
+                echo=QLineEdit.EchoMode.Password,
             )
             if not ok or not passphrase_text:
                 return

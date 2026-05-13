@@ -94,6 +94,9 @@ class VaultExportViewModel(QObject):
         target = self._target_path
         master_bytes = self._master_passphrase.encode()
         gpg_bytes = self._gpg_passphrase.encode()
+        self._master_passphrase = ""
+        self._confirm_passphrase = ""
+        self._gpg_passphrase = ""
         desc = self._description
 
         def _do() -> VaultDescriptor:

@@ -6,6 +6,7 @@ keys into the application's dedicated keyring. Never deletes from ~/.gnupg.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -23,6 +24,8 @@ from PySide6.QtWidgets import (
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
 from gpg_meister.services.key_service import KeyService
+
+_log = logging.getLogger(__name__)
 
 _SYSTEM_GNUPG = Path.home() / ".gnupg"
 
@@ -160,8 +163,8 @@ class FirstLaunchWizard(QWizard):
             for key in keys:
                 armored = system_svc.export_public_key(key.fingerprint)
                 self._key_svc.import_armored(armored)
-        except Exception:  # noqa: S110
-            pass  # Wizard import is best-effort; failures are silent to avoid alarming the user.
+        except Exception as exc:
+            _log.warning("First-launch key import failed: %s", exc)
 
 
 def _cell(text: str) -> QTableWidgetItem:

@@ -301,16 +301,14 @@ class GPGService:
         recipient_fingerprints: Sequence[str],
         sign_with: str | None = None,
         passphrase: SecureBytes | None = None,
+        always_trust: bool = False,
     ) -> str:
         recipients = [validate_fingerprint(fp) for fp in recipient_fingerprints]
         signer = validate_fingerprint(sign_with) if sign_with else None
         kwargs: dict[str, Any] = {
             "recipients": recipients,
             "armor": True,
-            # The app performs its own recipient confirmation in the UI. A freshly
-            # imported vault key may not carry local ownertrust yet, but encryption
-            # should still succeed after explicit user confirmation.
-            "always_trust": True,
+            "always_trust": always_trust,
         }
         if signer:
             kwargs["sign"] = signer

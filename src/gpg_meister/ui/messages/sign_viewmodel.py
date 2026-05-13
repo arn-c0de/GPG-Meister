@@ -77,6 +77,7 @@ class SignViewModel(QObject):
         data_bytes = self._data.encode()
         fp = self._fingerprint
         pp_bytes = self._passphrase.encode()
+        self._passphrase = ""
         detached = self._detached
 
         def _do() -> SignResult:

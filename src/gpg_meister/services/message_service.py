@@ -32,6 +32,7 @@ class MessageService:
         recipient_fingerprints: Sequence[str],
         sign_with: str | None = None,
         passphrase: SecureBytes | None = None,
+        always_trust: bool = False,
     ) -> EncryptResult:
         recipients = tuple(validate_fingerprint(fp) for fp in recipient_fingerprints)
         signer = validate_fingerprint(sign_with) if sign_with else None
@@ -42,6 +43,7 @@ class MessageService:
                 recipient_fingerprints=recipients,
                 sign_with=signer,
                 passphrase=passphrase,
+                always_trust=always_trust,
             )
         except Exception as exc:
             if signer:

@@ -87,6 +87,8 @@ class KeyCreateViewModel(QObject):
             return
         self.loading_changed.emit(True)
         passphrase_bytes = self._passphrase.encode()
+        self._passphrase = ""
+        self._confirm = ""
 
         def _do() -> KeyInfo:
             with SecureBytes.from_bytes(passphrase_bytes) as pp:

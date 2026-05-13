@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
@@ -87,7 +89,7 @@ class PublicKeyImportDialog(QDialog):
         )
         if path:
             try:
-                self._text_edit.setPlainText(__import__("pathlib").Path(path).read_text("utf-8"))
+                self._text_edit.setPlainText(Path(path).read_text("utf-8"))
             except Exception as exc:
                 self._show_error(f"Could not read file: {exc}")
 

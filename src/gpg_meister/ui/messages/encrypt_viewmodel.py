@@ -76,6 +76,7 @@ class EncryptViewModel(QObject):
         fps = list(self._recipient_fps)
         sign_with = self._sign_with
         pp_bytes = self._passphrase.encode() if self._passphrase else None
+        self._passphrase = ""
 
         def _do() -> EncryptResult:
             pp: SecureBytes | None = None
@@ -86,11 +87,13 @@ class EncryptViewModel(QObject):
                         recipient_fingerprints=fps,
                         sign_with=sign_with,
                         passphrase=pp,
+                        always_trust=True,
                     )
             return self._msg_svc.encrypt(
                 plaintext_bytes,
                 recipient_fingerprints=fps,
                 sign_with=sign_with,
+                always_trust=True,
             )
 
         w = Worker(_do)
