@@ -47,7 +47,7 @@ class EncryptViewModel(QObject):
     def load_keys(self) -> None:
         w = Worker(self._key_svc.list_keys)
         w.signals.result.connect(self._on_keys)
-        w.signals.error.connect(self.operation_failed.emit)
+        w.signals.error.connect(self._on_error)
         self._pool.start(w)
 
     def _on_keys(self, keys: object) -> None:
@@ -103,10 +103,17 @@ class EncryptViewModel(QObject):
             )
 
         w = Worker(_do)
-        w.signals.result.connect(self.operation_succeeded.emit)
-        w.signals.error.connect(self.operation_failed.emit)
+        w.signals.result.connect(self._on_success)
+        w.signals.error.connect(self._on_error)
         w.signals.finished.connect(self._on_finished)
         self._pool.start(w)
+
+    def _on_success(self, result: object) -> None:
+        if isinstance(result, EncryptResult):
+            self.operation_succeeded.emit(result)
+
+    def _on_error(self, msg: str) -> None:
+        self.operation_failed.emit(msg)
 
     def _on_finished(self) -> None:
         self.loading_changed.emit(False)
