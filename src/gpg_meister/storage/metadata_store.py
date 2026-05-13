@@ -65,6 +65,9 @@ class MetadataStore:
         if sys.platform != "win32":
             import os
             os.chmod(path, 0o600)
+            for sidecar in (path.parent / (path.name + "-wal"), path.parent / (path.name + "-shm")):
+                if sidecar.exists():
+                    os.chmod(sidecar, 0o600)
         with self._conn:
             self._conn.executescript(_SCHEMA)
 

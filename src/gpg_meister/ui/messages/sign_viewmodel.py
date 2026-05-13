@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from gpg_meister.models.message import SignResult
@@ -39,7 +41,7 @@ class SignViewModel(QObject):
         self._pool = QThreadPool.globalInstance()
         self._data = ""
         self._fingerprint = ""
-        self._passphrase = ""
+        self._passphrase_non_empty: bool = False
         self._detached = True
 
     def load_keys(self) -> None:
@@ -61,23 +63,23 @@ class SignViewModel(QObject):
     def set_fingerprint(self, fp: str) -> None:
         self._fingerprint = fp
 
-    def set_passphrase(self, value: str) -> None:
-        self._passphrase = value
+    def set_passphrase_non_empty(self, non_empty: bool) -> None:
+        self._passphrase_non_empty = non_empty
 
     def set_detached(self, detached: bool) -> None:
         self._detached = detached
 
     def can_submit(self) -> bool:
-        return bool(self._data.strip()) and bool(self._fingerprint) and bool(self._passphrase)
+        return bool(self._data.strip()) and bool(self._fingerprint) and self._passphrase_non_empty
 
-    def submit(self) -> None:
+    def submit(self, get_passphrase: Callable[[], str]) -> None:
         if not self.can_submit():
             return
         self.loading_changed.emit(True)
         data_bytes = self._data.encode()
         fp = self._fingerprint
-        pp_bytes = self._passphrase.encode()
-        self._passphrase = ""
+        pp_str = get_passphrase()
+        pp_bytes = pp_str.encode()
         detached = self._detached
 
         def _do() -> SignResult:

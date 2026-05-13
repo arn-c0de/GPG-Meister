@@ -163,18 +163,18 @@ class VaultExportView(QWidget):
         self._vm.set_target_path(Path(text) if text else None)
         self._update_button()
 
-    def _on_master_changed(self, value: str) -> None:
-        self._vm.set_master_passphrase(value)
+    def _on_master_changed(self) -> None:
+        self._vm.set_master_passphrase(self._master_pp.text())
         self._check_pp_match()
         self._update_button()
 
-    def _on_confirm_changed(self, value: str) -> None:
-        self._vm.set_confirm_passphrase(value)
+    def _on_confirm_changed(self) -> None:
+        self._vm.set_confirm_passphrase(self._confirm_pp.text())
         self._check_pp_match()
         self._update_button()
 
-    def _on_gpg_changed(self, value: str) -> None:
-        self._vm.set_gpg_passphrase(value)
+    def _on_gpg_changed(self) -> None:
+        self._vm.set_gpg_passphrase(self._gpg_pp.text())
         self._update_button()
 
     def _check_pp_match(self) -> None:

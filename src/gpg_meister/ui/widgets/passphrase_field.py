@@ -24,7 +24,7 @@ class PassphraseField(QWidget):
     passphrase_changed: emitted on every keystroke with the current text.
     """
 
-    passphrase_changed: Signal = Signal(str)
+    passphrase_changed: Signal = Signal()
 
     def __init__(self, parent: QWidget | None = None, *, show_strength: bool = True) -> None:
         super().__init__(parent)
@@ -81,7 +81,7 @@ class PassphraseField(QWidget):
             self._toggle_btn.setText("Show")
 
     def _on_text_changed(self, text: str) -> None:
-        self.passphrase_changed.emit(text)
+        self.passphrase_changed.emit()
         if self._show_strength:
             self._update_strength(text)
 

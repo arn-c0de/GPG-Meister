@@ -125,9 +125,13 @@ class KeyCreateDialog(QDialog):
         self._email_field.textChanged.connect(self._vm.set_email)
         self._algo_combo.currentIndexChanged.connect(self._on_algo_changed)
         self._expiry_combo.currentIndexChanged.connect(self._on_expiry_changed)
-        self._passphrase_field.passphrase_changed.connect(self._vm.set_passphrase)
+        self._passphrase_field.passphrase_changed.connect(
+            lambda: self._vm.set_passphrase(self._passphrase_field.text())
+        )
         self._passphrase_field.passphrase_changed.connect(self._check_mismatch)
-        self._confirm_field.passphrase_changed.connect(self._vm.set_confirm)
+        self._confirm_field.passphrase_changed.connect(
+            lambda: self._vm.set_confirm(self._confirm_field.text())
+        )
         self._confirm_field.passphrase_changed.connect(self._check_mismatch)
 
         self._vm.form_valid_changed.connect(
@@ -145,7 +149,7 @@ class KeyCreateDialog(QDialog):
         _, value = _EXPIRY_CHOICES[index]
         self._vm.set_expiry(value)
 
-    def _check_mismatch(self, _: str = "") -> None:
+    def _check_mismatch(self) -> None:
         pp = self._passphrase_field.text()
         confirm = self._confirm_field.text()
         if confirm and pp != confirm:

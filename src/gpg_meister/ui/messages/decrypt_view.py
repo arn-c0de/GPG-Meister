@@ -87,7 +87,7 @@ class DecryptView(QWidget):
 
         self._ciphertext.textChanged.connect(self._on_input_changed)
         self._passphrase.passphrase_changed.connect(self._on_passphrase_changed)
-        self._btn_decrypt.clicked.connect(self._vm.submit)
+        self._btn_decrypt.clicked.connect(lambda: self._vm.submit(self._passphrase.text))
         self._btn_clear.clicked.connect(self._clear)
         self._btn_copy_output.clicked.connect(self._copy_output)
 
@@ -96,8 +96,8 @@ class DecryptView(QWidget):
         self._vm.set_ciphertext(text)
         self._update_button()
 
-    def _on_passphrase_changed(self, value: str) -> None:
-        self._vm.set_passphrase(value)
+    def _on_passphrase_changed(self) -> None:
+        self._vm.set_passphrase_non_empty(bool(self._passphrase.text()))
         self._update_button()
 
     def _update_button(self) -> None:

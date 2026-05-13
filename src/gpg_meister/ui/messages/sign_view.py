@@ -103,7 +103,7 @@ class SignView(QWidget):
         self._passphrase.passphrase_changed.connect(self._on_passphrase_changed)
         self._data.textChanged.connect(self._on_data_changed)
         self._detached_check.toggled.connect(self._vm.set_detached)
-        self._btn_sign.clicked.connect(self._vm.submit)
+        self._btn_sign.clicked.connect(lambda: self._vm.submit(self._passphrase.text))
         self._btn_clear.clicked.connect(self._clear)
         self._btn_copy.clicked.connect(self._copy_output)
 
@@ -121,8 +121,8 @@ class SignView(QWidget):
             self._vm.set_fingerprint("")
         self._update_button()
 
-    def _on_passphrase_changed(self, value: str) -> None:
-        self._vm.set_passphrase(value)
+    def _on_passphrase_changed(self) -> None:
+        self._vm.set_passphrase_non_empty(bool(self._passphrase.text()))
         self._update_button()
 
     def _on_data_changed(self) -> None:

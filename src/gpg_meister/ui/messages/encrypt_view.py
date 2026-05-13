@@ -240,7 +240,9 @@ class EncryptView(QWidget):
         self._recip_list.itemSelectionChanged.connect(self._on_recip_selection)
         self._sign_box.toggled.connect(self._on_sign_toggled)
         self._sign_combo.currentIndexChanged.connect(self._on_sign_key_changed)
-        self._sign_passphrase.passphrase_changed.connect(self._vm.set_passphrase)
+        self._sign_passphrase.passphrase_changed.connect(
+            lambda: self._vm.set_passphrase(self._sign_passphrase.text())
+        )
         self._verify_check.toggled.connect(self._on_verify_toggled)
         self._btn_encrypt.clicked.connect(self._vm.submit)
         self._btn_clear.clicked.connect(self._clear)
@@ -325,6 +327,7 @@ class EncryptView(QWidget):
             self._verify_check.setChecked(False)
 
     def _on_verify_toggled(self, checked: bool) -> None:
+        self._vm.set_trust_confirmed(checked)
         self._update_encrypt_button()
 
     def _update_encrypt_button(self) -> None:

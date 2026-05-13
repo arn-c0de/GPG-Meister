@@ -42,6 +42,7 @@ class EncryptViewModel(QObject):
         self._recipient_fps: list[str] = []
         self._sign_with: str | None = None
         self._passphrase = ""
+        self._trust_confirmed: bool = False
 
     def load_keys(self) -> None:
         w = Worker(self._key_svc.list_keys)
@@ -65,6 +66,9 @@ class EncryptViewModel(QObject):
     def set_passphrase(self, value: str) -> None:
         self._passphrase = value
 
+    def set_trust_confirmed(self, confirmed: bool) -> None:
+        self._trust_confirmed = confirmed
+
     def can_submit(self) -> bool:
         return bool(self._plaintext.strip()) and bool(self._recipient_fps)
 
@@ -77,6 +81,8 @@ class EncryptViewModel(QObject):
         sign_with = self._sign_with
         pp_bytes = self._passphrase.encode() if self._passphrase else None
         self._passphrase = ""
+        trust = self._trust_confirmed
+        self._trust_confirmed = False
 
         def _do() -> EncryptResult:
             pp: SecureBytes | None = None
@@ -87,13 +93,13 @@ class EncryptViewModel(QObject):
                         recipient_fingerprints=fps,
                         sign_with=sign_with,
                         passphrase=pp,
-                        always_trust=True,
+                        always_trust=trust,
                     )
             return self._msg_svc.encrypt(
                 plaintext_bytes,
                 recipient_fingerprints=fps,
                 sign_with=sign_with,
-                always_trust=True,
+                always_trust=trust,
             )
 
         w = Worker(_do)

@@ -123,6 +123,9 @@ class _PassphrasePage(QWizardPage):
     def preview(self) -> VaultPreview | None:
         return self._preview
 
+    def passphrase(self) -> str:
+        return self._pp_field.text()
+
     def validatePage(self) -> bool:
         vault_path = Path(self.field("vault_path"))
         pp_text = self._pp_field.text()
@@ -250,7 +253,7 @@ class _ResultPage(QWizardPage):
             return
 
         vault_path = Path(self.field("vault_path"))
-        pp_text = pp_page.field("vault_passphrase")
+        pp_text = pp_page.passphrase()
 
         self._log.setPlainText("Importing keys…")
         from PySide6.QtWidgets import QApplication
