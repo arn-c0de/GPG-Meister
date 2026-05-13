@@ -17,14 +17,14 @@ You can already use it, but it is still a work in progress and some parts may ch
 
 ## What it does
 - **Key Management**: Create, import, and manage GPG keys.
-  ![Key Management](images/GPG-MEISTER-keys-page.png)
+  <img src="images/GPG-MEISTER-keys-page.png" alt="Key Management" width="600">
 - **Message Operations**: Encrypt, decrypt, sign, and verify messages.
-  ![Encryption](images/GPG-MEISTER-encrypt-page.png)
-  ![Decryption](images/GPG-MEISTER-decrypt-page.png)
+  <img src="images/GPG-MEISTER-encrypt-page.png" alt="Encryption" width="600">
+  <img src="images/GPG-MEISTER-decrypt-page.png" alt="Decryption" width="600">
 - **Secure Backups**: Export and import encrypted key vault backups.
-  ![Vault Management](images/GPG-MEISTER-vault.png)
+  <img src="images/GPG-MEISTER-vault.png" alt="Vault Management" width="600">
 - **Help System**: Built-in help and glossary.
-  ![Help Page](images/GPG-MEISTER-help-page.png)
+  <img src="images/GPG-MEISTER-help-page.png" alt="Help Page" width="600">
 - **Local-First**: Keep all operations on your own machine.
 - **Internationalization**: Support English and German UI.
 
