@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -108,6 +110,21 @@ class SettingsView(QWidget):
         audit_form.addRow("", self._hash_chain_check)
         root.addWidget(audit_box)
 
+        # --- Reset ---
+        reset_box = QGroupBox("Factory reset")
+        reset_layout = QVBoxLayout(reset_box)
+        reset_layout.addWidget(QLabel(
+            "Reset GPG Meister to a clean local state. This removes the app config, "
+            "local keyring, metadata database, logs, cache, and vault files stored "
+            "inside the app data directory on the next launch."
+        ))
+        reset_layout.addWidget(QLabel(
+            "Externally exported files outside the app-managed folders are not removed."
+        ))
+        self._btn_factory_reset = QPushButton("Schedule Factory Reset")
+        reset_layout.addWidget(self._btn_factory_reset)
+        root.addWidget(reset_box)
+
         # --- Buttons ---
         btn_row = QHBoxLayout()
         self._btn_save = QPushButton("Save Settings")
@@ -123,6 +140,10 @@ class SettingsView(QWidget):
     def _connect_signals(self) -> None:
         self._vm.config_saved.connect(lambda: self._set_status("Settings saved.", ok=True))
         self._vm.save_failed.connect(lambda msg: self._set_status(f"Save failed: {msg}", ok=False))
+        self._vm.factory_reset_failed.connect(
+            lambda msg: self._set_status(f"Factory reset failed: {msg}", ok=False)
+        )
+        self._vm.factory_reset_scheduled.connect(self._on_factory_reset_scheduled)
 
         self._locale_combo.currentIndexChanged.connect(self._on_locale_changed)
         self._cipher_combo.currentIndexChanged.connect(self._on_cipher_changed)
@@ -133,6 +154,7 @@ class SettingsView(QWidget):
         self._reduce_motion_check.toggled.connect(self._vm.set_reduce_motion)
         self._hash_chain_check.toggled.connect(self._vm.set_audit_hash_chain)
         self._btn_save.clicked.connect(self._vm.save)
+        self._btn_factory_reset.clicked.connect(self._confirm_factory_reset)
 
     def _load_current(self) -> None:
         cfg = self._vm.config
@@ -170,3 +192,29 @@ class SettingsView(QWidget):
         self._status_label.setText(msg)
         color = "#006600" if ok else "#cc0000"
         self._status_label.setStyleSheet(f"color: {color};")
+
+    def _confirm_factory_reset(self) -> None:
+        answer = QMessageBox.warning(
+            self,
+            "Schedule factory reset",
+            "This will reset GPG Meister to a clean local state on the next launch.\n\n"
+            "It will remove the local app config, app-managed GPG keyring, metadata, "
+            "logs, cache, and vault files inside the app data directory.\n\n"
+            "External files outside the app-managed folders are not removed.\n\n"
+            "Do you want to schedule the reset and close the app now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._vm.schedule_factory_reset()
+
+    def _on_factory_reset_scheduled(self) -> None:
+        QMessageBox.information(
+            self,
+            "Factory reset scheduled",
+            "The factory reset was scheduled successfully. The app will close now. "
+            "Launch it again to complete the reset.",
+        )
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()

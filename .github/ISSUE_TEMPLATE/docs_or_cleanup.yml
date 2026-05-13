@@ -1,0 +1,28 @@
+name: Docs or Cleanup
+description: Report unclear docs, UX rough edges, or non-critical cleanup work
+title: "[Docs/Cleanup]: "
+labels:
+  - documentation
+body:
+  - type: textarea
+    id: issue
+    attributes:
+      label: What should be improved?
+      description: Describe what feels unclear, inconsistent, outdated, or rough
+      placeholder: The current text or behavior is confusing because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      placeholder: It would be better if ...
+
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: File, screen, section, or workflow
+      placeholder: README.md, docs/overview.md, Vault export dialog, ...
+

@@ -1,0 +1,50 @@
+name: Feature Request
+description: Suggest an improvement, workflow change, or new capability
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Clear requests are easier to evaluate and implement.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or goal
+      description: What are you trying to achieve?
+      placeholder: I want to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the change you would like to see
+      placeholder: The app should ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Add workflow details, examples, constraints, or tradeoffs
+      placeholder: This matters because ...
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Keys
+        - Messages
+        - Vault
+        - Settings
+        - Documentation
+        - Packaging
+        - Security
+        - Other
+

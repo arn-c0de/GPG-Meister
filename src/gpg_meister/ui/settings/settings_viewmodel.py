@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtCore import QObject, Signal
 
 from gpg_meister.models.config import AppConfig, AuditConfig, Locale
 from gpg_meister.models.kdf_params import KDFProfile
 from gpg_meister.models.vault import CipherAlgorithm
 from gpg_meister.services import config_service
+from gpg_meister.storage.factory_reset import request_factory_reset
+from gpg_meister.storage.paths import AppPaths
 
 
 class SettingsViewModel(QObject):
@@ -23,15 +23,18 @@ class SettingsViewModel(QObject):
 
     config_saved: Signal = Signal()
     save_failed: Signal = Signal(str)
+    factory_reset_scheduled: Signal = Signal()
+    factory_reset_failed: Signal = Signal(str)
 
     def __init__(
         self,
         config: AppConfig,
-        config_path: Path,
+        paths: AppPaths,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
-        self._path = config_path
+        self._path = paths.config_file
+        self._paths = paths
         # Work on a mutable snapshot; original is not mutated until save().
         self._pending = config.model_copy(deep=True)
 
@@ -72,3 +75,11 @@ class SettingsViewModel(QObject):
             self.config_saved.emit()
         except Exception as exc:
             self.save_failed.emit(str(exc))
+
+    def schedule_factory_reset(self) -> None:
+        try:
+            request_factory_reset(self._paths)
+            self._pending = AppConfig()
+            self.factory_reset_scheduled.emit()
+        except Exception as exc:
+            self.factory_reset_failed.emit(str(exc))

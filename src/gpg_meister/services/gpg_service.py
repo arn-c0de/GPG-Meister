@@ -325,12 +325,15 @@ class GPGService:
         self,
         ciphertext: bytes,
         *,
-        passphrase: SecureBytes,
+        passphrase: SecureBytes | None = None,
     ) -> tuple[bytes, str | None, bool]:
         """Return (plaintext, signer_fingerprint_if_any, signature_valid)."""
-        pass_bytes = bytes(passphrase.view())
-        reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
-        result = self._gpg.decrypt(ciphertext, passphrase=pass_bytes.decode("utf-8"))
+        kwargs: dict[str, Any] = {}
+        if passphrase is not None:
+            pass_bytes = bytes(passphrase.view())
+            reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+            kwargs["passphrase"] = pass_bytes.decode("utf-8")
+        result = self._gpg.decrypt(ciphertext, **kwargs)
         if not result.ok:
             if str(result.status or "").lower() in ("bad passphrase", "no secret key"):
                 raise GPGPassphraseError(f"decryption failed: {result.status}")

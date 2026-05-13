@@ -35,16 +35,12 @@ class DecryptViewModel(QObject):
         self._svc = message_service
         self._pool = QThreadPool.globalInstance()
         self._ciphertext = ""
-        self._passphrase_non_empty: bool = False
 
     def set_ciphertext(self, text: str) -> None:
         self._ciphertext = text
 
-    def set_passphrase_non_empty(self, non_empty: bool) -> None:
-        self._passphrase_non_empty = non_empty
-
     def can_submit(self) -> bool:
-        return bool(self._ciphertext.strip()) and self._passphrase_non_empty
+        return bool(self._ciphertext.strip())
 
     def submit(self, get_passphrase: Callable[[], str]) -> None:
         if not self.can_submit():
@@ -52,11 +48,12 @@ class DecryptViewModel(QObject):
         self.loading_changed.emit(True)
         ciphertext_bytes = self._ciphertext.encode()
         pp_str = get_passphrase()
-        pp_bytes = pp_str.encode()
 
         def _do() -> DecryptResult:
-            with SecureBytes.from_bytes(pp_bytes) as pp:
-                return self._svc.decrypt(ciphertext_bytes, passphrase=pp)
+            if pp_str:
+                with SecureBytes.from_bytes(pp_str.encode()) as pp:
+                    return self._svc.decrypt(ciphertext_bytes, passphrase=pp)
+            return self._svc.decrypt(ciphertext_bytes, passphrase=None)
 
         w = Worker(_do)
         w.signals.result.connect(self._on_success)

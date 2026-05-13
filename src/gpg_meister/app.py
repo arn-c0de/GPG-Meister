@@ -86,10 +86,16 @@ def main() -> None:
     app.setOrganizationName("GPG Meister")
 
     from gpg_meister.storage.log_config import configure_logging
+    from gpg_meister.storage.factory_reset import perform_pending_factory_reset
     from gpg_meister.storage.paths import resolve_paths
 
     paths = resolve_paths()
     paths.ensure()
+    try:
+        perform_pending_factory_reset(paths)
+    except Exception as exc:
+        QMessageBox.critical(None, "Factory reset failed", str(exc))
+        sys.exit(1)
     configure_logging(log_file=paths.diagnostic_log)
 
     from gpg_meister.i18n import install_translator, resolve_locale
@@ -163,10 +169,11 @@ def main() -> None:
     window.install_messages_tab(messages_view)
 
     export_vm = VaultExportViewModel(vault_svc, key_svc)
+    _wire_key_inventory_updates(key_vm, encrypt_vm, sign_vm, export_vm)
     vault_view = VaultTabView(export_vm, vault_svc)
     window.install_vault_tab(vault_view)
 
-    settings_vm = SettingsViewModel(config, paths.config_file)
+    settings_vm = SettingsViewModel(config, paths)
     window.install_settings_tab(SettingsView(settings_vm))
     window.install_help_tab(HelpView())
 
@@ -194,6 +201,30 @@ def main() -> None:
     metadata.close()
     audit.close()
     sys.exit(exit_code)
+
+
+def _wire_key_inventory_updates(
+    key_vm: object,
+    encrypt_vm: object,
+    sign_vm: object,
+    export_vm: object | None,
+) -> None:
+    """Refresh dependent key pickers whenever the key inventory changes."""
+
+    signals = getattr(key_vm, "keys_changed", None)
+    connect = getattr(signals, "connect", None)
+    if not callable(connect):
+        return
+
+    def _refresh_dependents(_keys: object) -> None:
+        for vm in (encrypt_vm, sign_vm, export_vm):
+            if vm is None:
+                continue
+            loader = getattr(vm, "load_keys", None)
+            if callable(loader):
+                loader()
+
+    connect(_refresh_dependents)
 
 
 def _check_backup_staleness(

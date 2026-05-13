@@ -158,8 +158,22 @@ def test_decrypt_viewmodel_emits_result() -> None:
     vm.operation_succeeded.connect(results.append)
 
     vm.set_ciphertext("cipher")
-    vm.set_passphrase_non_empty(True)
     vm.submit(lambda: "correct horse battery staple")
+
+    _pump_until(lambda: len(results) == 1)
+
+    assert len(results) == 1
+    assert results[0].plaintext == b"hello"
+
+
+def test_decrypt_viewmodel_allows_empty_passphrase() -> None:
+    vm = DecryptViewModel(_FakeMessageService())
+    results: list[DecryptResult] = []
+    vm.operation_succeeded.connect(results.append)
+
+    vm.set_ciphertext("cipher")
+    assert vm.can_submit() is True
+    vm.submit(lambda: "")
 
     _pump_until(lambda: len(results) == 1)
 

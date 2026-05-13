@@ -8,9 +8,24 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
 from gpg_meister.ui.errors.user_error import ErrorSeverity
 
 _SEVERITY_STYLES: dict[ErrorSeverity, str] = {
-    ErrorSeverity.INFO: "background: #d0e8ff; border: 1px solid #6699cc; border-radius: 4px;",
-    ErrorSeverity.WARNING: "background: #fff3cd; border: 1px solid #c8a000; border-radius: 4px;",
-    ErrorSeverity.ERROR: "background: #ffe0e0; border: 1px solid #cc4444; border-radius: 4px;",
+    ErrorSeverity.INFO: (
+        "QFrame { background: #d0e8ff; border: 1px solid #6699cc; border-radius: 4px; }"
+        " QLabel { color: #12324a; border: none; background: transparent; }"
+        " QPushButton { color: #12324a; border: none; background: transparent; }"
+        " QPushButton:hover { background: rgba(18, 50, 74, 0.08); }"
+    ),
+    ErrorSeverity.WARNING: (
+        "QFrame { background: #fff3cd; border: 1px solid #c8a000; border-radius: 4px; }"
+        " QLabel { color: #5c4400; border: none; background: transparent; }"
+        " QPushButton { color: #5c4400; border: none; background: transparent; }"
+        " QPushButton:hover { background: rgba(92, 68, 0, 0.10); }"
+    ),
+    ErrorSeverity.ERROR: (
+        "QFrame { background: #ffe0e0; border: 1px solid #cc4444; border-radius: 4px; }"
+        " QLabel { color: #6e1b1b; border: none; background: transparent; }"
+        " QPushButton { color: #6e1b1b; border: none; background: transparent; }"
+        " QPushButton:hover { background: rgba(110, 27, 27, 0.08); }"
+    ),
 }
 
 _SEVERITY_ICONS: dict[ErrorSeverity, str] = {

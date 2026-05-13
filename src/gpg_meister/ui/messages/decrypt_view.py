@@ -39,9 +39,18 @@ class DecryptView(QWidget):
         self._ciphertext.setAcceptRichText(False)
         layout.addWidget(self._ciphertext, stretch=1)
 
+        hint = QLabel(
+            "No manual key selection is needed. GPG reads the recipient from the message "
+            "and uses the matching private key from your local keyring. Enter a passphrase "
+            "only if that private key is protected."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #666666;")
+        layout.addWidget(hint)
+
         layout.addWidget(QLabel("Passphrase:"))
         self._passphrase = PassphraseField(show_strength=False)
-        self._passphrase.setPlaceholderText("Passphrase for the private key…")
+        self._passphrase.setPlaceholderText("Optional: passphrase for the private key…")
         layout.addWidget(self._passphrase)
 
         btn_row = QHBoxLayout()
@@ -97,7 +106,6 @@ class DecryptView(QWidget):
         self._update_button()
 
     def _on_passphrase_changed(self) -> None:
-        self._vm.set_passphrase_non_empty(bool(self._passphrase.text()))
         self._update_button()
 
     def _update_button(self) -> None:

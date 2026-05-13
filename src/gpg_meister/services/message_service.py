@@ -76,7 +76,7 @@ class MessageService:
         self,
         ciphertext: bytes,
         *,
-        passphrase: SecureBytes,
+        passphrase: SecureBytes | None = None,
     ) -> DecryptResult:
         try:
             plaintext, signer, valid = self._gpg.decrypt(ciphertext, passphrase=passphrase)
