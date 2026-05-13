@@ -100,6 +100,10 @@ class KeyService:
         length: int,
         expiry: str,
         passphrase: SecureBytes,
+        label: str | None = None,
+        purpose: str | None = None,
+        platform: str | None = None,
+        notes: str | None = None,
     ) -> KeyInfo:
         try:
             fp = self._gpg.generate_key(
@@ -125,6 +129,17 @@ class KeyService:
             algorithm=algorithm.value,
             length=length,
         )
+        if self._metadata is not None and any(
+            value is not None and value.strip()
+            for value in (label, purpose, platform, notes)
+        ):
+            self._metadata.upsert_key(
+                fp,
+                label=label,
+                purpose=purpose,
+                platform=platform,
+                notes=notes,
+            )
         return self.find(fp)
 
     def delete(

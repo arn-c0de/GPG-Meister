@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QProgressBar,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -69,6 +70,27 @@ class KeyCreateDialog(QDialog):
         self._email_field.setAccessibleName("Email")
         form.addRow("Email:", self._email_field)
 
+        self._label_field = QLineEdit()
+        self._label_field.setPlaceholderText("Optional internal label")
+        self._label_field.setAccessibleName("Label")
+        form.addRow("Label:", self._label_field)
+
+        self._platform_field = QLineEdit()
+        self._platform_field.setPlaceholderText("GitHub, Laptop, Server, ...")
+        self._platform_field.setAccessibleName("Platform")
+        form.addRow("Platform:", self._platform_field)
+
+        self._purpose_field = QLineEdit()
+        self._purpose_field.setPlaceholderText("Code signing, email, backup, ...")
+        self._purpose_field.setAccessibleName("Purpose")
+        form.addRow("Purpose:", self._purpose_field)
+
+        self._notes_field = QTextEdit()
+        self._notes_field.setPlaceholderText("Optional notes")
+        self._notes_field.setAccessibleName("Notes")
+        self._notes_field.setMaximumHeight(90)
+        form.addRow("Notes:", self._notes_field)
+
         self._algo_combo = QComboBox()
         for label, _algo, _length in _ALGO_CHOICES:
             self._algo_combo.addItem(label)
@@ -123,6 +145,12 @@ class KeyCreateDialog(QDialog):
     def _connect_signals(self) -> None:
         self._name_field.textChanged.connect(self._vm.set_name)
         self._email_field.textChanged.connect(self._vm.set_email)
+        self._label_field.textChanged.connect(self._vm.set_label)
+        self._platform_field.textChanged.connect(self._vm.set_platform)
+        self._purpose_field.textChanged.connect(self._vm.set_purpose)
+        self._notes_field.textChanged.connect(
+            lambda: self._vm.set_notes(self._notes_field.toPlainText())
+        )
         self._algo_combo.currentIndexChanged.connect(self._on_algo_changed)
         self._expiry_combo.currentIndexChanged.connect(self._on_expiry_changed)
         self._passphrase_field.passphrase_changed.connect(
@@ -165,6 +193,10 @@ class KeyCreateDialog(QDialog):
         self._buttons.setEnabled(not loading)
         self._name_field.setEnabled(not loading)
         self._email_field.setEnabled(not loading)
+        self._label_field.setEnabled(not loading)
+        self._platform_field.setEnabled(not loading)
+        self._purpose_field.setEnabled(not loading)
+        self._notes_field.setEnabled(not loading)
 
     def _on_submit(self) -> None:
         self._error_label.hide()

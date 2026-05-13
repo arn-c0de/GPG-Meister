@@ -22,12 +22,34 @@ def _key(fingerprint: str) -> KeyInfo:
 class _FakeGPGService:
     def __init__(self, keys: list[KeyInfo]) -> None:
         self._keys = {key.fingerprint: key for key in keys}
+        self._generated = 0
 
     def list_keys(self, *, secret: bool = False) -> list[KeyInfo]:
         return list(self._keys.values())
 
     def find_key(self, fingerprint: str) -> KeyInfo:
         return self._keys[fingerprint]
+
+    def generate_key(
+        self,
+        *,
+        name: str,
+        email: str,
+        algorithm: KeyAlgorithm,
+        length: int,
+        expiry: str,
+        passphrase: object,
+    ) -> str:
+        self._generated += 1
+        fingerprint = f"{self._generated:040X}"
+        self._keys[fingerprint] = KeyInfo(
+            fingerprint=fingerprint,
+            user_ids=(f"{name} <{email}>",),
+            algorithm=algorithm,
+            length=length,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        return fingerprint
 
 
 def test_list_keys_merges_user_context_from_metadata(tmp_path: Path) -> None:
@@ -75,5 +97,41 @@ def test_update_context_persists_and_returns_enriched_key(tmp_path: Path) -> Non
     assert updated.platform == "GitLab"
     assert updated.notes == "Rotates yearly"
     assert metadata.get_key(key.fingerprint)["label"] == "Work"
+    metadata.close()
+    audit.close()
+
+
+def test_create_persists_optional_context_metadata(tmp_path: Path) -> None:
+    gpg = _FakeGPGService([])
+    metadata = MetadataStore(tmp_path / "meta.sqlite3")
+    audit = AuditLog(tmp_path / "audit.log")
+    service = KeyService(gpg=gpg, audit=audit, metadata=metadata)
+
+    from gpg_meister.security.secure_bytes import SecureBytes
+
+    with SecureBytes.from_bytes(b"correct horse battery staple") as passphrase:
+        created = service.create(
+            name="Alice",
+            email="alice@example.org",
+            algorithm=KeyAlgorithm.EDDSA,
+            length=255,
+            expiry="2y",
+            passphrase=passphrase,
+            label="Work Key",
+            purpose="Code Signing",
+            platform="GitHub",
+            notes="Release automation",
+        )
+
+    assert created.label == "Work Key"
+    assert created.purpose == "Code Signing"
+    assert created.platform == "GitHub"
+    assert created.notes == "Release automation"
+    row = metadata.get_key(created.fingerprint)
+    assert row is not None
+    assert row["label"] == "Work Key"
+    assert row["purpose"] == "Code Signing"
+    assert row["platform"] == "GitHub"
+    assert row["notes"] == "Release automation"
     metadata.close()
     audit.close()

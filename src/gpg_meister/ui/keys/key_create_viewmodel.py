@@ -36,6 +36,10 @@ class KeyCreateViewModel(QObject):
 
         self.name = ""
         self.email = ""
+        self.label = ""
+        self.platform = ""
+        self.purpose = ""
+        self.notes = ""
         self.algorithm: KeyAlgorithm = KeyAlgorithm.EDDSA
         self.length: int = 255
         self.expiry: str = "2y"
@@ -49,6 +53,18 @@ class KeyCreateViewModel(QObject):
     def set_email(self, value: str) -> None:
         self.email = value.strip()
         self._emit_validity()
+
+    def set_label(self, value: str) -> None:
+        self.label = value.strip()
+
+    def set_platform(self, value: str) -> None:
+        self.platform = value.strip()
+
+    def set_purpose(self, value: str) -> None:
+        self.purpose = value.strip()
+
+    def set_notes(self, value: str) -> None:
+        self.notes = value.strip()
 
     def set_algorithm(self, algo: KeyAlgorithm, length: int) -> None:
         self.algorithm = algo
@@ -99,6 +115,10 @@ class KeyCreateViewModel(QObject):
                     length=self.length,
                     expiry=self.expiry,
                     passphrase=pp,
+                    label=self.label,
+                    platform=self.platform,
+                    purpose=self.purpose,
+                    notes=self.notes,
                 )
 
         w = Worker(_do)

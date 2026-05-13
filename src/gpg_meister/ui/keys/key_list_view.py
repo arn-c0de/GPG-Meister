@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -49,6 +50,16 @@ def _is_expired(key: KeyInfo) -> bool:
     return datetime.now(tz=UTC) >= key.expires_at
 
 
+class _KeyTableWidget(QTableWidget):
+    """Clears selection when the user clicks below or beside the last row."""
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self.itemAt(_event_pos(event)) is None:
+            self.clearSelection()
+            self.setCurrentItem(None)
+        super().mousePressEvent(event)
+
+
 class KeyListView(QWidget):
     def __init__(self, viewmodel: KeyListViewModel, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -84,7 +95,7 @@ class KeyListView(QWidget):
         toolbar.addWidget(self._btn_refresh)
         layout.addLayout(toolbar)
 
-        self._table = QTableWidget(0, 7)
+        self._table = _KeyTableWidget(0, 7)
         self._table.setHorizontalHeaderLabels(
             ["User ID", "Algorithm", "Fingerprint", "Created", "Expires", "Private", "Trust"]
         )
@@ -235,3 +246,8 @@ def _display_name(key: KeyInfo) -> str:
     if not key.label:
         return primary_uid
     return f"{key.label} | {primary_uid}"
+
+
+def _event_pos(event: QMouseEvent) -> QPoint:
+    point = event.position()
+    return QPoint(int(point.x()), int(point.y()))
