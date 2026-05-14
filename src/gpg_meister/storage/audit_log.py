@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from gpg_meister.storage.file_lock import FileLock
-from gpg_meister.storage.permissions import ensure_dir, reject_symlink
+from gpg_meister.storage.permissions import _fchmod_nofollow, ensure_dir, reject_symlink
 
 # Whitelisted audit event names. Anything else is rejected.
 ALLOWED_EVENTS: Final[frozenset[str]] = frozenset(
@@ -70,6 +70,10 @@ FORBIDDEN_KEYS: Final[frozenset[str]] = frozenset(
         "token",
     }
 )
+
+# Maximum bytes read from the file tail when looking for the last hash chain entry.
+# A single audit record is well under 4 KB; 64 KB guarantees we always find one.
+_TAIL_CHUNK = 64 * 1024
 
 # Allowed outcome values.
 OUTCOME_OK = "ok"
@@ -139,7 +143,7 @@ class AuditLog:
         self._fh = path.open("ab")
         if sys.platform != "win32":
             with contextlib.suppress(OSError):
-                os.chmod(path, 0o600)
+                _fchmod_nofollow(path, 0o600)
         if self._hash_chain:
             self._prev_hash = self._scan_for_last_hash()
         # Self-announce so an empty log file always carries at least one record
@@ -202,17 +206,37 @@ class AuditLog:
         self.close()
 
     def _scan_for_last_hash(self) -> str | None:
-        """Re-derive the last record's hash to continue the chain on reopen."""
+        """Return the SHA-256 of the last record line in O(1) by reading tail-first.
+
+        Reads up to _TAIL_CHUNK bytes from the end of the file to find the
+        last non-empty line, avoiding an O(N) full-file scan on every emit().
+        """
         if not self._path.exists() or self._path.stat().st_size == 0:
             return None
-        last_hash: str | None = None
         with self._path.open("rb") as f:
+            f.seek(0, 2)  # end
+            size = f.tell()
+            chunk = min(size, _TAIL_CHUNK)
+            f.seek(-chunk, 2)
+            tail = f.read(chunk)
+        # Find the last complete (newline-terminated) line in the chunk.
+        lines = tail.split(b"\n")
+        for raw in reversed(lines):
+            raw = raw.strip()
+            if raw:
+                line = raw.decode("utf-8", errors="replace")
+                return hashlib.sha256(line.encode("utf-8")).hexdigest()
+        # Tail chunk didn't contain a complete line — fall back to full scan.
+        with self._path.open("rb") as f:
+            last: bytes | None = None
             for raw in f:
-                line = raw.decode("utf-8", errors="replace").rstrip("\n")
-                if not line:
-                    continue
-                last_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
-        return last_hash
+                raw = raw.strip()
+                if raw:
+                    last = raw
+        if last is None:
+            return None
+        line = last.decode("utf-8", errors="replace")
+        return hashlib.sha256(line.encode("utf-8")).hexdigest()
 
 
 def verify_chain(path: Path) -> tuple[bool, int]:

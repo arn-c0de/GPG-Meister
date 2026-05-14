@@ -136,7 +136,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Issue:** `verify_chain()` was never called automatically; tampered records went undetected.
 *   **Fix:** `verify_chain()` is called before opening the audit log if `hash_chain` is enabled; a warning dialog is shown on failure.
 
-### 8.8 Whitelist Trust Does Not Enforce Strong Ownership
+### FIXED 8.8 Whitelist Trust Does Not Enforce Strong Ownership
 *   **Location:** `src/gpg_meister/startup/gpg_detector.py:24-45, 142-148, 206-214, 281-288`
 *   **Issue:** `detect()` records `is_root_owned` but does not enforce it. A non-root-owned binary at a whitelisted path is still accepted.
 
