@@ -284,6 +284,13 @@ class KeyService:
             result[info.fingerprint] = info.user_ids
         return result
 
+    def set_favorite(self, fingerprint: str, favorite: bool) -> None:
+        fp = validate_fingerprint(fingerprint)
+        if self._metadata is None:
+            return
+        self._metadata.upsert_key(fp)
+        self._metadata.set_favorite(fp, favorite)
+
     def _merge_key_metadata(
         self,
         key: KeyInfo,
@@ -296,6 +303,7 @@ class KeyService:
             "purpose": row.get("purpose") or "",
             "platform": row.get("platform") or "",
             "notes": row.get("notes") or "",
+            "is_favorite": bool(row.get("favorite")),
         })
 
 

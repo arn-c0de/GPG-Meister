@@ -31,13 +31,18 @@ from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
 from gpg_meister.ui.keys.public_key_import_view import PublicKeyImportDialog
 from gpg_meister.ui.widgets.warning_banner import WarningBanner
 
-_COL_UID = 0
-_COL_ALGO = 1
-_COL_FP = 2
-_COL_CREATED = 3
-_COL_EXPIRES = 4
-_COL_HAS_PRIV = 5
-_COL_TRUST = 6
+_COL_FAV = 0
+_COL_UID = 1
+_COL_ALGO = 2
+_COL_FP = 3
+_COL_CREATED = 4
+_COL_EXPIRES = 5
+_COL_HAS_PRIV = 6
+_COL_TRUST = 7
+
+_STAR_ON = "★"
+_STAR_OFF = "☆"
+_TOTAL_COLS = 8
 
 
 def _fmt_date(dt: datetime | None) -> str:
@@ -99,15 +104,17 @@ class KeyListView(QWidget):
         toolbar.addWidget(self._btn_refresh)
         layout.addLayout(toolbar)
 
-        self._table = _KeyTableWidget(0, 7)
+        self._table = _KeyTableWidget(0, _TOTAL_COLS)
         self._table.setHorizontalHeaderLabels(
-            ["User ID", "Algorithm", "Fingerprint", "Created", "Expires", "Private", "Trust"]
+            ["", "User ID", "Algorithm", "Fingerprint", "Created", "Expires", "Private", "Trust"]
         )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
         hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(_COL_FAV, QHeaderView.ResizeMode.Fixed)
+        hh.resizeSection(_COL_FAV, 28)
         hh.setSectionResizeMode(_COL_UID, QHeaderView.ResizeMode.Stretch)
         for col in (_COL_ALGO, _COL_FP, _COL_CREATED, _COL_EXPIRES, _COL_HAS_PRIV, _COL_TRUST):
             hh.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
@@ -138,11 +145,20 @@ class KeyListView(QWidget):
 
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
         self._table.doubleClicked.connect(self._open_detail)
+        self._table.cellClicked.connect(self._on_cell_clicked)
 
     def _on_keys_changed(self, keys: list[KeyInfo]) -> None:
         self._keys = keys
         self._table.setRowCount(len(keys))
         for row, key in enumerate(keys):
+            fav_item = _cell(_STAR_ON if key.is_favorite else _STAR_OFF)
+            fav_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if key.is_favorite:
+                fav_item.setForeground(Qt.GlobalColor.yellow)
+            else:
+                fav_item.setForeground(Qt.GlobalColor.gray)
+            self._table.setItem(row, _COL_FAV, fav_item)
+
             uid = _display_name(key)
             self._table.setItem(row, _COL_UID, _cell(uid))
             self._table.setItem(row, _COL_ALGO, _cell(key.algorithm.value))
@@ -153,7 +169,7 @@ class KeyListView(QWidget):
             self._table.setItem(row, _COL_TRUST, _cell(key.trust.value))
 
             if key.is_revoked or _is_expired(key):
-                for col in range(7):
+                for col in range(_TOTAL_COLS):
                     item = self._table.item(row, col)
                     if item:
                         item.setForeground(Qt.GlobalColor.gray)
@@ -179,8 +195,22 @@ class KeyListView(QWidget):
         self._backup_banner.show()
 
     def _on_selection_changed(self) -> None:
-        has_sel = bool(self._table.selectedItems())
-        self._btn_delete.setEnabled(has_sel)
+        key = self._selected_key()
+        if key is None:
+            self._btn_delete.setEnabled(False)
+            self._btn_delete.setToolTip("")
+        elif key.is_favorite:
+            self._btn_delete.setEnabled(False)
+            self._btn_delete.setToolTip("Remove from favorites before deleting")
+        else:
+            self._btn_delete.setEnabled(True)
+            self._btn_delete.setToolTip("")
+
+    def _on_cell_clicked(self, row: int, col: int) -> None:
+        if col != _COL_FAV:
+            return
+        if 0 <= row < len(self._keys):
+            self._vm.toggle_favorite(self._keys[row].fingerprint)
 
     def _selected_key(self) -> KeyInfo | None:
         rows = self._table.selectedItems()
@@ -205,6 +235,13 @@ class KeyListView(QWidget):
     def _delete_selected(self) -> None:
         key = self._selected_key()
         if key is None:
+            return
+        if key.is_favorite:
+            QMessageBox.warning(
+                self,
+                "Delete blocked",
+                "Remove the key from favorites (☆) before deleting it.",
+            )
             return
         if key.has_private_key:
             passphrase_text, ok = QInputDialog.getText(

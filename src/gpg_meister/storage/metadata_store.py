@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS key_metadata (
     purpose             TEXT NOT NULL DEFAULT '',
     platform            TEXT NOT NULL DEFAULT '',
     notes               TEXT NOT NULL DEFAULT '',
+    favorite            INTEGER NOT NULL DEFAULT 0,
     import_timestamp    TEXT NOT NULL,
     last_used_timestamp TEXT
 );
@@ -91,6 +92,10 @@ class MetadataStore:
                     self._conn.execute(
                         f"ALTER TABLE key_metadata ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
                     )
+            if "favorite" not in columns:
+                self._conn.execute(
+                    "ALTER TABLE key_metadata ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"
+                )
 
     @contextmanager
     def _tx(self) -> Generator[sqlite3.Connection, None, None]:
@@ -147,6 +152,13 @@ class MetadataStore:
             conn.execute(
                 "UPDATE key_metadata SET last_used_timestamp = ? WHERE fingerprint = ?",
                 (_utc_now(), fingerprint),
+            )
+
+    def set_favorite(self, fingerprint: str, favorite: bool) -> None:
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE key_metadata SET favorite = ? WHERE fingerprint = ?",
+                (1 if favorite else 0, fingerprint),
             )
 
     def delete_key(self, fingerprint: str) -> None:

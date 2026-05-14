@@ -45,6 +45,7 @@ class KeyInfo(BaseModel):
     purpose: str = ""
     platform: str = ""
     notes: str = ""
+    is_favorite: bool = False
 
     @field_validator("fingerprint")
     @classmethod

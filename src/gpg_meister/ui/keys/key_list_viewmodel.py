@@ -59,10 +59,18 @@ class KeyListViewModel(QObject):
     def set_require_delete_text_confirmation(self, on: bool) -> None:
         self._require_delete_text_confirmation = on
 
+    def toggle_favorite(self, fingerprint: str) -> None:
+        current = next((k for k in self._keys if k.fingerprint == fingerprint), None)
+        if current is None:
+            return
+        new_state = not current.is_favorite
+        self._svc.set_favorite(fingerprint, new_state)
+        self.refresh()
+
     def _on_keys_loaded(self, keys: object) -> None:
         if not isinstance(keys, list):
             return
-        self._keys = keys
+        self._keys = sorted(keys, key=lambda k: (0 if k.is_favorite else 1))
         self.keys_changed.emit(self._keys)
 
     def request_delete(
