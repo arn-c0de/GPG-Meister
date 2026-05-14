@@ -4,6 +4,26 @@ This folder explains the current codebase in simple English.
 
 These documents describe the real implementation in `src/gpg_meister`, not only the original ideas from `planv2.md`.
 
+## Architecture Overview
+
+```mermaid
+graph TD
+    App[app.py] --> UI[ui/ Layer]
+    UI --> VM[ViewModels]
+    VM --> Workers[Background Workers]
+    Workers --> Services[services/ Layer]
+    Services --> GPG[GPG Service]
+    Services --> Vault[Vault Service]
+    Services --> Config[Config Service]
+    GPG --> Subprocess[GnuPG Subprocess]
+    Vault --> Security[security/ Layer]
+    Vault --> Storage[storage/ Layer]
+    Config --> Storage
+    Storage --> DB[(SQLite / Config File)]
+    Security --> Crypto[Cryptography / Argon2]
+    Services --> Models[models/ Layer]
+```
+
 ## Start here
 
 - [App and Startup Flow](app-startup.md) explains how the app boots, resolves GPG, and wires services and UI.
@@ -30,3 +50,6 @@ The app is split into a few clean layers:
 ## Important rule
 
 Private keys and passphrases are never stored in the SQLite metadata database or in the config file. They only flow through the GPG service, the vault flow, and short-lived in-memory buffers.
+
+---
+[← Back to README](../README.md)

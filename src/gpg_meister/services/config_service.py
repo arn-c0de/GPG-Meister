@@ -16,11 +16,18 @@ from pydantic import ValidationError
 from gpg_meister.models.config import AppConfig
 from gpg_meister.services.errors import ServiceError
 from gpg_meister.storage.atomic_write import atomic_write_bytes
-from gpg_meister.storage.permissions import is_safe_for_secrets
+from gpg_meister.storage.permissions import PermissionStatus, ensure_file_mode, report
 
 
 class ConfigServiceError(ServiceError):
     """Raised for malformed config files."""
+
+
+_WRITABLE_CONFIG_STATUSES = {
+    PermissionStatus.GROUP_WRITABLE,
+    PermissionStatus.WORLD_WRITABLE,
+    PermissionStatus.SYMLINK,
+}
 
 
 def _format_toml_value(value: object) -> str:
@@ -65,6 +72,7 @@ def load(path: Path) -> AppConfig:
     """
     if not path.exists():
         return AppConfig()
+    ensure_safe_to_load(path)
 
     try:
         data = path.read_bytes()
@@ -83,7 +91,10 @@ def save(config: AppConfig, path: Path) -> None:
 
     None values are omitted because TOML has no null literal.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    from gpg_meister.storage.permissions import ensure_dir, reject_symlink
+
+    ensure_dir(path.parent, mode=0o700)
+    reject_symlink(path)
     obj = config.model_dump(mode="json", exclude_none=True)
     data = _dump_toml(obj)
     atomic_write_bytes(path, data, mode=0o600)
@@ -94,9 +105,23 @@ def warn_if_world_readable(path: Path) -> str | None:
     POSIX, otherwise None. Used by the startup environment check (§5.5)."""
     if sys.platform == "win32" or not path.exists():
         return None
-    if is_safe_for_secrets(path):
+    rep = report(path)
+    if rep.status in (PermissionStatus.OK, PermissionStatus.WINDOWS_ACL, PermissionStatus.NOT_FOUND):
         return None
     return (
-        f"config file {path} is readable by other users — "
+        f"config file {path} has unsafe permissions ({rep.status.value}) — "
         "set permissions to 600 (read/write by you only)"
     )
+
+
+def ensure_safe_to_load(path: Path) -> None:
+    """Fail closed before loading trusted settings from an unsafe config file."""
+    if sys.platform == "win32" or not path.exists():
+        return
+    rep = report(path)
+    if rep.status in _WRITABLE_CONFIG_STATUSES:
+        raise ConfigServiceError(
+            f"refusing to load unsafe config file {path}: {rep.status.value}"
+        )
+    if rep.status in (PermissionStatus.GROUP_READABLE, PermissionStatus.WORLD_READABLE):
+        ensure_file_mode(path, mode=0o600)

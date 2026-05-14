@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QApplication,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -15,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from gpg_meister.models.message import DecryptResult
+from gpg_meister.ui.clipboard import copy_text
 from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
@@ -22,9 +22,16 @@ from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 class DecryptView(QWidget):
     """Decrypt tab: paste ciphertext, enter passphrase, reveal plaintext."""
 
-    def __init__(self, viewmodel: DecryptViewModel, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        viewmodel: DecryptViewModel,
+        *,
+        clipboard_clear_seconds: int = 60,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._vm = viewmodel
+        self._clipboard_clear_seconds = clipboard_clear_seconds
         self._build_ui()
         self._connect_signals()
 
@@ -96,7 +103,7 @@ class DecryptView(QWidget):
 
         self._ciphertext.textChanged.connect(self._on_input_changed)
         self._passphrase.passphrase_changed.connect(self._on_passphrase_changed)
-        self._btn_decrypt.clicked.connect(lambda: self._vm.submit(self._passphrase.text))
+        self._btn_decrypt.clicked.connect(self._submit)
         self._btn_clear.clicked.connect(self._clear)
         self._btn_copy_output.clicked.connect(self._copy_output)
 
@@ -154,6 +161,9 @@ class DecryptView(QWidget):
 
     def _copy_output(self) -> None:
         text = self._output.toPlainText()
-        cb = QApplication.clipboard()
-        if cb and text:
-            cb.setText(text)
+        copy_text(text, clear_after_seconds=self._clipboard_clear_seconds)
+
+    def _submit(self) -> None:
+        passphrase = self._passphrase.text()
+        self._passphrase.clear()
+        self._vm.submit(lambda: passphrase)

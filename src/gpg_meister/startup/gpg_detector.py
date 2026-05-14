@@ -60,6 +60,8 @@ class DetectionReason(StrEnum):
     USER_OVERRIDE_UNTRUSTED = "user_override_untrusted"
     HASH_MISMATCH = "hash_mismatch"
     WORLD_WRITABLE = "world_writable"
+    PARENT_WRITABLE = "parent_writable"
+    TRUST_PATH_MISMATCH = "trust_path_mismatch"
 
 
 class GPGDetectionError(Exception):
@@ -85,6 +87,8 @@ class DetectedGPG:
     sha256: str
     is_whitelisted: bool
     is_root_owned: bool
+    device: int | None = None
+    inode: int | None = None
 
 
 def _is_world_or_group_writable(path: Path) -> bool:
@@ -119,9 +123,31 @@ def _check_writability(path: Path) -> None:
         )
 
 
+def _check_parent_writability(path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    current = path.parent
+    while True:
+        if _is_world_or_group_writable(current):
+            raise GPGDetectionError(
+                DetectionReason.PARENT_WRITABLE,
+                f"GPG parent directory {current} is group- or world-writable",
+            )
+        if current.parent == current:
+            return
+        current = current.parent
+
+
 def _check_root_owned(path: Path) -> bool:
     if sys.platform == "win32":
         return False
+
+
+def _identity(path: Path) -> tuple[int | None, int | None]:
+    if sys.platform == "win32":
+        return None, None
+    st = path.stat()
+    return st.st_dev, st.st_ino
     try:
         return path.stat().st_uid == 0
     except OSError:
@@ -142,6 +168,7 @@ def detect(
     *,
     user_override_path: str | None = None,
     trusted_hash: str | None = None,
+    trusted_path: str | None = None,
 ) -> DetectedGPG:
     """Resolve a trusted GPG binary path.
 
@@ -166,20 +193,39 @@ def detect(
     if user_override_path:
         override = _canonicalise(Path(user_override_path))
         _check_writability(override)
+        _check_parent_writability(override)
         sha = _hash_file(override)
         is_listed = override in literal_whitelist
+        device, inode = _identity(override)
         if is_listed:
             return DetectedGPG(
                 path=override,
                 sha256=sha,
                 is_whitelisted=True,
                 is_root_owned=_check_root_owned(override),
+                device=device,
+                inode=inode,
             )
         # Outside the whitelist: require an explicit trust pin that matches.
         if trusted_hash is None:
             raise GPGDetectionError(
                 DetectionReason.USER_OVERRIDE_UNTRUSTED,
                 f"{override} is not in the standard whitelist and has no trusted hash",
+                path=override,
+                new_sha=sha,
+            )
+        if trusted_path is None:
+            raise GPGDetectionError(
+                DetectionReason.TRUST_PATH_MISMATCH,
+                f"{override} has a trusted hash but no trusted path binding",
+                path=override,
+                new_sha=sha,
+            )
+        trusted_canonical = _canonicalise(Path(trusted_path))
+        if trusted_canonical != override:
+            raise GPGDetectionError(
+                DetectionReason.TRUST_PATH_MISMATCH,
+                f"{override} does not match trusted path {trusted_canonical}",
                 path=override,
                 new_sha=sha,
             )
@@ -195,6 +241,8 @@ def detect(
             sha256=sha,
             is_whitelisted=False,
             is_root_owned=_check_root_owned(override),
+            device=device,
+            inode=inode,
         )
 
     for entry in _platform_whitelist():
@@ -205,11 +253,15 @@ def detect(
             # Symlink points outside the literal whitelist — reject.
             continue
         _check_writability(canonical)
+        _check_parent_writability(canonical)
+        device, inode = _identity(canonical)
         return DetectedGPG(
             path=canonical,
             sha256=_hash_file(canonical),
             is_whitelisted=True,
             is_root_owned=_check_root_owned(canonical),
+            device=device,
+            inode=inode,
         )
 
     raise GPGDetectionError(

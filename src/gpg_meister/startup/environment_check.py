@@ -18,7 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from gpg_meister.storage.paths import AppPaths
-from gpg_meister.storage.permissions import is_safe_for_secrets
+from gpg_meister.storage.permissions import PermissionStatus, is_safe_for_secrets
 
 
 class CheckSeverity(StrEnum):
@@ -117,29 +117,35 @@ def check_directories(paths: AppPaths) -> list[CheckWarning]:
 
 
 def check_config_permissions(config_file: Path) -> list[CheckWarning]:
-    """Warn if the config file is world- or group-readable on POSIX."""
+    """Warn or fail on unsafe config file permissions on POSIX."""
     if sys.platform == "win32":
         return []
     if not config_file.exists():
         return []
 
-    from gpg_meister.storage.permissions import PermissionStatus, report
+    from gpg_meister.storage.permissions import report
 
     rep = report(config_file)
-    if rep.status is PermissionStatus.WORLD_READABLE:
+    if rep.status in (
+        PermissionStatus.SYMLINK,
+        PermissionStatus.WORLD_WRITABLE,
+        PermissionStatus.GROUP_WRITABLE,
+    ):
         return [
             CheckWarning(
-                code="config_world_readable",
-                message=f"Config file {config_file} is world-readable. "
-                "Run: chmod 600 {config_file}",
+                code="config_unsafe_permissions",
+                message=f"Config file {config_file} is unsafe ({rep.status.value}). "
+                f"Refusing to trust it; fix ownership/path and run: chmod 600 {config_file}",
                 severity=CheckSeverity.ERROR,
             )
         ]
-    if rep.status is PermissionStatus.GROUP_READABLE:
+    if rep.status in (PermissionStatus.WORLD_READABLE, PermissionStatus.GROUP_READABLE):
         return [
             CheckWarning(
-                code="config_group_readable",
-                message=f"Config file {config_file} is group-readable.",
+                code="config_readable_by_others",
+                message=f"Config file {config_file} is readable by other users. "
+                f"Run: chmod 600 {config_file}",
+                severity=CheckSeverity.ERROR,
             )
         ]
     return []

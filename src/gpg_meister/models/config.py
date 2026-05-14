@@ -38,7 +38,7 @@ class AuditConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
-    hash_chain: bool = False
+    hash_chain: bool = True
 
 
 class GPGBinaryTrust(BaseModel):

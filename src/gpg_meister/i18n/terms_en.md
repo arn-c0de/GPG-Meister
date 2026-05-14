@@ -11,7 +11,8 @@ and documentation. Translators must use these exact terms in their translations.
 | **Public key** | The shareable part of a key pair. Anyone can use it to encrypt messages to you or verify your signatures. |
 | **Private key** | The secret part of a key pair. Keep it safe — anyone with access to it can decrypt your messages and impersonate you. |
 | **Key pair** | A matched public key and private key that work together. |
-| **Fingerprint** | A short checksum of a public key, used to identify and verify it. Always verify fingerprints through a separate channel before trusting a key. |
+| **Fingerprint** | The full, unique 40-character hexadecimal identifier of a GPG key. This is the **only secure way** to identify a key. Always verify fingerprints through a separate channel before trusting a key. |
+| **Key ID** | A shorter suffix of a fingerprint (usually 8 or 16 characters). Key IDs are **not unique** and can be easily spoofed; GPG Meister displays them for convenience but always relies on fingerprints for security operations. |
 | **Signature** | A cryptographic proof that a message was created by the holder of a specific private key and has not been altered since. |
 | **Trust** | Your local assessment of whether a key genuinely belongs to the person named in it. GPG Meister never automatically trusts keys — you must verify them yourself. |
 | **Revocation** | The act of permanently invalidating a key, signalling that it should no longer be used (e.g., because the private key was compromised). |

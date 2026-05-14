@@ -13,9 +13,11 @@ _FINGERPRINT_CHARS = set("0123456789ABCDEF")
 
 class KeyAlgorithm(StrEnum):
     RSA = "RSA"
+    DSA = "DSA"
     ECDSA = "ECDSA"
     EDDSA = "EDDSA"
     ECDH = "ECDH"
+    UNKNOWN = "UNKNOWN"
 
 
 class TrustLevel(StrEnum):
@@ -32,6 +34,7 @@ class KeyInfo(BaseModel):
     fingerprint: str = Field(..., min_length=FINGERPRINT_LENGTH, max_length=FINGERPRINT_LENGTH)
     user_ids: tuple[str, ...]
     algorithm: KeyAlgorithm
+    raw_algorithm_id: str = ""
     length: int = Field(..., gt=0)
     created_at: datetime
     expires_at: datetime | None = None

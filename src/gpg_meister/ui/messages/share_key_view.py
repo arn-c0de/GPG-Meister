@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import re
+
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -144,11 +145,7 @@ class ShareKeyView(QWidget):
         key = self._key_combo.itemData(idx)
         if not isinstance(key, KeyInfo):
             return
-        uid_part = (
-            key.user_ids[0].split("<")[0].strip().replace(" ", "_")
-            if key.user_ids
-            else "key"
-        )
+        uid_part = _safe_filename_part(key.user_ids[0].split("<")[0]) if key.user_ids else "key"
         default_name = f"{uid_part}_{key.fingerprint[-8:]}_public.asc"
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -182,3 +179,9 @@ def _monospace_font() -> QFont:
     f.setFixedPitch(True)
     f.setPointSize(9)
     return f
+
+
+def _safe_filename_part(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    cleaned = cleaned.strip("._-")[:48]
+    return cleaned or "key"

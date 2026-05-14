@@ -45,6 +45,9 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
                 trusted_hash=config.gpg_binary_trusted_hash.sha256
                 if config.gpg_binary_trusted_hash
                 else None,
+                trusted_path=config.gpg_binary_trusted_hash.path
+                if config.gpg_binary_trusted_hash
+                else None,
             )
         except GPGDetectionError as exc:
             if exc.reason not in (
@@ -60,7 +63,10 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
                 audit.close()
                 sys.exit(1)
 
-            assert exc.path is not None and exc.new_sha is not None  # set for these two reasons
+            if exc.path is None or exc.new_sha is None:
+                QMessageBox.critical(None, "GnuPG trust failed", str(exc))
+                audit.close()
+                sys.exit(1)
             old_sha = (
                 config.gpg_binary_trusted_hash.sha256
                 if config.gpg_binary_trusted_hash
@@ -110,7 +116,11 @@ def main() -> None:
     from gpg_meister.storage.audit_log import AuditLog
     from gpg_meister.ui.main_window import MainWindow
 
-    config = config_service.load(paths.config_file)
+    try:
+        config = config_service.load(paths.config_file)
+    except config_service.ConfigServiceError as exc:
+        QMessageBox.critical(None, "Config check failed", str(exc))
+        sys.exit(1)
     _apply_appearance(app, config)
 
     locale_code = resolve_locale(config.locale)
@@ -156,7 +166,13 @@ def main() -> None:
     from gpg_meister.ui.vault.vault_tab import VaultTabView
 
     metadata = MetadataStore(paths.metadata_db)
-    gpg_svc = GPGService(GPGServiceConfig(binary_path=gpg.path, home_dir=paths.gnupg_home))
+    gpg_svc = GPGService(
+        GPGServiceConfig(
+            binary_path=gpg.path,
+            home_dir=paths.gnupg_home,
+            trusted_sha256=gpg.sha256 if not gpg.is_whitelisted else None,
+        )
+    )
     key_svc = KeyService(gpg=gpg_svc, audit=audit, metadata=metadata)
     msg_svc = MessageService(gpg=gpg_svc, audit=audit)
     vault_svc = VaultService(gpg=gpg_svc, audit=audit)
@@ -175,7 +191,14 @@ def main() -> None:
     decrypt_vm = DecryptViewModel(msg_svc)
     sign_vm = SignViewModel(msg_svc, key_svc)
     verify_vm = VerifyViewModel(msg_svc)
-    messages_view = MessagesTabView(encrypt_vm, decrypt_vm, sign_vm, verify_vm, key_svc)
+    messages_view = MessagesTabView(
+        encrypt_vm,
+        decrypt_vm,
+        sign_vm,
+        verify_vm,
+        key_svc,
+        clipboard_clear_seconds=config.clipboard_clear_seconds,
+    )
     window.install_messages_tab(messages_view)
 
     export_vm = VaultExportViewModel(vault_svc, key_svc)

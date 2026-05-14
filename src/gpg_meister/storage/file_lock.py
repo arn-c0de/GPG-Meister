@@ -21,6 +21,8 @@ import time
 from pathlib import Path
 from types import TracebackType
 
+from gpg_meister.storage.permissions import ensure_dir, reject_symlink
+
 
 class FileLockTimeoutError(TimeoutError):
     """Raised when a lock could not be acquired within the timeout."""
@@ -55,7 +57,8 @@ class FileLock:
         if self._fd is not None:
             raise RuntimeError("FileLock already acquired")
 
-        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_dir(self._lock_path.parent, mode=0o700)
+        reject_symlink(self._lock_path)
         deadline = time.monotonic() + self._timeout
 
         # Open the lock file. We use a fresh open per acquire to keep the lock
@@ -70,7 +73,8 @@ class FileLock:
     def _acquire_posix(self, deadline: float) -> None:
         import fcntl
 
-        assert self._fd is not None
+        if self._fd is None:
+            raise RuntimeError("FileLock file descriptor is not open")
         op = fcntl.LOCK_EX if self._exclusive else fcntl.LOCK_SH
         while True:
             try:
@@ -90,7 +94,8 @@ class FileLock:
 
         msvcrt = importlib.import_module("msvcrt")
 
-        assert self._fd is not None
+        if self._fd is None:
+            raise RuntimeError("FileLock file descriptor is not open")
         # msvcrt.locking only supports byte-range locks. Lock the first byte.
         while True:
             try:

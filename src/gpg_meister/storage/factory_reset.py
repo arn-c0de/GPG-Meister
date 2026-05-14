@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 
 from gpg_meister.storage.paths import AppPaths
+from gpg_meister.storage.permissions import reject_symlink_tree
 
 _MARKER_NAME = ".factory-reset-pending"
 
@@ -39,6 +40,7 @@ def perform_pending_factory_reset(paths: AppPaths) -> bool:
         paths.config_dir,
     ):
         if directory.exists():
+            reject_symlink_tree(directory)
             shutil.rmtree(directory)
 
     paths.ensure()

@@ -20,6 +20,11 @@ from gpg_meister.services.validation import validate_fingerprint
 from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
 from gpg_meister.storage.metadata_store import MetadataStore
 
+MAX_PUBLIC_KEY_IMPORT_BYTES = 2 * 1024 * 1024
+MAX_PUBLIC_KEY_IMPORT_COUNT = 32
+PUBLIC_KEY_BLOCK = "-----BEGIN PGP PUBLIC KEY BLOCK-----"
+PRIVATE_KEY_BLOCK = "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+
 
 class ImportConflict(StrEnum):
     NEW = "new"
@@ -185,6 +190,7 @@ class KeyService:
         method is conservative: it inspects fingerprints already in the keyring
         and computes the conflict label without touching anything.
         """
+        armored = _validate_public_import_blob(armored)
         # The simplest, side-effect-free approach is to ask GPG to list keys from
         # a temporary, in-memory perspective. python-gnupg's `scan_keys` does
         # exactly that.
@@ -216,9 +222,12 @@ class KeyService:
                     conflict=conflict,
                 )
             )
+        if len(entries) > MAX_PUBLIC_KEY_IMPORT_COUNT:
+            raise ValueError("too many keys in one import batch")
         return tuple(entries)
 
     def import_armored(self, armored: str) -> list[str]:
+        armored = _validate_public_import_blob(armored)
         try:
             fps = self._gpg.import_key(armored)
         except Exception as exc:
@@ -228,6 +237,8 @@ class KeyService:
                 reason=type(exc).__name__,
             )
             raise
+        if len(fps) > MAX_PUBLIC_KEY_IMPORT_COUNT:
+            raise ValueError("too many keys in one import batch")
         for fp in fps:
             self._audit.emit("key_imported", outcome=OUTCOME_OK, fingerprint=fp)
         return fps
@@ -286,3 +297,18 @@ class KeyService:
             "platform": row.get("platform") or "",
             "notes": row.get("notes") or "",
         })
+
+
+def _validate_public_import_blob(armored: str) -> str:
+    blob = armored.strip()
+    if not blob:
+        raise ValueError("no key data entered")
+    if len(blob.encode("utf-8")) > MAX_PUBLIC_KEY_IMPORT_BYTES:
+        raise ValueError("public key import is too large")
+    if "\x00" in blob:
+        raise ValueError("binary key data is not accepted in the public-key dialog")
+    if PRIVATE_KEY_BLOCK in blob:
+        raise ValueError("private-key material cannot be imported in the public-key dialog")
+    if PUBLIC_KEY_BLOCK not in blob:
+        raise ValueError("expected an armored public key block")
+    return blob

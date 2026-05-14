@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from gpg_meister.models.vault import VaultKeyEntry
 from gpg_meister.security.errors import DecryptionError, VaultFormatError
 from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.vault_format import MAGIC
 from gpg_meister.services.vault_service import VaultPreview, VaultService
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
@@ -76,8 +77,8 @@ class _FilePage(QWizardPage):
             self._info_label.setStyleSheet("")
             return
         try:
-            data = p.read_bytes()[:16]
-            if b"GPGMEISTER_VAULT" not in data:
+            data = p.read_bytes()[: len(MAGIC)]
+            if data != MAGIC:
                 self._info_label.setText("This does not appear to be a valid GPG Meister vault file.")
                 self._info_label.setStyleSheet("color: #cc0000;")
             else:
@@ -154,8 +155,8 @@ class _PassphrasePage(QWizardPage):
             self._status_label.setText(f"Invalid vault format: {exc}")
             self._status_label.setStyleSheet("color: #cc0000;")
             return False
-        except Exception as exc:
-            self._status_label.setText(f"Error: {exc}")
+        except Exception:
+            self._status_label.setText("Error: the vault could not be opened.")
             self._status_label.setStyleSheet("color: #cc0000;")
             return False
 
@@ -273,8 +274,10 @@ class _ResultPage(QWizardPage):
             lines.append(f"Successfully imported {len(imported)} key(s):\n")
             for fp in imported:
                 lines.append(f"  • {fp}")
-        except Exception as exc:
-            lines.append(f"Import failed: {exc}")
+        except Exception:
+            lines.append("Import failed.")
+        finally:
+            pp_page._pp_field.clear()
         self._log.setPlainText("\n".join(lines))
 
     def imported_fingerprints(self) -> list[str]:

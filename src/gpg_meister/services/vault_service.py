@@ -24,7 +24,14 @@ from pathlib import Path
 import msgpack
 
 from gpg_meister import __version__ as APP_VERSION
-from gpg_meister.models.kdf_params import KDFAlgorithm, KDFParams, high_memory_params
+from gpg_meister.models.kdf_params import (
+    MAX_IMPORT_MEMORY_COST_KB,
+    MAX_IMPORT_PARALLELISM,
+    MAX_IMPORT_TIME_COST,
+    KDFAlgorithm,
+    KDFParams,
+    high_memory_params,
+)
 from gpg_meister.models.vault import (
     NONCE_LEN,
     CipherAlgorithm,
@@ -40,6 +47,12 @@ from gpg_meister.security.aead import generate_nonce
 from gpg_meister.security.errors import DecryptionError, VaultFormatError
 from gpg_meister.security.kdf import derive_key, generate_salt
 from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.vault_format import (
+    HEADER_OFFSET,
+    LENGTH_FIELD,
+    MAX_CIPHERTEXT_SIZE,
+    MAX_HEADER_SIZE,
+)
 from gpg_meister.security.vault_format import pack as vault_pack
 from gpg_meister.security.vault_format import unpack as vault_unpack
 from gpg_meister.services.errors import GPGKeyNotFoundError, ServiceError
@@ -52,6 +65,9 @@ from gpg_meister.storage.file_lock import FileLock, FileLockTimeoutError
 
 class VaultServiceError(ServiceError):
     """Vault operation failed at the service layer."""
+
+
+MAX_VAULT_FRAME_SIZE = HEADER_OFFSET + MAX_HEADER_SIZE + LENGTH_FIELD + MAX_CIPHERTEXT_SIZE
 
 
 @dataclass(frozen=True)
@@ -119,6 +135,26 @@ def _deserialise_manifest(blob: bytes) -> VaultManifest:
         return VaultManifest.model_validate(obj)
     except Exception as exc:
         raise VaultFormatError(f"manifest validation failed: {exc}") from exc
+
+
+def _validate_import_kdf(params: KDFParams) -> None:
+    if (
+        params.time_cost > MAX_IMPORT_TIME_COST
+        or params.memory_cost > MAX_IMPORT_MEMORY_COST_KB
+        or params.parallelism > MAX_IMPORT_PARALLELISM
+    ):
+        raise VaultFormatError("vault KDF parameters exceed import safety limits")
+
+
+def _read_sidecar_digest(sidecar: Path) -> str:
+    raw = sidecar.read_bytes()[:256]
+    parts = raw.decode("ascii", errors="strict").split()
+    if not parts:
+        raise VaultServiceError("vault checksum sidecar is empty")
+    digest = parts[0].lower()
+    if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+        raise VaultServiceError("vault checksum sidecar is malformed")
+    return digest
 
 
 class VaultService:
@@ -350,6 +386,8 @@ class VaultService:
         src = Path(source_path).resolve()
         if not src.exists():
             raise VaultServiceError(f"vault file does not exist: {src}")
+        if src.stat().st_size > MAX_VAULT_FRAME_SIZE:
+            raise VaultServiceError("vault file is too large")
 
         with FileLock(src, exclusive=False, timeout=5.0):
             data = src.read_bytes()
@@ -366,6 +404,7 @@ class VaultService:
             raise
 
         kdf_params = frame.header.kdf.to_params()
+        _validate_import_kdf(kdf_params)
         salt = frame.header.kdf.salt
         nonce = frame.header.cipher.nonce
         cipher = frame.header.cipher.algorithm
@@ -391,7 +430,7 @@ class VaultService:
         # Verify the sidecar (best-effort — missing sidecar is fine, mismatch warns).
         sidecar = src.with_name(src.name + ".sha256")
         if sidecar.exists():
-            expected = sidecar.read_text(encoding="utf-8").split()[0].strip().lower()
+            expected = _read_sidecar_digest(sidecar)
             actual = hashlib.sha256(data).hexdigest().lower()
             if expected != actual:
                 self._audit.emit(

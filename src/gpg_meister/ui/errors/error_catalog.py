@@ -150,3 +150,19 @@ def format_message(code: str, **kwargs: str) -> str:
         return entry.message.format(**kwargs)
     except KeyError:
         return entry.message
+
+
+def message_for_exception(exc: BaseException) -> str:
+    """Map internal exceptions to a generic user-facing message."""
+    name = type(exc).__name__
+    code = {
+        "DecryptionError": "vault_decryption_failed",
+        "VaultFormatError": "vault_format_error",
+        "GPGKeyNotFoundError": "key_not_found",
+        "ConfigServiceError": "config_error",
+    }.get(name)
+    if code is not None:
+        return format_message(code)
+    if isinstance(exc, ValueError):
+        return str(exc)
+    return "The operation failed. Check the diagnostic log for details."

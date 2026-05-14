@@ -32,5 +32,4 @@ setup(
     packages=find_packages(where=str(ROOT / "src")),
     package_dir={"": str(ROOT / "src")},
     options={"py2app": OPTIONS},
-    setup_requires=["py2app"],
 )

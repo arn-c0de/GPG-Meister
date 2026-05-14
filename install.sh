@@ -1,4 +1,4 @@
-ohen emojis so viel modern #!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -20,9 +20,10 @@ sudo apt-get install -y --no-install-recommends \
 
 # ---------- uv ----------
 if ! command -v uv &>/dev/null; then
-    echo "==> Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
+    echo "uv is required but was not found."
+    echo "Install uv with your OS package manager or a verified pinned release, then re-run this script."
+    echo "Project setup intentionally does not execute remote installer scripts."
+    exit 1
 fi
 
 # ---------- Python environment ----------

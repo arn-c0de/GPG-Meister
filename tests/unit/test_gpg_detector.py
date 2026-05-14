@@ -24,37 +24,49 @@ def _make_fake_gpg(tmp_path: Path, *, content: bytes = b"#!/bin/sh\necho gpg\n")
     return fake
 
 
-def test_user_override_outside_whitelist_requires_trusted_hash(tmp_path: Path) -> None:
+def test_user_override_outside_whitelist_requires_trusted_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake = _make_fake_gpg(tmp_path)
+    monkeypatch.setattr(gpg_detector, "_check_parent_writability", lambda _path: None)
     with pytest.raises(GPGDetectionError) as exc:
         detect(user_override_path=str(fake), trusted_hash=None)
     assert exc.value.reason is DetectionReason.USER_OVERRIDE_UNTRUSTED
 
 
-def test_user_override_with_matching_hash_accepted(tmp_path: Path) -> None:
+def test_user_override_with_matching_hash_accepted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake = _make_fake_gpg(tmp_path)
+    monkeypatch.setattr(gpg_detector, "_check_parent_writability", lambda _path: None)
     sha = hashlib.sha256(fake.read_bytes()).hexdigest()
-    result = detect(user_override_path=str(fake), trusted_hash=sha)
+    result = detect(user_override_path=str(fake), trusted_hash=sha, trusted_path=str(fake))
     assert result.path == fake.resolve()
     assert result.sha256 == sha
     assert not result.is_whitelisted
 
 
-def test_user_override_with_wrong_hash_rejected(tmp_path: Path) -> None:
+def test_user_override_with_wrong_hash_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake = _make_fake_gpg(tmp_path)
+    monkeypatch.setattr(gpg_detector, "_check_parent_writability", lambda _path: None)
     with pytest.raises(GPGDetectionError) as exc:
-        detect(user_override_path=str(fake), trusted_hash="0" * 64)
+        detect(user_override_path=str(fake), trusted_hash="0" * 64, trusted_path=str(fake))
     assert exc.value.reason is DetectionReason.HASH_MISMATCH
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
-def test_group_or_world_writable_binary_rejected(tmp_path: Path) -> None:
+def test_group_or_world_writable_binary_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake = _make_fake_gpg(tmp_path)
+    monkeypatch.setattr(gpg_detector, "_check_parent_writability", lambda _path: None)
     sha = hashlib.sha256(fake.read_bytes()).hexdigest()
     # Make group-writable.
     fake.chmod(stat.S_IRWXU | stat.S_IRWXG)  # 0o770
     with pytest.raises(GPGDetectionError) as exc:
-        detect(user_override_path=str(fake), trusted_hash=sha)
+        detect(user_override_path=str(fake), trusted_hash=sha, trusted_path=str(fake))
     assert exc.value.reason is DetectionReason.WORLD_WRITABLE
 
 
@@ -78,6 +90,7 @@ def test_whitelist_match_returns_detection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = _make_fake_gpg(tmp_path)
+    monkeypatch.setattr(gpg_detector, "_check_parent_writability", lambda _path: None)
     monkeypatch.setattr(gpg_detector, "_platform_whitelist", lambda: (fake,))
     result = detect()
     assert result.path == fake.resolve()

@@ -9,6 +9,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QRunnable, Signal
 
+from gpg_meister.ui.errors.error_catalog import message_for_exception
+
 
 class _Signals(QObject):
     result: Signal = Signal(object)
@@ -39,7 +41,7 @@ class Worker(QRunnable):
             result = self._fn(*self._args, **self._kwargs)
             self.signals.result.emit(result)
         except Exception as exc:
-            self.signals.error.emit(str(exc))
+            self.signals.error.emit(message_for_exception(exc))
         finally:
             self.signals.finished.emit()
             with self._live_workers_lock:

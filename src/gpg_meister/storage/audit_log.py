@@ -10,8 +10,8 @@ This is a deliberately separate channel from the diagnostic log (planv2.md §2.1
   serialised record. Tampering becomes detectable cheaply by re-walking the file.
 
 The log is opened in append mode with mode 0o600 on POSIX. Concurrent writers from
-the same process are serialised through an internal lock; cross-process safety is
-provided by the OS (POSIX append() is atomic for small writes).
+the same process are serialised through an internal lock; hash-chained writes also
+take an advisory file lock while scanning and appending.
 """
 
 from __future__ import annotations
@@ -26,6 +26,9 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
+
+from gpg_meister.storage.file_lock import FileLock
+from gpg_meister.storage.permissions import ensure_dir, reject_symlink
 
 # Whitelisted audit event names. Anything else is rejected.
 ALLOWED_EVENTS: Final[frozenset[str]] = frozenset(
@@ -118,7 +121,8 @@ class AuditLog:
         self._hash_chain = hash_chain
         self._lock = threading.Lock()
         self._prev_hash: str | None = None
-        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_dir(path.parent, mode=0o700)
+        reject_symlink(path)
         # Open append-binary so write() is atomic on POSIX for small records, and
         # we control text encoding ourselves.
         self._fh = path.open("ab")
@@ -156,14 +160,22 @@ class AuditLog:
 
         with self._lock:
             if self._hash_chain:
-                record["prev_hash"] = self._prev_hash or ""
-            line = _serialise(record)
-            data = (line + "\n").encode("utf-8")
-            self._fh.write(data)
-            self._fh.flush()
-            os.fsync(self._fh.fileno())
-            if self._hash_chain:
-                self._prev_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
+                with FileLock(self._path, exclusive=True, timeout=5.0):
+                    self._prev_hash = self._scan_for_last_hash()
+                    self._write_record(record)
+            else:
+                self._write_record(record)
+
+    def _write_record(self, record: dict[str, Any]) -> None:
+        if self._hash_chain:
+            record["prev_hash"] = self._prev_hash or ""
+        line = _serialise(record)
+        data = (line + "\n").encode("utf-8")
+        self._fh.write(data)
+        self._fh.flush()
+        os.fsync(self._fh.fileno())
+        if self._hash_chain:
+            self._prev_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
 
     def close(self) -> None:
         with self._lock:

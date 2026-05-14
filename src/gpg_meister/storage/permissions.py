@@ -18,6 +18,7 @@ from pathlib import Path
 
 class PermissionStatus(StrEnum):
     OK = "ok"
+    SYMLINK = "symlink"
     GROUP_READABLE = "group_readable"
     WORLD_READABLE = "world_readable"
     GROUP_WRITABLE = "group_writable"
@@ -43,6 +44,7 @@ def ensure_dir(path: Path, *, mode: int = 0o700) -> None:
         path.mkdir(parents=True, exist_ok=True)
         return
 
+    reject_symlink(path)
     missing: list[Path] = []
     current = path
     while not current.exists():
@@ -50,15 +52,19 @@ def ensure_dir(path: Path, *, mode: int = 0o700) -> None:
         parent = current.parent
         if parent == current:
             break
+        reject_symlink(parent)
         current = parent
 
     for directory in reversed(missing):
+        reject_symlink(directory)
         try:
             os.mkdir(directory, mode)
         except FileExistsError:
+            reject_symlink(directory)
             if not directory.is_dir():
                 raise
 
+    reject_symlink(path)
     if path.exists() and not path.is_dir():
         raise NotADirectoryError(path)
     os.chmod(path, mode)
@@ -68,20 +74,43 @@ def ensure_file_mode(path: Path, *, mode: int = 0o600) -> None:
     """Set permissions of an existing file to `mode` on POSIX. No-op on Windows."""
     if sys.platform == "win32":
         return
+    reject_symlink(path)
     if not path.exists():
         raise FileNotFoundError(path)
     os.chmod(path, mode)
 
 
+def reject_symlink(path: Path) -> None:
+    """Reject a symlink before chmod/open/delete operations on managed paths."""
+    try:
+        if stat.S_ISLNK(path.lstat().st_mode):
+            raise RuntimeError(f"refusing to follow symlink at managed path: {path}")
+    except FileNotFoundError:
+        return
+
+
+def reject_symlink_tree(path: Path) -> None:
+    """Reject symlinks in an existing managed directory tree."""
+    reject_symlink(path)
+    if not path.exists():
+        return
+    for child in path.rglob("*"):
+        reject_symlink(child)
+
+
 def report(path: Path) -> PermissionReport:
     """Return a permission report. Never raises for missing paths."""
-    if not path.exists():
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
         return PermissionReport(path=path, status=PermissionStatus.NOT_FOUND, mode=0)
+    if stat.S_ISLNK(st.st_mode):
+        return PermissionReport(path=path, status=PermissionStatus.SYMLINK, mode=0)
 
     if sys.platform == "win32":
         return PermissionReport(path=path, status=PermissionStatus.WINDOWS_ACL, mode=0)
 
-    mode = stat.S_IMODE(path.stat().st_mode)
+    mode = stat.S_IMODE(st.st_mode)
 
     # Most severe issues first.
     if mode & stat.S_IWOTH:

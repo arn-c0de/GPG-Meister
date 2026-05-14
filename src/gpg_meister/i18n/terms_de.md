@@ -11,7 +11,8 @@ und Dokumentation von GPG Meister. Übersetzer müssen diese Begriffe exakt verw
 | **Öffentlicher Schlüssel** | Der teilbare Teil eines Schlüsselpaares. Jeder kann ihn verwenden, um Nachrichten an dich zu verschlüsseln oder deine Signaturen zu überprüfen. |
 | **Privater Schlüssel** | Der geheime Teil eines Schlüsselpaares. Bewahre ihn sicher auf – jeder mit Zugriff darauf kann deine Nachrichten entschlüsseln und sich als du ausgeben. |
 | **Schlüsselpaar** | Ein aufeinander abgestimmtes Paar aus öffentlichem und privatem Schlüssel. |
-| **Fingerabdruck** | Eine kurze Prüfsumme eines öffentlichen Schlüssels zur Identifizierung und Verifizierung. Überprüfe Fingerabdrücke immer über einen separaten Kanal, bevor du einem Schlüssel vertraust. |
+| **Fingerabdruck** | Die vollständige, eindeutige 40-stellige hexadezimale Kennung eines GPG-Schlüssels. Dies ist der **einzige sichere Weg**, einen Schlüssel zu identifizieren. Überprüfe Fingerabdrücke immer über einen separaten Kanal, bevor du einem Schlüssel vertraust. |
+| **Schlüssel-ID** | Ein kürzeres Suffix eines Fingerabdrucks (normalerweise 8 oder 16 Zeichen). Schlüssel-IDs sind **nicht eindeutig** und können leicht gefälscht werden; GPG Meister zeigt sie zur Übersicht an, verlässt sich für Sicherheitsoperationen jedoch immer auf Fingerabdrücke. |
 | **Signatur** | Ein kryptografischer Beweis, dass eine Nachricht vom Inhaber eines bestimmten privaten Schlüssels erstellt wurde und seitdem nicht verändert wurde. |
 | **Vertrauen** | Deine lokale Einschätzung, ob ein Schlüssel tatsächlich der genannten Person gehört. GPG Meister vertraut Schlüsseln nie automatisch – du musst sie selbst verifizieren. |
 | **Widerruf** | Das dauerhafte Ungültigmachen eines Schlüssels, um anzuzeigen, dass er nicht mehr verwendet werden soll (z. B. weil der private Schlüssel kompromittiert wurde). |

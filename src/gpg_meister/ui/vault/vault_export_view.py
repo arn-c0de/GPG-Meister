@@ -128,7 +128,7 @@ class VaultExportView(QWidget):
         self._master_pp.passphrase_changed.connect(self._on_master_changed)
         self._confirm_pp.passphrase_changed.connect(self._on_confirm_changed)
         self._gpg_pp.passphrase_changed.connect(self._on_gpg_changed)
-        self._btn_export.clicked.connect(self._vm.submit)
+        self._btn_export.clicked.connect(self._submit)
 
     def _on_keys_loaded(self, keys: list[KeyInfo]) -> None:
         self._key_list.clear()
@@ -213,3 +213,9 @@ class VaultExportView(QWidget):
         self._error_label.setText(msg)
         self._error_label.show()
         self._result_label.hide()
+
+    def _submit(self) -> None:
+        self._vm.submit()
+        self._master_pp.clear()
+        self._confirm_pp.clear()
+        self._gpg_pp.clear()

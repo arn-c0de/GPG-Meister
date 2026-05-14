@@ -21,6 +21,12 @@ MAX_HASH_LEN = 64
 MAX_SALT_LEN = 64
 MAX_PARALLELISM = 64
 
+# Import-time ceilings for untrusted vault headers. These match the strongest
+# built-in profile and prevent local DoS before authentication.
+MAX_IMPORT_TIME_COST = 3
+MAX_IMPORT_MEMORY_COST_KB = 262_144
+MAX_IMPORT_PARALLELISM = 4
+
 
 class KDFAlgorithm(StrEnum):
     ARGON2ID = "argon2id"

@@ -70,7 +70,11 @@ class EncryptViewModel(QObject):
         self._trust_confirmed = confirmed
 
     def can_submit(self) -> bool:
-        return bool(self._plaintext.strip()) and bool(self._recipient_fps)
+        return (
+            bool(self._plaintext.strip())
+            and bool(self._recipient_fps)
+            and self._trust_confirmed
+        )
 
     def submit(self) -> None:
         if not self.can_submit():
@@ -94,12 +98,14 @@ class EncryptViewModel(QObject):
                         sign_with=sign_with,
                         passphrase=pp,
                         always_trust=trust,
+                        trust_confirmed=trust,
                     )
             return self._msg_svc.encrypt(
                 plaintext_bytes,
                 recipient_fingerprints=fps,
                 sign_with=sign_with,
                 always_trust=trust,
+                trust_confirmed=trust,
             )
 
         w = Worker(_do)

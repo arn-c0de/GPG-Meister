@@ -26,12 +26,13 @@ class MessagesTabView(QTabWidget):
         sign_vm: SignViewModel,
         verify_vm: VerifyViewModel,
         key_svc: KeyService,
+        clipboard_clear_seconds: int = 60,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setDocumentMode(True)
-        self.addTab(EncryptView(encrypt_vm), "Encrypt")
-        self.addTab(DecryptView(decrypt_vm), "Decrypt")
+        self.addTab(EncryptView(encrypt_vm, clipboard_clear_seconds=clipboard_clear_seconds), "Encrypt")
+        self.addTab(DecryptView(decrypt_vm, clipboard_clear_seconds=clipboard_clear_seconds), "Decrypt")
         self.addTab(SignView(sign_vm), "Sign")
         self.addTab(VerifyView(verify_vm), "Verify")
         self._share_key_view = ShareKeyView(key_svc)

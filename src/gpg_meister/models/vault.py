@@ -11,7 +11,7 @@ import base64
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gpg_meister.models.kdf_params import (
     MAX_HASH_LEN,
@@ -31,6 +31,12 @@ from gpg_meister.models.key_info import _FINGERPRINT_CHARS, FINGERPRINT_LENGTH
 VAULT_FORMAT_TAG = "GPGMEISTER_VAULT"
 VAULT_FORMAT_VERSION = 2
 NONCE_LEN = 12
+MAX_VAULT_KEYS = 1024
+MAX_VAULT_USER_IDS = 16
+MAX_VAULT_USER_ID_LENGTH = 512
+MAX_VAULT_DESCRIPTION_LENGTH = 4096
+MAX_VAULT_CREATED_BY_LENGTH = 256
+MAX_VAULT_ARMOR_LENGTH = 2 * 1024 * 1024
 
 
 class CipherAlgorithm(StrEnum):
@@ -135,9 +141,9 @@ class VaultKeyEntry(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     fingerprint: str = Field(..., min_length=FINGERPRINT_LENGTH, max_length=FINGERPRINT_LENGTH)
-    user_ids: tuple[str, ...]
-    public_key_armored: str
-    private_key_armored: str | None = None
+    user_ids: tuple[str, ...] = Field(..., max_length=MAX_VAULT_USER_IDS)
+    public_key_armored: str = Field(..., min_length=1, max_length=MAX_VAULT_ARMOR_LENGTH)
+    private_key_armored: str | None = Field(default=None, max_length=MAX_VAULT_ARMOR_LENGTH)
     has_private_key: bool
     created_at: datetime
     expires_at: datetime | None = None
@@ -149,6 +155,20 @@ class VaultKeyEntry(BaseModel):
         if len(upper) != FINGERPRINT_LENGTH or not set(upper).issubset(_FINGERPRINT_CHARS):
             raise ValueError("fingerprint must be 40 uppercase hex characters")
         return upper
+
+    @field_validator("user_ids")
+    @classmethod
+    def _validate_user_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for user_id in value:
+            if len(user_id) > MAX_VAULT_USER_ID_LENGTH:
+                raise ValueError("vault user ID is too long")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_private_key_material(self) -> VaultKeyEntry:
+        if self.has_private_key and not self.private_key_armored:
+            raise ValueError("private key entry is missing private key material")
+        return self
 
     def __repr__(self) -> str:
         return (
@@ -165,11 +185,11 @@ class VaultManifest(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    created_by: str = ""
+    created_by: str = Field(default="", max_length=MAX_VAULT_CREATED_BY_LENGTH)
     created_at: datetime
     app_version: str
-    description: str = ""
-    keys: tuple[VaultKeyEntry, ...]
+    description: str = Field(default="", max_length=MAX_VAULT_DESCRIPTION_LENGTH)
+    keys: tuple[VaultKeyEntry, ...] = Field(..., max_length=MAX_VAULT_KEYS)
 
     def __repr__(self) -> str:
         return (

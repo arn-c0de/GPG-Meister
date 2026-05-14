@@ -151,7 +151,10 @@ def configure_logging(
 
 def _open_log_file(path: Path) -> Any:
     """Open (or create) the diagnostic log file in append mode, mode 0600."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    from gpg_meister.storage.permissions import ensure_dir, reject_symlink
+
+    ensure_dir(path.parent, mode=0o700)
+    reject_symlink(path)
     fh = path.open("a", encoding="utf-8")
     if sys.platform != "win32":
         import os

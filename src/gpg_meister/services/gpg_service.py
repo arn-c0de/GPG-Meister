@@ -70,6 +70,7 @@ class GPGServiceConfig:
     binary_path: Path
     home_dir: Path
     timeout_seconds: int = 60
+    trusted_sha256: str | None = None
 
 
 def _trust_from_gpg(letter: str) -> TrustLevel:
@@ -91,11 +92,11 @@ def _algorithm_from_gpg(numeric: str) -> KeyAlgorithm:
     # 1=RSA, 17=DSA, 18=ECDH, 19=ECDSA, 22=EdDSA
     return {
         "1": KeyAlgorithm.RSA,
-        "17": KeyAlgorithm.ECDSA,  # DSA is legacy; surface as ECDSA's bucket
+        "17": KeyAlgorithm.DSA,
         "18": KeyAlgorithm.ECDH,
         "19": KeyAlgorithm.ECDSA,
         "22": KeyAlgorithm.EDDSA,
-    }.get(numeric, KeyAlgorithm.RSA)
+    }.get(numeric, KeyAlgorithm.UNKNOWN)
 
 
 def _to_key_info(entry: dict[str, Any]) -> KeyInfo:
@@ -109,6 +110,7 @@ def _to_key_info(entry: dict[str, Any]) -> KeyInfo:
         fingerprint=fingerprint,
         user_ids=user_ids,
         algorithm=_algorithm_from_gpg(str(entry.get("algo", "1"))),
+        raw_algorithm_id=str(entry.get("algo", "")),
         length=int(entry.get("length") or 0) or 2048,
         created_at=datetime.fromtimestamp(created, tz=UTC) if created else datetime.now(UTC),
         expires_at=datetime.fromtimestamp(expires, tz=UTC) if expires else None,
@@ -127,6 +129,7 @@ class GPGService:
     def __init__(self, config: GPGServiceConfig) -> None:
         if not config.binary_path.exists():
             raise GPGServiceError(f"GPG binary does not exist: {config.binary_path}")
+        self._revalidate_binary(config)
         ensure_dir(config.home_dir, mode=0o700)
 
         self._config = config
@@ -143,6 +146,19 @@ class GPGService:
                 raise GPGServiceError(
                     f"python-gnupg did not apply required option {needed!r}"
                 )
+
+    def _revalidate_binary(self, config: GPGServiceConfig) -> None:
+        from gpg_meister.startup.gpg_detector import detect
+
+        detected = detect(
+            user_override_path=str(config.binary_path),
+            trusted_hash=config.trusted_sha256,
+            trusted_path=str(config.binary_path) if config.trusted_sha256 else None,
+        )
+        if detected.path != config.binary_path.resolve():
+            raise GPGServiceError("GPG binary path changed before service startup")
+        if config.trusted_sha256 and detected.sha256.lower() != config.trusted_sha256.lower():
+            raise GPGServiceError("GPG binary hash changed before service startup")
 
     @property
     def config(self) -> GPGServiceConfig:

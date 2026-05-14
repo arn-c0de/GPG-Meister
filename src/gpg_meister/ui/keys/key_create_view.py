@@ -201,6 +201,8 @@ class KeyCreateDialog(QDialog):
     def _on_submit(self) -> None:
         self._error_label.hide()
         self._vm.submit()
+        self._passphrase_field.clear()
+        self._confirm_field.clear()
 
     def _on_success(self, key: KeyInfo) -> None:
         self.key_created.emit(key)

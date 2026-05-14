@@ -64,6 +64,7 @@ def test_save_applies_mode_0600(tmp_path: Path) -> None:
 def test_unknown_keys_rejected(tmp_path: Path) -> None:
     target = tmp_path / "config.toml"
     target.write_text("locale = 'en'\nrogue_key = 42\n", encoding="utf-8")
+    os.chmod(target, 0o600)
     with pytest.raises(ConfigServiceError, match="invalid"):
         load(target)
 
@@ -74,6 +75,7 @@ def test_out_of_range_values_rejected(tmp_path: Path) -> None:
         "locale = 'en'\nclipboard_clear_seconds = 99999\n",
         encoding="utf-8",
     )
+    os.chmod(target, 0o600)
     with pytest.raises(ConfigServiceError):
         load(target)
 
@@ -81,6 +83,7 @@ def test_out_of_range_values_rejected(tmp_path: Path) -> None:
 def test_malformed_toml_rejected(tmp_path: Path) -> None:
     target = tmp_path / "config.toml"
     target.write_bytes(b"this is not [toml")
+    os.chmod(target, 0o600)
     with pytest.raises(ConfigServiceError):
         load(target)
 

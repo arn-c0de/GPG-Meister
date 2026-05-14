@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QComboBox,
     QFrame,
@@ -28,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.models.key_info import KeyInfo, TrustLevel
 from gpg_meister.models.message import EncryptResult
+from gpg_meister.ui.clipboard import copy_text
 from gpg_meister.ui.messages.encrypt_viewmodel import EncryptViewModel
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
@@ -100,9 +100,16 @@ class _RecipientCard(QFrame):
 class EncryptView(QWidget):
     """Encrypt tab: compose message, select recipients, confirm, encrypt."""
 
-    def __init__(self, viewmodel: EncryptViewModel, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        viewmodel: EncryptViewModel,
+        *,
+        clipboard_clear_seconds: int = 60,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._vm = viewmodel
+        self._clipboard_clear_seconds = clipboard_clear_seconds
         self._available_keys: list[KeyInfo] = []
         self._recipient_keys: list[KeyInfo] = []
         self._build_ui()
@@ -235,7 +242,7 @@ class EncryptView(QWidget):
         self._vm.operation_failed.connect(self._on_error)
 
         self._plaintext.textChanged.connect(
-            lambda: self._vm.set_plaintext(self._plaintext.toPlainText())
+            self._on_plaintext_changed
         )
         self._btn_add_recip.clicked.connect(self._add_recipient)
         self._btn_remove_recip.clicked.connect(self._remove_recipient)
@@ -246,7 +253,7 @@ class EncryptView(QWidget):
             lambda: self._vm.set_passphrase(self._sign_passphrase.text())
         )
         self._verify_check.toggled.connect(self._on_verify_toggled)
-        self._btn_encrypt.clicked.connect(self._vm.submit)
+        self._btn_encrypt.clicked.connect(self._submit)
         self._btn_clear.clicked.connect(self._clear)
         self._btn_copy_output.clicked.connect(self._copy_output)
 
@@ -320,7 +327,7 @@ class EncryptView(QWidget):
             for key in self._recipient_keys:
                 card = _RecipientCard(key)
                 self._confirm_inner.addWidget(card)
-            self._verify_check.setEnabled(True)
+            self._verify_check.setEnabled(not self._has_blocked_recipient())
         else:
             placeholder = QLabel("No recipients added yet.")
             placeholder.setStyleSheet("color: #888888;")
@@ -333,11 +340,7 @@ class EncryptView(QWidget):
         self._update_encrypt_button()
 
     def _update_encrypt_button(self) -> None:
-        can = (
-            bool(self._recipient_keys)
-            and self._verify_check.isChecked()
-            and bool(self._plaintext.toPlainText().strip())
-        )
+        can = self._vm.can_submit() and not self._has_blocked_recipient()
         self._btn_encrypt.setEnabled(can)
 
     def _on_loading(self, loading: bool) -> None:
@@ -345,7 +348,7 @@ class EncryptView(QWidget):
             self._progress.show()
         else:
             self._progress.hide()
-        self._btn_encrypt.setEnabled(not loading and self._verify_check.isChecked())
+        self._btn_encrypt.setEnabled(not loading and self._vm.can_submit())
 
     def _on_success(self, result: object) -> None:
         if not isinstance(result, EncryptResult):
@@ -369,11 +372,20 @@ class EncryptView(QWidget):
         self._btn_copy_output.setEnabled(False)
         self._error_label.hide()
 
+    def _on_plaintext_changed(self) -> None:
+        self._vm.set_plaintext(self._plaintext.toPlainText())
+        self._update_encrypt_button()
+
+    def _has_blocked_recipient(self) -> bool:
+        return any(key.is_revoked or key.is_expired for key in self._recipient_keys)
+
     def _copy_output(self) -> None:
         text = self._output.toPlainText()
-        cb = QApplication.clipboard()
-        if cb and text:
-            cb.setText(text)
+        copy_text(text, clear_after_seconds=self._clipboard_clear_seconds)
+
+    def _submit(self) -> None:
+        self._vm.submit()
+        self._sign_passphrase.clear()
 
 
 def _monospace_font() -> QFont:

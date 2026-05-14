@@ -103,7 +103,7 @@ class SignView(QWidget):
         self._passphrase.passphrase_changed.connect(self._on_passphrase_changed)
         self._data.textChanged.connect(self._on_data_changed)
         self._detached_check.toggled.connect(self._vm.set_detached)
-        self._btn_sign.clicked.connect(lambda: self._vm.submit(self._passphrase.text))
+        self._btn_sign.clicked.connect(self._submit)
         self._btn_clear.clicked.connect(self._clear)
         self._btn_copy.clicked.connect(self._copy_output)
 
@@ -162,3 +162,8 @@ class SignView(QWidget):
         cb = QApplication.clipboard()
         if cb and text:
             cb.setText(text)
+
+    def _submit(self) -> None:
+        passphrase = self._passphrase.text()
+        self._passphrase.clear()
+        self._vm.submit(lambda: passphrase)

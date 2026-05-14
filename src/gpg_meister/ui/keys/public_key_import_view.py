@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -37,6 +38,8 @@ class PublicKeyImportDialog(QDialog):
         self.setMinimumSize(560, 420)
         self._svc = key_service
         self._plan: tuple[ImportPlanEntry, ...] = ()
+        self._planned_blob: str = ""
+        self._planned_digest: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -82,6 +85,7 @@ class PublicKeyImportDialog(QDialog):
         self._buttons.accepted.connect(self._do_import)
         self._buttons.rejected.connect(self.reject)
         layout.addWidget(self._buttons)
+        self._text_edit.textChanged.connect(self._invalidate_plan)
 
     def _load_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -89,7 +93,9 @@ class PublicKeyImportDialog(QDialog):
         )
         if path:
             try:
-                self._text_edit.setPlainText(Path(path).read_text("utf-8"))
+                raw = Path(path).read_bytes()
+                raw.decode("ascii")
+                self._text_edit.setPlainText(raw.decode("utf-8"))
             except Exception as exc:
                 self._show_error(f"Could not read file: {exc}")
 
@@ -104,6 +110,8 @@ class PublicKeyImportDialog(QDialog):
         except Exception as exc:
             self._show_error(f"Could not analyze key: {exc}")
             return
+        self._planned_blob = armored
+        self._planned_digest = hashlib.sha256(armored.encode("utf-8")).hexdigest()
 
         self._plan_table.setRowCount(len(self._plan))
         has_new = False
@@ -123,8 +131,12 @@ class PublicKeyImportDialog(QDialog):
             self._show_error("All keys are already in the keyring.")
 
     def _do_import(self) -> None:
-        armored = self._text_edit.toPlainText().strip()
-        if not armored:
+        armored = self._planned_blob
+        current = self._text_edit.toPlainText().strip()
+        if not armored or not self._planned_digest:
+            return
+        if hashlib.sha256(current.encode("utf-8")).hexdigest() != self._planned_digest:
+            self._show_error("Key data changed after analysis. Analyze it again before importing.")
             return
         try:
             imported = self._svc.import_armored(armored)
@@ -136,6 +148,12 @@ class PublicKeyImportDialog(QDialog):
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(self, "Import complete", f"Imported {count} key(s).")
         self.accept()
+
+    def _invalidate_plan(self) -> None:
+        self._plan = ()
+        self._planned_blob = ""
+        self._planned_digest = ""
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
 
     def _show_error(self, msg: str) -> None:
         if msg:

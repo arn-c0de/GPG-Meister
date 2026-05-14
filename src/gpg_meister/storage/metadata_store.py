@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+
+from gpg_meister.storage.permissions import ensure_dir, reject_symlink
 
 
 class MetadataStoreError(Exception):
@@ -61,8 +64,10 @@ class MetadataStore:
     """
 
     def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_dir(path.parent, mode=0o700)
+        reject_symlink(path)
         self._path = path
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         if sys.platform != "win32":
@@ -71,24 +76,25 @@ class MetadataStore:
             for sidecar in (path.parent / (path.name + "-wal"), path.parent / (path.name + "-shm")):
                 if sidecar.exists():
                     os.chmod(sidecar, 0o600)
-        with self._conn:
+        with self._lock, self._conn:
             self._conn.executescript(_SCHEMA)
             self._migrate_key_metadata()
 
     def _migrate_key_metadata(self) -> None:
-        columns = {
-            str(row["name"])
-            for row in self._conn.execute("PRAGMA table_info(key_metadata)").fetchall()
-        }
-        for name in ("purpose", "platform", "notes"):
-            if name not in columns:
-                self._conn.execute(
-                    f"ALTER TABLE key_metadata ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
-                )
+        with self._lock:
+            columns = {
+                str(row["name"])
+                for row in self._conn.execute("PRAGMA table_info(key_metadata)").fetchall()
+            }
+            for name in ("purpose", "platform", "notes"):
+                if name not in columns:
+                    self._conn.execute(
+                        f"ALTER TABLE key_metadata ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
+                    )
 
     @contextmanager
     def _tx(self) -> Generator[sqlite3.Connection, None, None]:
-        with self._conn:
+        with self._lock, self._conn:
             yield self._conn
 
     # ------------------------------------------------------------------
@@ -148,15 +154,17 @@ class MetadataStore:
             conn.execute("DELETE FROM key_metadata WHERE fingerprint = ?", (fingerprint,))
 
     def get_key(self, fingerprint: str) -> dict[str, str | None] | None:
-        row = self._conn.execute(
-            "SELECT * FROM key_metadata WHERE fingerprint = ?", (fingerprint,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM key_metadata WHERE fingerprint = ?", (fingerprint,)
+            ).fetchone()
         return dict(row) if row else None
 
     def list_keys(self) -> list[dict[str, str | None]]:
-        rows = self._conn.execute(
-            "SELECT * FROM key_metadata ORDER BY import_timestamp DESC"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM key_metadata ORDER BY import_timestamp DESC"
+            ).fetchall()
         return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
@@ -176,16 +184,18 @@ class MetadataStore:
             return cursor.lastrowid  # type: ignore[return-value]
 
     def list_vault_records(self) -> list[dict[str, object]]:
-        rows = self._conn.execute(
-            "SELECT * FROM vault_record ORDER BY creation_timestamp DESC"
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM vault_record ORDER BY creation_timestamp DESC"
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def latest_vault_timestamp(self) -> str | None:
         """Return the creation_timestamp of the most recent vault record, or None."""
-        row = self._conn.execute(
-            "SELECT creation_timestamp FROM vault_record ORDER BY creation_timestamp DESC LIMIT 1"
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT creation_timestamp FROM vault_record ORDER BY creation_timestamp DESC LIMIT 1"
+            ).fetchone()
         return row["creation_timestamp"] if row else None
 
     # ------------------------------------------------------------------
@@ -201,9 +211,10 @@ class MetadataStore:
             )
 
     def get_preference(self, key: str, default: str | None = None) -> str | None:
-        row = self._conn.execute(
-            "SELECT value FROM app_preferences WHERE key = ?", (key,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM app_preferences WHERE key = ?", (key,)
+            ).fetchone()
         return row["value"] if row else default
 
     def delete_preference(self, key: str) -> None:
@@ -215,7 +226,8 @@ class MetadataStore:
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def __enter__(self) -> MetadataStore:
         return self

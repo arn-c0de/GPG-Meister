@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
+from gpg_meister.models.key_info import KeyAlgorithm, TrustLevel
 from gpg_meister.models.message import DecryptResult, EncryptResult, SignResult, VerifyResult
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.gpg_service import GPGService
@@ -33,9 +34,13 @@ class MessageService:
         sign_with: str | None = None,
         passphrase: SecureBytes | None = None,
         always_trust: bool = False,
+        trust_confirmed: bool = False,
     ) -> EncryptResult:
         recipients = tuple(validate_fingerprint(fp) for fp in recipient_fingerprints)
         signer = validate_fingerprint(sign_with) if sign_with else None
+        self._enforce_recipient_policy(recipients, trust_confirmed=trust_confirmed)
+        if always_trust and not trust_confirmed:
+            raise ValueError("recipient trust must be confirmed before encryption")
 
         try:
             armored = self._gpg.encrypt(
@@ -69,6 +74,27 @@ class MessageService:
             signing_fingerprint=signer,
             created_at=datetime.now(UTC),
         )
+
+    def _enforce_recipient_policy(
+        self,
+        recipients: Sequence[str],
+        *,
+        trust_confirmed: bool,
+    ) -> None:
+        if not recipients:
+            raise ValueError("at least one recipient is required")
+        for fp in recipients:
+            key = self._gpg.find_key(fp)
+            if key.is_revoked:
+                raise ValueError("cannot encrypt to a revoked recipient key")
+            if key.is_expired:
+                raise ValueError("cannot encrypt to an expired recipient key")
+            if key.algorithm in (KeyAlgorithm.DSA, KeyAlgorithm.UNKNOWN):
+                raise ValueError("cannot encrypt to an unsupported recipient key algorithm")
+            if key.algorithm is KeyAlgorithm.RSA and key.length < 2048:
+                raise ValueError("cannot encrypt to an RSA key below 2048 bits")
+            if key.trust in (TrustLevel.UNKNOWN, TrustLevel.NEVER) and not trust_confirmed:
+                raise ValueError("recipient trust must be confirmed before encryption")
 
     # ----------------------------------------------------------------- decrypt
 
@@ -111,6 +137,7 @@ class MessageService:
         passphrase: SecureBytes,
         detached: bool = True,
     ) -> SignResult:
+        _validate_text_payload(data)
         try:
             armored = self._gpg.sign(
                 data,
@@ -147,6 +174,7 @@ class MessageService:
         *,
         detached_signature: bytes | None = None,
     ) -> VerifyResult:
+        _validate_text_payload(data)
         valid, signer, signed_at = self._gpg.verify(
             data, detached_signature=detached_signature
         )
@@ -155,3 +183,12 @@ class MessageService:
             signer_fingerprint=signer,
             signed_at=signed_at,
         )
+
+
+def _validate_text_payload(data: bytes) -> None:
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("message signing and verification are text-only") from exc
+    if b"\x00" in data:
+        raise ValueError("message signing and verification are text-only")
