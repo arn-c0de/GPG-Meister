@@ -68,6 +68,15 @@ class VaultServiceError(ServiceError):
     """Vault operation failed at the service layer."""
 
 
+class VaultChecksumMismatchError(VaultServiceError):
+    """Sidecar SHA-256 does not match the vault file.
+
+    The vault's AEAD decryption already succeeded, so the ciphertext is
+    intact. Only the external sidecar is out of sync (e.g. corrupted during
+    transfer). Callers may offer the user an "open anyway" path.
+    """
+
+
 MAX_VAULT_FRAME_SIZE = HEADER_OFFSET + MAX_HEADER_SIZE + LENGTH_FIELD + MAX_CIPHERTEXT_SIZE
 
 
@@ -327,13 +336,23 @@ class VaultService:
 
     # --------------------------------------------------------------------- open
 
-    def preview(self, *, source_path: Path, master_passphrase: SecureBytes) -> VaultPreview:
+    def preview(
+        self,
+        *,
+        source_path: Path,
+        master_passphrase: SecureBytes,
+        skip_checksum: bool = False,
+    ) -> VaultPreview:
         """Decrypt the manifest and return a read-only preview.
 
         The local keyring is *not* modified — use `import_keys` to commit a
         subset of the preview into the keyring.
         """
-        manifest, _ = self._open(source_path=source_path, master_passphrase=master_passphrase)
+        manifest, _ = self._open(
+            source_path=source_path,
+            master_passphrase=master_passphrase,
+            skip_checksum=skip_checksum,
+        )
         return VaultPreview(
             path=Path(source_path).resolve(),
             created_at=manifest.created_at,
@@ -348,6 +367,7 @@ class VaultService:
         source_path: Path,
         master_passphrase: SecureBytes,
         fingerprints: Iterable[str] | None = None,
+        skip_checksum: bool = False,
     ) -> list[str]:
         """Decrypt and import (a subset of) the vault's keys into the local keyring.
 
@@ -355,7 +375,9 @@ class VaultService:
         Returns the list of fingerprints that were imported successfully.
         """
         manifest, src_path = self._open(
-            source_path=source_path, master_passphrase=master_passphrase
+            source_path=source_path,
+            master_passphrase=master_passphrase,
+            skip_checksum=skip_checksum,
         )
         wanted = (
             {validate_fingerprint(fp) for fp in fingerprints}
@@ -400,7 +422,11 @@ class VaultService:
     # ----------------------------------------------------------------- internal
 
     def _open(
-        self, *, source_path: Path, master_passphrase: SecureBytes
+        self,
+        *,
+        source_path: Path,
+        master_passphrase: SecureBytes,
+        skip_checksum: bool = False,
     ) -> tuple[VaultManifest, Path]:
         src = Path(source_path).resolve()
         if not src.exists():
@@ -448,7 +474,7 @@ class VaultService:
 
         # Verify the sidecar (best-effort — missing sidecar is fine, mismatch warns).
         sidecar = src.with_name(src.name + ".sha256")
-        if sidecar.exists():
+        if sidecar.exists() and not skip_checksum:
             expected = _read_sidecar_digest(sidecar)
             actual = hashlib.sha256(data).hexdigest().lower()
             if expected != actual:
@@ -458,7 +484,7 @@ class VaultService:
                     path=str(src),
                     reason="checksum",
                 )
-                raise VaultServiceError(
+                raise VaultChecksumMismatchError(
                     f"vault checksum mismatch: expected {expected[:16]}…"
                 )
 

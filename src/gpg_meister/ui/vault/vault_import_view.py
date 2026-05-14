@@ -25,7 +25,7 @@ from gpg_meister.models.vault import VaultKeyEntry
 from gpg_meister.security.errors import DecryptionError, VaultFormatError
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.security.vault_format import MAGIC
-from gpg_meister.services.vault_service import VaultPreview, VaultService
+from gpg_meister.services.vault_service import VaultChecksumMismatchError, VaultPreview, VaultService
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
 _PAGE_FILE = 0
@@ -146,6 +146,29 @@ class _PassphrasePage(QWizardPage):
                 )
             self._status_label.setText("Vault decrypted successfully.")
             self._status_label.setStyleSheet("color: #006600;")
+            return True
+        except VaultChecksumMismatchError:
+            from PySide6.QtWidgets import QMessageBox
+            reply = QMessageBox.warning(
+                self,
+                "Vault Checksum Mismatch",
+                "The vault's checksum does not match.\n"
+                "The file may have been damaged during transfer.\n\n"
+                "The vault content is cryptographically intact (AEAD verified).\n"
+                "Open it anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self._status_label.setText("Import cancelled.")
+                self._status_label.setStyleSheet("color: #666666;")
+                return False
+            with SecureBytes.from_bytes(pp_text.encode()) as pp:
+                self._preview = self._vault_svc.preview(
+                    source_path=vault_path, master_passphrase=pp, skip_checksum=True
+                )
+            self._status_label.setText("Vault opened (checksum ignored).")
+            self._status_label.setStyleSheet("color: #cc6600;")
             return True
         except DecryptionError:
             self._status_label.setText("Wrong passphrase or corrupted vault.")
