@@ -167,9 +167,24 @@ def check_required_packages() -> list[CheckWarning]:
 
 
 def check_mlock() -> bool:
-    """Return True if mlock succeeds on this platform."""
+    """Return True if mlock succeeds on this platform.
+
+    Uses ctypes.CDLL(None) (the current process's C library) first, which
+    works on both glibc and musl libc. Falls back to explicit libc.so.6 for
+    older glibc environments where CDLL(None) might not expose mlock.
+    """
     if sys.platform == "win32":
         return False
+    try:
+        buf = ctypes.create_string_buffer(64)
+        # CDLL(None) loads the current process's libc — works on musl and glibc.
+        lib = ctypes.CDLL(None, use_errno=True)
+        if not hasattr(lib, "mlock"):
+            raise AttributeError
+        ret: int = lib.mlock(buf, ctypes.c_size_t(64))
+        return ret == 0
+    except (OSError, AttributeError):
+        pass
     try:
         buf = ctypes.create_string_buffer(64)
         ret = ctypes.cdll.LoadLibrary("libc.so.6").mlock(buf, ctypes.c_size_t(64))
@@ -201,6 +216,29 @@ def check_swap_encryption() -> tuple[bool | None, list[CheckWarning]]:
     return encrypted, warnings
 
 
+def _is_dm_crypt_device(device: str) -> bool:
+    """Return True if `device` is a dm-crypt target (LUKS or plain).
+
+    Reads /sys/class/block/<dm-N>/dm/uuid without requiring privileges.
+    dm-crypt volumes have a UUID starting with 'CRYPT-'.
+    Also checks /dev/mapper/ prefix as a fallback for non-standard names.
+    """
+    if device.startswith("/dev/mapper/"):
+        return True
+    try:
+        # Resolve /dev/dm-N to the dm block name
+        dev_path = Path(device)
+        # Try reading via sysfs for this device
+        dm_name = dev_path.name  # e.g. "dm-0"
+        uuid_path = Path("/sys/class/block") / dm_name / "dm" / "uuid"
+        if uuid_path.exists():
+            uuid = uuid_path.read_text(encoding="utf-8", errors="replace").strip()
+            return uuid.startswith("CRYPT-")
+    except OSError:
+        pass
+    return False
+
+
 def _check_swap_linux() -> tuple[bool | None, list[CheckWarning]]:
     try:
         with open("/proc/swaps", encoding="utf-8") as f:
@@ -218,6 +256,8 @@ def _check_swap_linux() -> tuple[bool | None, list[CheckWarning]]:
         if not Path(device).is_block_device():
             swap_files.append(device)
             continue
+        if _is_dm_crypt_device(device):
+            continue  # device-mapper crypto target — treat as encrypted
         if not device.startswith("/dev/mapper/"):
             unencrypted.append(device)
 

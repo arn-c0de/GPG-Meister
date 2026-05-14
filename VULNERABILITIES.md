@@ -79,7 +79,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 
 ## 5. Architectural & Format Risks
 
-### 5.1 Vault Key Armor Length Constraint
+### FIXED 5.1 Vault Key Armor Length Constraint
 *   **Location:** `src/gpg_meister/models/vault.py:27`
 *   **Issue:** `MAX_VAULT_ARMOR_LENGTH` (2MB) may be too small for complex keys.
 
