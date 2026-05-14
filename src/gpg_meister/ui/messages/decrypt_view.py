@@ -137,11 +137,22 @@ class DecryptView(QWidget):
         self._btn_copy_output.setEnabled(True)
 
         if result.signer_fingerprint:
+            from gpg_meister.models.key_info import TrustLevel
             status = "valid" if result.signature_valid else "INVALID"
+            trust = result.signer_trust
+            trust_str = f"  trust: {trust.value}"
+            untrusted = trust in (TrustLevel.UNKNOWN, TrustLevel.NEVER)
+            if result.signature_valid and untrusted:
+                status = "valid (signer UNTRUSTED)"
             self._signer_label.setText(
-                f"Signed by: {result.signer_fingerprint}  (signature {status})"
+                f"Signed by: {result.signer_fingerprint}  (signature {status}{trust_str})"
             )
-            color = "#006600" if result.signature_valid else "#cc0000"
+            if not result.signature_valid:
+                color = "#cc0000"
+            elif untrusted:
+                color = "#cc6600"
+            else:
+                color = "#006600"
             self._signer_label.setStyleSheet(f"color: {color};")
             self._signer_label.show()
         else:

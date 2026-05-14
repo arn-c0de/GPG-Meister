@@ -159,7 +159,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/ui/widgets/passphrase_field.py:65-75`
 *   **Issue:** `PassphraseField` emits the `passphrase_changed` signal on every keystroke, which triggers `assess(text)` in the ViewModel. This creates many short-lived Python strings in memory (e.g., "P", "Pa", "Pas", ...), increasing the attack surface for memory scraping or swap-file exposure.
 
-### 8.13 Passphrase Captured in ViewModel Closure
+### FIXED 8.13 Passphrase Captured in ViewModel Closure
 *   **Location:** `src/gpg_meister/ui/messages/decrypt_viewmodel.py:84-95`
 *   **Issue:** The passphrase is captured in a `lambda: passphrase` closure within `submit()`. This extends the lifetime of the sensitive string until the lambda object is garbage collected, which may be delayed if the GPG worker task is stalled or if a traceback holds a reference to the frame.
 

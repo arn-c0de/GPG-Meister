@@ -102,16 +102,23 @@ class VerifyView(QWidget):
             return
         self._error_label.hide()
         if result.signature_valid:
+            from gpg_meister.models.key_info import TrustLevel
             signer = result.signer_fingerprint or "unknown"
             date_str = (
                 result.signed_at.strftime("%Y-%m-%d %H:%M UTC")
                 if result.signed_at
                 else "unknown date"
             )
+            trust = result.signer_trust
+            trust_line = f"\nSigner trust: {trust.value}"
+            untrusted = trust in (TrustLevel.UNKNOWN, TrustLevel.NEVER)
+            if untrusted:
+                trust_line += "  ⚠ Signer is not in your trust web — identity unverified"
             self._result_label.setText(
-                f"Signature VALID\nSigner: {signer}\nSigned at: {date_str}"
+                f"Signature VALID\nSigner: {signer}\nSigned at: {date_str}{trust_line}"
             )
-            self._result_label.setStyleSheet("color: #006600; font-weight: bold;")
+            color = "#cc6600" if untrusted else "#006600"
+            self._result_label.setStyleSheet(f"color: {color}; font-weight: bold;")
         else:
             self._result_label.setText("Signature INVALID — the message may have been tampered with.")
             self._result_label.setStyleSheet("color: #cc0000; font-weight: bold;")

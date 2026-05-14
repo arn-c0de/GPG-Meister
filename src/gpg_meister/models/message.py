@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from gpg_meister.models.key_info import TrustLevel
+
 
 class EncryptResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -24,6 +26,7 @@ class DecryptResult(BaseModel):
     plaintext: bytes
     signer_fingerprint: str | None = None
     signature_valid: bool = False
+    signer_trust: TrustLevel = TrustLevel.UNKNOWN
     decrypted_with_fingerprint: str | None = None
 
     def __repr__(self) -> str:
@@ -51,5 +54,6 @@ class VerifyResult(BaseModel):
 
     signature_valid: bool
     signer_fingerprint: str | None = None
+    signer_trust: TrustLevel = TrustLevel.UNKNOWN
     signed_at: datetime | None = None
     failure_reason: str | None = Field(default=None)

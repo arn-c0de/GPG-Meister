@@ -11,7 +11,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
+import contextlib
+
 from gpg_meister.models.key_info import KeyAlgorithm, TrustLevel
+from gpg_meister.services.errors import GPGKeyNotFoundError
 from gpg_meister.models.message import DecryptResult, EncryptResult, SignResult, VerifyResult
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.gpg_service import GPGService
@@ -114,17 +117,24 @@ class MessageService:
             )
             raise
 
+        signer_trust = TrustLevel.UNKNOWN
+        if signer:
+            with contextlib.suppress(Exception):
+                signer_trust = self._gpg.find_key(signer).trust
+
         self._audit.emit(
             "message_decrypted",
             outcome=OUTCOME_OK,
             byte_count=len(plaintext),
             signer=signer or "",
             signature_valid=valid,
+            signer_trust=signer_trust.value if signer else "",
         )
         return DecryptResult(
             plaintext=plaintext,
             signer_fingerprint=signer,
             signature_valid=valid,
+            signer_trust=signer_trust,
         )
 
     # -------------------------------------------------------------------- sign
@@ -178,9 +188,14 @@ class MessageService:
         valid, signer, signed_at = self._gpg.verify(
             data, detached_signature=detached_signature
         )
+        signer_trust = TrustLevel.UNKNOWN
+        if signer:
+            with contextlib.suppress(Exception):
+                signer_trust = self._gpg.find_key(signer).trust
         return VerifyResult(
             signature_valid=valid,
             signer_fingerprint=signer,
+            signer_trust=signer_trust,
             signed_at=signed_at,
         )
 
