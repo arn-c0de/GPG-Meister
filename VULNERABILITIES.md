@@ -14,11 +14,11 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Issue:** `_check_swap_linux()` only inspects `/dev/mapper/` block devices. Swap files are skipped, potentially leaving sensitive data exposed on unencrypted swap partitions.
 *   **Fix:** Non-block-device swap entries now emit a `swap_file_unverified` warning.
 
-### 1.3 Immutable Secret Clearing Failure
+### FIXED 1.3 Immutable Secret Clearing Failure
 *   **Location:** `src/gpg_meister/security/kdf.py:105`
 *   **Issue:** `derive_key()` attempts to zero-out sensitive `raw` bytes via reassignment. Since Python `bytes` are immutable, the original sensitive memory is not cleared.
 
-### 1.4 Untracked Secret Copies in AEAD & KDF
+### FIXED 1.4 Untracked Secret Copies in AEAD & KDF
 *   **Location:** `src/gpg_meister/security/aead.py:53, 67`, `src/gpg_meister/security/kdf.py:84`
 *   **Issue:** `bytes(key.view())` or `bytes(passphrase.view())` are called, creating untracked, immutable copies of sensitive key material in memory.
 
@@ -179,7 +179,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/services/key_service.py:155-185`
 *   **Issue:** `plan_import()` calls `scan_keys_mem()` on the full input blob before enforcing the `MAX_PUBLIC_KEY_IMPORT_COUNT` limit. An attacker can supply a large block (up to 2MB) containing thousands of small keys, forcing GPG to perform exhaustive parsing and metadata extraction before the batch is rejected.
 
-### 8.18 SecureBytes Pattern Failure (Ubiquitous Leakage)
+### FIXED 8.18 SecureBytes Pattern Failure (Ubiquitous Leakage)
 *   **Location:** `src/gpg_meister/services/gpg_service.py`, `src/gpg_meister/security/kdf.py`, `src/gpg_meister/security/aead.py`
 *   **Issue:** While `SecureBytes` is used to carry passphrases, almost every consumer immediately calls `bytes(sb.view())` or `sb.decode("utf-8")`. This creates immutable, non-zeroable copies of the secret on the Python heap, effectively defeating the memory-protection guarantees of the `SecureBytes` class.
 

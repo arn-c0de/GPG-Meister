@@ -419,7 +419,7 @@ class GPGService:
         if detached_signature is not None:
             with tempfile.NamedTemporaryFile(
                 suffix=".asc",
-                dir=self._config.home_dir,
+                dir=tempfile.gettempdir(),
                 delete=False,
             ) as tmp:
                 tmp.write(detached_signature)
