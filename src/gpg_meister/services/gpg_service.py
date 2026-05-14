@@ -383,7 +383,7 @@ class GPGService:
         pass_bytes = bytes(passphrase.view())
         reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
         result = self._gpg.sign(
-            data.decode("utf-8", errors="surrogateescape"),
+            data,
             keyid=fp,
             passphrase=pass_bytes.decode("utf-8"),
             detach=detached,
@@ -413,7 +413,7 @@ class GPGService:
             finally:
                 os.unlink(sig_path)
         else:
-            result = self._gpg.verify(data.decode("utf-8", errors="surrogateescape"))
+            result = self._gpg.verify(data)
         valid = bool(result.valid)
         fp = str(result.fingerprint or "") or None
         signed_at: datetime | None = None

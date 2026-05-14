@@ -175,7 +175,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/ui/keys/first_launch_wizard.py:145-155`
 *   **Issue:** The wizard displays "Has private: yes" for keys in the system keyring, but `_do_import` calls only `export_public_key()`. This leads to a major UX/Security mismatch where users believe they have imported their secret keys pair when only the public component was copied.
 
-### 8.17 `KeyService.plan_import` Pre-Parsing Denial of Service (DoS)
+### FIXED 8.17 `KeyService.plan_import` Pre-Parsing Denial of Service (DoS)
 *   **Location:** `src/gpg_meister/services/key_service.py:155-185`
 *   **Issue:** `plan_import()` calls `scan_keys_mem()` on the full input blob before enforcing the `MAX_PUBLIC_KEY_IMPORT_COUNT` limit. An attacker can supply a large block (up to 2MB) containing thousands of small keys, forcing GPG to perform exhaustive parsing and metadata extraction before the batch is rejected.
 
