@@ -17,8 +17,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from PySide6.QtCore import QThreadPool
+
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.services.key_service import KeyService
+from gpg_meister.ui.worker import Worker
 
 
 class ShareKeyView(QWidget):
@@ -90,24 +93,29 @@ class ShareKeyView(QWidget):
         self._load_keys()
 
     def _load_keys(self) -> None:
-        try:
-            self._keys = self._svc.list_keys()
-        except Exception as exc:
-            self._show_error(str(exc))
-            return
+        def _do() -> list[KeyInfo]:
+            return self._svc.list_keys()
 
-        self._key_combo.blockSignals(True)
-        self._key_combo.clear()
-        for key in self._keys:
-            uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
-            label = f"{uid}  [{key.fingerprint[-16:]}]"
-            if key.has_private_key:
-                label += "  ★"
-            self._key_combo.addItem(label, key)
-        self._key_combo.blockSignals(False)
+        def _on_result(keys: object) -> None:
+            if not isinstance(keys, list):
+                return
+            self._keys = keys
+            self._key_combo.blockSignals(True)
+            self._key_combo.clear()
+            for key in self._keys:
+                uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
+                label = f"{uid}  [{key.fingerprint[-16:]}]"
+                if key.has_private_key:
+                    label += "  ★"
+                self._key_combo.addItem(label, key)
+            self._key_combo.blockSignals(False)
+            if not self._keys:
+                self._show_error("No keys found. Create or import a key first.")
 
-        if not self._keys:
-            self._show_error("No keys found. Create or import a key first.")
+        w = Worker(_do)
+        w.signals.result.connect(_on_result)
+        w.signals.error.connect(lambda msg: self._show_error(msg))
+        QThreadPool.globalInstance().start(w)
 
     def _on_key_selected(self, idx: int) -> None:
         self._error_label.hide()
@@ -119,17 +127,28 @@ class ShareKeyView(QWidget):
         key = self._key_combo.itemData(idx)
         if not isinstance(key, KeyInfo):
             return
-        try:
-            armored = self._svc.export_public(key.fingerprint)
-        except Exception as exc:
-            self._show_error(str(exc))
+        fp = key.fingerprint
+
+        def _do() -> str:
+            return self._svc.export_public(fp)
+
+        def _on_result(armored: object) -> None:
+            if not isinstance(armored, str):
+                return
+            self._armor_output.setPlainText(armored)
+            self._btn_copy.setEnabled(True)
+            self._btn_save.setEnabled(True)
+
+        def _on_error(msg: str) -> None:
+            self._show_error(msg)
             self._armor_output.clear()
             self._btn_copy.setEnabled(False)
             self._btn_save.setEnabled(False)
-            return
-        self._armor_output.setPlainText(armored)
-        self._btn_copy.setEnabled(True)
-        self._btn_save.setEnabled(True)
+
+        w = Worker(_do)
+        w.signals.result.connect(_on_result)
+        w.signals.error.connect(_on_error)
+        QThreadPool.globalInstance().start(w)
 
     def _copy_to_clipboard(self) -> None:
         text = self._armor_output.toPlainText()

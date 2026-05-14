@@ -19,10 +19,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from PySide6.QtCore import QThreadPool
+
 from gpg_meister.models.key_info import KeyInfo, TrustLevel
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.ui.widgets.clipboard_button import ClipboardButton
 from gpg_meister.ui.widgets.fingerprint_label import FingerprintLabel
+from gpg_meister.ui.worker import Worker
 
 _TRUST_LABELS: dict[TrustLevel, tuple[str, str]] = {
     TrustLevel.ULTIMATE: ("Ultimate (owned by you)", "color: #004400"),
@@ -135,13 +138,25 @@ class KeyDetailView(QDialog):
         self._set_edit_mode(False)
 
     def _copy_public_key(self) -> None:
-        try:
-            armored = self._svc.export_public(self._key.fingerprint)
+        fp = self._key.fingerprint
+
+        def _do() -> str:
+            return self._svc.export_public(fp)
+
+        def _on_result(armored: object) -> None:
+            if not isinstance(armored, str):
+                return
             self._armor_view.setPlainText(armored)
             from gpg_meister.ui.clipboard import copy_text
             copy_text(armored)
-        except Exception as exc:
-            self._armor_view.setPlainText(f"Error: {exc}")
+
+        def _on_error(msg: str) -> None:
+            self._armor_view.setPlainText(f"Error: {msg}")
+
+        w = Worker(_do)
+        w.signals.result.connect(_on_result)
+        w.signals.error.connect(_on_error)
+        QThreadPool.globalInstance().start(w)
 
     def _toggle_edit_mode(self) -> None:
         self._set_edit_mode(not self._label_input.isEnabled())

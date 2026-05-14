@@ -187,6 +187,6 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/services/gpg_service.py:315-325`
 *   **Issue:** `delete_key()` performs secret and public key deletions in two separate GPG calls. If the process is terminated or crashes between these calls, the secret key is removed but the public key remains as an "orphan" in the keyring, leading to an inconsistent application state.
 
-### 8.20 `EnvironmentCheck.py` Incomplete Verification
+### FIXED 8.20 `EnvironmentCheck.py` Incomplete Verification
 *   **Location:** `src/gpg_meister/startup/environment_check.py:175-210`
 *   **Issue:** `check_mlock` only attempts to load `libc.so.6`, failing on non-glibc systems (e.g., Alpine). `_check_swap_linux` relies on a shallow `/dev/mapper/` string check which can be easily bypassed or misreport encrypted LVM volumes as unencrypted if named non-standardly.

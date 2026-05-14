@@ -300,8 +300,9 @@ def main() -> None:
 
     window.show()
 
-    # §14.3 Backup-staleness reminder: warn if private keys are newer than last vault export.
-    _check_backup_staleness(gpg_svc, metadata, window)
+    # §14.3 Backup-staleness reminder: defer to avoid blocking window appearance.
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(0, lambda: _check_backup_staleness(gpg_svc, metadata, window))
 
     exit_code = app.exec()
     metadata.close()
@@ -344,36 +345,41 @@ def _check_backup_staleness(
     window: MainWindow,
 ) -> None:
     """Emit a status-bar warning if private keys exist that are not in any vault (§14.3)."""
-    try:
-        private_keys = [k for k in gpg_svc.list_keys() if k.has_private_key]
-    except Exception:
-        return
-    if not private_keys:
-        return
+    from PySide6.QtCore import QThreadPool
 
-    latest_vault_ts = metadata.latest_vault_timestamp()
-    if latest_vault_ts is None:
-        count = len(private_keys)
-        window.show_status(
-            f"No vault backup exists — {count} private key(s) are not backed up. "
-            "Go to the Vault tab to create a backup.",
-            timeout_ms=10_000,
-        )
-        return
+    from gpg_meister.ui.worker import Worker
 
-    # Compare newest key import timestamp against latest vault timestamp.
-    key_records = {r["fingerprint"]: r["import_timestamp"] for r in metadata.list_keys()}
-    vault_ts: str = latest_vault_ts  # narrowed: None branch returned above
-    newer = [
-        k for k in private_keys
-        if (key_records.get(k.fingerprint) or "0") > vault_ts
-    ]
-    if newer:
-        window.show_status(
-            f"{len(newer)} private key(s) added since last vault backup. "
-            "Go to the Vault tab to update your backup.",
-            timeout_ms=10_000,
-        )
+    def _do() -> list:
+        return [k for k in gpg_svc.list_keys() if k.has_private_key]
+
+    def _on_result(private_keys: object) -> None:
+        if not isinstance(private_keys, list) or not private_keys:
+            return
+        latest_vault_ts = metadata.latest_vault_timestamp()
+        if latest_vault_ts is None:
+            count = len(private_keys)
+            window.show_status(
+                f"No vault backup exists — {count} private key(s) are not backed up. "
+                "Go to the Vault tab to create a backup.",
+                timeout_ms=10_000,
+            )
+            return
+        key_records = {r["fingerprint"]: r["import_timestamp"] for r in metadata.list_keys()}
+        vault_ts: str = latest_vault_ts
+        newer = [
+            k for k in private_keys
+            if (key_records.get(k.fingerprint) or "0") > vault_ts
+        ]
+        if newer:
+            window.show_status(
+                f"{len(newer)} private key(s) added since last vault backup. "
+                "Go to the Vault tab to update your backup.",
+                timeout_ms=10_000,
+            )
+
+    w = Worker(_do)
+    w.signals.result.connect(_on_result)
+    QThreadPool.globalInstance().start(w)
 
 
 def _apply_appearance(app: QApplication, config: AppConfig) -> None:
