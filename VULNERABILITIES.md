@@ -57,7 +57,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Issue:** `_actor()` calls `os.getuid()`, which is unavailable on Windows.
 *   **Fix:** `os.getuid()` is only called on non-Windows platforms.
 
-### 3.4 Missing Trust Verification on Decrypt/Verify
+### FIXED 3.4 Missing Trust Verification on Decrypt/Verify
 *   **Location:** `src/gpg_meister/services/message_service.py:130`
 *   **Issue:** Signatures are reported as "valid" based only on cryptography. Signer trust is ignored, allowing identity spoofing via matching names on untrusted keys.
 

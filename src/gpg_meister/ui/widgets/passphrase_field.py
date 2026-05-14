@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -32,6 +32,14 @@ class PassphraseField(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
+        # Debounce timer: delay strength assessment by 300 ms so assess() is not
+        # called (and the full passphrase string is not passed) on every keystroke.
+        if self._show_strength:
+            self._strength_timer = QTimer(self)
+            self._strength_timer.setSingleShot(True)
+            self._strength_timer.setInterval(300)
+            self._strength_timer.timeout.connect(self._run_strength_assessment)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -83,7 +91,15 @@ class PassphraseField(QWidget):
     def _on_text_changed(self, text: str) -> None:
         self.passphrase_changed.emit()
         if self._show_strength:
-            self._update_strength(text)
+            if not text:
+                self._strength_timer.stop()
+                self._strength_bar.setValue(0)
+                self._strength_label.setText("")
+            else:
+                self._strength_timer.start()
+
+    def _run_strength_assessment(self) -> None:
+        self._update_strength(self._field.text())
 
     def _update_strength(self, text: str) -> None:
         if not text:
