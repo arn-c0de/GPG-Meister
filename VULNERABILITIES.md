@@ -155,7 +155,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Issue:** `import_keys()` appended all fingerprints returned by GPG, allowing crafted vault entries to smuggle extra keys.
 *   **Fix:** Only `entry.fingerprint` is appended to `imported` if it appears in the GPG-returned list; extra fingerprints from the blob are discarded.
 
-### 8.12 Keystroke-level Passphrase Exposure via Strength Assessment
+### FIXED 8.12 Keystroke-level Passphrase Exposure via Strength Assessment
 *   **Location:** `src/gpg_meister/ui/widgets/passphrase_field.py:65-75`
 *   **Issue:** `PassphraseField` emits the `passphrase_changed` signal on every keystroke, which triggers `assess(text)` in the ViewModel. This creates many short-lived Python strings in memory (e.g., "P", "Pa", "Pas", ...), increasing the attack surface for memory scraping or swap-file exposure.
 

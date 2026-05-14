@@ -5,6 +5,7 @@ Wraps `argon2.low_level.hash_secret_raw` so callers never see argon2-cffi types.
 
 from __future__ import annotations
 
+import ctypes
 import secrets
 import time
 from typing import TYPE_CHECKING
@@ -79,9 +80,12 @@ def derive_key(passphrase: SecureBytes, salt: bytes, params: KDFParams) -> Secur
     if passphrase.is_closed:
         raise KDFError("passphrase SecureBytes is closed")
 
+    # Use bytearray for both the passphrase copy and the derived key — bytearray is
+    # mutable so we can zero it in-place, unlike immutable bytes objects.
+    passphrase_buf = bytearray(passphrase.view())
     try:
         raw = hash_secret_raw(
-            secret=bytes(passphrase.view()),
+            secret=passphrase_buf,
             salt=salt,
             time_cost=params.time_cost,
             memory_cost=params.memory_cost,
@@ -91,13 +95,23 @@ def derive_key(passphrase: SecureBytes, salt: bytes, params: KDFParams) -> Secur
         )
     except argon2_exceptions.Argon2Error as exc:
         raise KDFError(f"argon2id failed: {exc}") from exc
-
-    try:
-        return SecureBytes.from_bytes(raw)
     finally:
-        # Best-effort: overwrite the intermediate `raw` bytes object by reassigning.
-        # CPython may retain copies; SecureBytes minimises the window from here on.
-        raw = b"\x00" * len(raw)
+        # Zero the passphrase copy in-place (bytearray is mutable).
+        for i in range(len(passphrase_buf)):
+            passphrase_buf[i] = 0
+
+    # raw is a bytes object from argon2-cffi; copy to SecureBytes, then attempt
+    # to zero the intermediate via ctypes. PyBytesObject data starts at
+    # sys.getsizeof(b"") - 1 bytes past id(raw) on CPython.
+    result = SecureBytes.from_bytes(raw)
+    try:
+        import sys as _sys
+        _offset = _sys.getsizeof(b"") - 1
+        _buf = (ctypes.c_char * len(raw)).from_address(id(raw) + _offset)
+        ctypes.memset(_buf, 0, len(raw))
+    except Exception:  # noqa: BLE001
+        pass  # zeroing is best-effort; never raise here
+    return result
 
 
 def benchmark_params(params: KDFParams) -> float:

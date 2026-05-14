@@ -26,7 +26,7 @@ def generate_nonce() -> bytes:
     return secrets.token_bytes(NONCE_LEN)
 
 
-def _aead_for(cipher: CipherAlgorithm, key: bytes) -> ChaCha20Poly1305 | AESGCM:
+def _aead_for(cipher: CipherAlgorithm, key: memoryview) -> ChaCha20Poly1305 | AESGCM:
     if cipher is CipherAlgorithm.CHACHA20_POLY1305:
         return ChaCha20Poly1305(key)
     if cipher is CipherAlgorithm.AES_256_GCM:
@@ -56,7 +56,9 @@ def encrypt(
     verbatim at decryption time.
     """
     _check_inputs(key, nonce)
-    aead = _aead_for(cipher, bytes(key.view()))
+    # Pass the memoryview directly: cryptography accepts bytes-like objects,
+    # avoiding an immutable bytes copy of the key on the Python heap.
+    aead = _aead_for(cipher, key.view())
     return aead.encrypt(nonce, plaintext, associated_data)
 
 
@@ -69,7 +71,7 @@ def decrypt(
 ) -> bytes:
     """Decrypt and authenticate. Raises `DecryptionError` on any failure."""
     _check_inputs(key, nonce)
-    aead = _aead_for(cipher, bytes(key.view()))
+    aead = _aead_for(cipher, key.view())
     try:
         return aead.decrypt(nonce, ciphertext, associated_data)
     except InvalidTag as exc:  # noqa: F841 — message intentionally generic
