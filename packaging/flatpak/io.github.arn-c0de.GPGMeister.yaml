@@ -10,7 +10,22 @@ finish-args:
   - --filesystem=xdg-config/gpg-meister
   - --filesystem=xdg-data/gpg-meister
   - --filesystem=xdg-state/gpg-meister
+  # Read-only access to the system keyring so the first-launch wizard can scan it.
+  # The app uses its own isolated keyring under xdg-data; this is for import only.
+  - --filesystem=~/.gnupg:ro
 modules:
+  - name: gnupg
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: https://gnupg.org/ftp/gcrypt/gnupg/gnupg-2.4.5.tar.bz2
+        sha256: f68f7d75d06cb1635c336d34d844af97436c3f64ea14bcb7c869782f96f44277
+    config-opts:
+      - --disable-gpgsm
+      - --disable-gpgtar
+      - --disable-wks-tools
+      - --with-pinentry-pgm=/bin/true
+
   - name: gpg-meister
     buildsystem: simple
     build-commands:

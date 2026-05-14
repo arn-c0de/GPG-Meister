@@ -90,7 +90,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 
 ## 6. UI Stability & Implementation Gaps
 
-### 6.1 Blocking Service Calls in UI Thread
+### FIXED 6.1 Blocking Service Calls in UI Thread
 *   **Location:** `src/gpg_meister/ui/keys/key_detail_view.py`, `src/gpg_meister/ui/messages/share_key_view.py`, `app.py:342`
 *   **Issue:** Synchronous calls to GPG or SQLite block the event loop, causing the UI to freeze.
 
