@@ -102,12 +102,14 @@ class KeyCreateViewModel(QObject):
         if not self._is_valid():
             return
         self.loading_changed.emit(True)
-        passphrase_bytes = self._passphrase.encode()
+        # Convert to SecureBytes and drop plain-string references immediately so
+        # neither the str nor the intermediate bytes object is captured by the closure.
+        pp_secure = SecureBytes.from_bytes(self._passphrase.encode())
         self._passphrase = ""
         self._confirm = ""
 
         def _do() -> KeyInfo:
-            with SecureBytes.from_bytes(passphrase_bytes) as pp:
+            with pp_secure as pp:
                 return self._svc.create(
                     name=self.name,
                     email=self.email,

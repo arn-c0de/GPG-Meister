@@ -73,7 +73,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Issue:** `list_keys()` performs redundant GPG process calls to scan for secret keys.
 *   **Fix:** When `secret=True`, all returned rows are already secret keys — `_secret_fingerprints()` is no longer called.
 
-### 4.3 O(N^2) Performance in Audit Log Hash-Chaining
+### FIXED 4.3 O(N^2) Performance in Audit Log Hash-Chaining
 *   **Location:** `src/gpg_meister/storage/audit_log.py:84, 115`
 *   **Issue:** Quadratic time complexity for log writes because the entire file is re-scanned on every entry.
 
