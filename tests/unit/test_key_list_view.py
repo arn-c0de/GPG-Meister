@@ -46,18 +46,13 @@ def test_new_key_button_reenabled_after_initial_refresh() -> None:
     assert view._btn_create.isEnabled()
 
 
-def test_delete_public_key_requires_second_confirmation(monkeypatch) -> None:
+def test_delete_public_key_requires_text_confirmation(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     view = KeyListView(KeyListViewModel(_FakeKeyService()))
     key = _key(has_private_key=False)
     deleted: list[tuple[str, bool]] = []
 
     monkeypatch.setattr(view, "_selected_key", lambda: key)
-    monkeypatch.setattr(
-        QMessageBox,
-        "question",
-        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
-    )
     monkeypatch.setattr(
         QInputDialog,
         "getText",
@@ -77,18 +72,13 @@ def test_delete_public_key_requires_second_confirmation(monkeypatch) -> None:
     assert deleted == []
 
 
-def test_delete_public_key_proceeds_after_second_confirmation(monkeypatch) -> None:
+def test_delete_public_key_proceeds_after_text_confirmation(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     view = KeyListView(KeyListViewModel(_FakeKeyService()))
     key = _key(has_private_key=False)
     deleted: list[tuple[str, bool]] = []
 
     monkeypatch.setattr(view, "_selected_key", lambda: key)
-    monkeypatch.setattr(
-        QMessageBox,
-        "question",
-        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
-    )
     monkeypatch.setattr(
         QInputDialog,
         "getText",
@@ -108,7 +98,7 @@ def test_delete_public_key_proceeds_after_second_confirmation(monkeypatch) -> No
     assert deleted == [(key.fingerprint, False)]
 
 
-def test_delete_public_key_skips_text_confirmation_when_disabled(monkeypatch) -> None:
+def test_delete_public_key_shows_simple_confirmation_when_text_disabled(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     view = KeyListView(
         KeyListViewModel(_FakeKeyService(), require_delete_text_confirmation=False)
@@ -136,18 +126,17 @@ def test_delete_public_key_skips_text_confirmation_when_disabled(monkeypatch) ->
     assert deleted == [(key.fingerprint, False)]
 
 
-def test_delete_private_key_requires_second_confirmation(monkeypatch) -> None:
+def test_delete_private_key_requires_text_confirmation(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     view = KeyListView(KeyListViewModel(_FakeKeyService()))
     key = _key(has_private_key=True)
     deleted: list[tuple[str, bool]] = []
-    answers = iter([("secret", True), ("nope", True)])
 
     monkeypatch.setattr(view, "_selected_key", lambda: key)
     monkeypatch.setattr(
         QInputDialog,
         "getText",
-        lambda *args, **kwargs: next(answers),
+        lambda *args, **kwargs: ("nope", True),
     )
     monkeypatch.setattr(
         view._vm,
@@ -163,18 +152,17 @@ def test_delete_private_key_requires_second_confirmation(monkeypatch) -> None:
     assert deleted == []
 
 
-def test_delete_private_key_proceeds_after_second_confirmation(monkeypatch) -> None:
+def test_delete_private_key_proceeds_after_text_confirmation(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     view = KeyListView(KeyListViewModel(_FakeKeyService()))
     key = _key(has_private_key=True)
     deleted: list[tuple[str, bool]] = []
-    answers = iter([("secret", True), ("DELETE", True)])
 
     monkeypatch.setattr(view, "_selected_key", lambda: key)
     monkeypatch.setattr(
         QInputDialog,
         "getText",
-        lambda *args, **kwargs: next(answers),
+        lambda *args, **kwargs: ("DELETE", True),
     )
     monkeypatch.setattr(
         view._vm,
@@ -190,7 +178,7 @@ def test_delete_private_key_proceeds_after_second_confirmation(monkeypatch) -> N
     assert deleted == [(key.fingerprint, True)]
 
 
-def test_delete_private_key_skips_text_confirmation_when_disabled(monkeypatch) -> None:
+def test_delete_private_key_shows_simple_confirmation_when_text_disabled(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     view = KeyListView(
         KeyListViewModel(_FakeKeyService(), require_delete_text_confirmation=False)
@@ -200,9 +188,9 @@ def test_delete_private_key_skips_text_confirmation_when_disabled(monkeypatch) -
 
     monkeypatch.setattr(view, "_selected_key", lambda: key)
     monkeypatch.setattr(
-        QInputDialog,
-        "getText",
-        lambda *args, **kwargs: ("secret", True),
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
     )
     monkeypatch.setattr(
         view._vm,

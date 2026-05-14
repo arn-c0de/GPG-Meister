@@ -226,34 +226,25 @@ class KeyListView(QWidget):
             )
             return
         if key.has_private_key:
-            passphrase_text, ok = QInputDialog.getText(
-                self,
-                "Delete key pair",
-                f"Enter the passphrase for key {key.fingerprint[-16:]} to confirm deletion:",
-                echo=QLineEdit.EchoMode.Password,
-            )
-            if not ok or not passphrase_text:
-                return
             if not self._confirm_delete(key, "Delete key pair"):
                 return
-            with SecureBytes.from_bytes(passphrase_text.encode()) as pp:
-                self._vm.request_delete(
-                    key.fingerprint, including_secret=True, passphrase=pp
-                )
+            self._vm.request_delete(key.fingerprint, including_secret=True)
         else:
-            answer = QMessageBox.question(
-                self,
-                "Delete public key",
-                f"Delete public key {key.fingerprint[-16:]}?",
-            )
-            if answer == QMessageBox.StandardButton.Yes:
-                if not self._confirm_delete(key, "Delete public key"):
-                    return
-                self._vm.request_delete(key.fingerprint, including_secret=False)
+            if not self._confirm_delete(key, "Delete public key"):
+                return
+            self._vm.request_delete(key.fingerprint, including_secret=False)
 
     def _confirm_delete(self, key: KeyInfo, title: str) -> bool:
         if not self._vm.require_delete_text_confirmation:
-            return True
+            answer = QMessageBox.question(
+                self,
+                title,
+                f"Permanently delete key {key.fingerprint[-16:]}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            return answer == QMessageBox.StandardButton.Yes
+
         confirmation, ok = QInputDialog.getText(
             self,
             title,
