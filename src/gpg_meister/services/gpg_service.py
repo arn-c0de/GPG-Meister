@@ -135,7 +135,14 @@ class GPGService:
         if not config.binary_path.exists():
             raise GPGServiceError(f"GPG binary does not exist: {config.binary_path}")
         self._revalidate_binary(config)
-        ensure_dir(config.home_dir, mode=0o700)
+        # Only chmod the home directory when we are creating it. If it already
+        # exists (e.g. the user's real ~/.gnupg) we must not mutate its permissions,
+        # because that would alter existing system configuration (vuln 2.1).
+        if config.home_dir.exists():
+            if not config.home_dir.is_dir():
+                raise GPGServiceError(f"GPG home exists but is not a directory: {config.home_dir}")
+        else:
+            ensure_dir(config.home_dir, mode=0o700)
 
         self._config = config
         self._gpg = gnupg.GPG(

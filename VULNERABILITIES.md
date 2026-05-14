@@ -32,7 +32,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/ui/keys/first_launch_wizard.py`, `src/gpg_meister/services/gpg_service.py:135`
 *   **Issue:** Initializing `GPGService` on the user's real `~/.gnupg` triggers `ensure_dir()` which `chmod`s the directory to `0700`, potentially altering existing system permissions.
 
-### 2.2 TOCTOU Symlink Vulnerabilities
+### FIXED 2.2 TOCTOU Symlink Vulnerabilities
 *   **Location:** `src/gpg_meister/storage/permissions.py`, `src/gpg_meister/storage/file_lock.py`, `src/gpg_meister/storage/metadata_store.py:105`
 *   **Issue:** Symlink checks are performed separately from file opens/chmods, creating race windows for symlink-swapping attacks.
 
