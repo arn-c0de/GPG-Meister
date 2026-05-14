@@ -121,6 +121,13 @@ def test_import_public_key_from_other_keyring(
     assert any(k.fingerprint == fp for k in other.list_keys())
 
 
+def test_delete_secret_key_without_passphrase(isolated_gpg: GPGService) -> None:
+    fp = _gen_eddsa(isolated_gpg)
+    isolated_gpg.delete_key(fp, including_secret=True, passphrase=None)
+    with pytest.raises(GPGKeyNotFoundError):
+        isolated_gpg.find_key(fp)
+
+
 def test_version_returns_tuple(isolated_gpg: GPGService) -> None:
     v = isolated_gpg.version()
     assert isinstance(v, tuple)

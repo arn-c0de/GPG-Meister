@@ -147,7 +147,9 @@ class MainWindow(QMainWindow):
             f'New key "{uid}" created. Create a vault backup so you can restore it later.',
             severity=ErrorSeverity.WARNING,
             dismissible=True,
+            action_text="Back up now…",
         )
+        banner.action_clicked.connect(lambda: self.set_current_page(AppPage.VAULT))
         self._banner_layout.addWidget(banner)
         self._banners.append(banner)
 

@@ -300,14 +300,13 @@ class GPGService:
     ) -> None:
         fp = validate_fingerprint(fingerprint)
         if including_secret:
-            if passphrase is None:
-                raise GPGValidationError("deleting a secret key requires a passphrase")
-            pass_bytes = bytes(passphrase.view())
+            pass_bytes = bytes(passphrase.view()) if passphrase else b""
             reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
             sec_result = self._gpg.delete_keys(
                 fp,
                 secret=True,
-                passphrase=pass_bytes.decode("utf-8"),
+                passphrase=pass_bytes.decode("utf-8") if pass_bytes else None,
+                expect_passphrase=False,
             )
             if str(sec_result) not in ("ok", "No such key"):
                 raise GPGProcessError(f"failed to delete secret key {fp}: {sec_result}")

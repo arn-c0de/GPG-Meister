@@ -31,3 +31,35 @@ def test_main_window_emits_page_changes() -> None:
     app.processEvents()
 
     assert changes[-1] == AppPage.HELP.value
+
+
+def test_show_backup_reminder_adds_banner_and_switches_tab() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.install_vault_tab(QWidget())
+    window.show() # Make window visible
+    app.processEvents()
+
+    # Ensure we are NOT on the vault tab initially
+    window.set_current_page(AppPage.KEYS)
+    app.processEvents()
+    assert window.current_page() == AppPage.KEYS
+
+    window.show_backup_reminder("test_uid")
+    app.processEvents()
+
+    # Find the banner
+    banner = None
+    for b in window._banners:
+        if "test_uid" in b._message_label.text():
+            banner = b
+            break
+
+    assert banner is not None
+    assert banner.isVisible()
+
+    # Simulate clicking the action button
+    banner.action_clicked.emit()
+    app.processEvents()
+
+    assert window.current_page() == AppPage.VAULT

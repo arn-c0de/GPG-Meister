@@ -24,12 +24,10 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.security.secure_bytes import SecureBytes
-from gpg_meister.ui.errors.user_error import ErrorSeverity
 from gpg_meister.ui.keys.key_create_view import KeyCreateDialog
 from gpg_meister.ui.keys.key_detail_view import KeyDetailView
 from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
 from gpg_meister.ui.keys.public_key_import_view import PublicKeyImportDialog
-from gpg_meister.ui.widgets.warning_banner import WarningBanner
 
 _COL_FAV = 0
 _COL_UID = 1
@@ -83,14 +81,6 @@ class KeyListView(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        self._backup_banner = WarningBanner(
-            "You just created a new key. Create a vault backup so you can restore it later.",
-            severity=ErrorSeverity.WARNING,
-            dismissible=True,
-        )
-        self._backup_banner.hide()
-        layout.addWidget(self._backup_banner)
-
         toolbar = QHBoxLayout()
         self._btn_create = QPushButton("New Key…")
         self._btn_import = QPushButton("Import Public Key…")
@@ -136,7 +126,6 @@ class KeyListView(QWidget):
         self._vm.keys_changed.connect(self._on_keys_changed)
         self._vm.loading_changed.connect(self._on_loading)
         self._vm.operation_failed.connect(self._on_error)
-        self._vm.key_created.connect(self._on_key_created)
 
         self._btn_create.clicked.connect(self._open_create_dialog)
         self._btn_import.clicked.connect(self._open_import_dialog)
@@ -186,13 +175,6 @@ class KeyListView(QWidget):
     def _on_error(self, msg: str) -> None:
         self._error_label.setText(msg)
         self._error_label.show()
-
-    def _on_key_created(self, key: KeyInfo) -> None:
-        uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
-        self._backup_banner.set_message(
-            f'New key "{uid}" created. Create a vault backup so you can restore it later.'
-        )
-        self._backup_banner.show()
 
     def _on_selection_changed(self) -> None:
         key = self._selected_key()

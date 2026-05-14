@@ -41,9 +41,11 @@ class WarningBanner(QFrame):
     Signals
     -------
     dismissed: emitted when the user closes the banner.
+    action_clicked: emitted when the optional action button is clicked.
     """
 
     dismissed: Signal = Signal()
+    action_clicked: Signal = Signal()
 
     def __init__(
         self,
@@ -51,14 +53,15 @@ class WarningBanner(QFrame):
         *,
         severity: ErrorSeverity = ErrorSeverity.WARNING,
         dismissible: bool = True,
+        action_text: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._severity = severity
-        self._build_ui(message, dismissible)
+        self._build_ui(message, dismissible, action_text)
         self._apply_style()
 
-    def _build_ui(self, message: str, dismissible: bool) -> None:
+    def _build_ui(self, message: str, dismissible: bool, action_text: str | None) -> None:
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(8)
@@ -72,6 +75,13 @@ class WarningBanner(QFrame):
         self._message_label.setWordWrap(True)
         self._message_label.setAccessibleName("Warning message")
         layout.addWidget(self._message_label, stretch=1)
+
+        if action_text:
+            self._action_btn = QPushButton(action_text)
+            self._action_btn.clicked.connect(self.action_clicked.emit)
+            # Use a slightly more prominent style for the action button if needed,
+            # but for now, it inherits the general QPushButton style from _apply_style.
+            layout.addWidget(self._action_btn)
 
         if dismissible:
             close_btn = QPushButton("✕")
