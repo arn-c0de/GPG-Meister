@@ -48,11 +48,15 @@ class DecryptViewModel(QObject):
         self.loading_changed.emit(True)
         ciphertext_bytes = self._ciphertext.encode()
         pp_str = get_passphrase()
+        # Convert to SecureBytes on the UI thread and drop the plain-string
+        # reference immediately so it is not captured by the closure below.
+        pp_secure = SecureBytes.from_bytes(pp_str.encode()) if pp_str else None
+        del pp_str
 
         def _do() -> DecryptResult:
-            if pp_str:
-                with SecureBytes.from_bytes(pp_str.encode()) as pp:
-                    return self._svc.decrypt(ciphertext_bytes, passphrase=pp)
+            if pp_secure is not None:
+                with pp_secure:
+                    return self._svc.decrypt(ciphertext_bytes, passphrase=pp_secure)
             return self._svc.decrypt(ciphertext_bytes, passphrase=None)
 
         w = Worker(_do)

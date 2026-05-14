@@ -183,7 +183,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/services/gpg_service.py`, `src/gpg_meister/security/kdf.py`, `src/gpg_meister/security/aead.py`
 *   **Issue:** While `SecureBytes` is used to carry passphrases, almost every consumer immediately calls `bytes(sb.view())` or `sb.decode("utf-8")`. This creates immutable, non-zeroable copies of the secret on the Python heap, effectively defeating the memory-protection guarantees of the `SecureBytes` class.
 
-### 8.19 GPG `delete_key` Inconsistency Race
+### FIXED 8.19 GPG `delete_key` Inconsistency Race
 *   **Location:** `src/gpg_meister/services/gpg_service.py:315-325`
 *   **Issue:** `delete_key()` performs secret and public key deletions in two separate GPG calls. If the process is terminated or crashes between these calls, the secret key is removed but the public key remains as an "orphan" in the keyring, leading to an inconsistent application state.
 
