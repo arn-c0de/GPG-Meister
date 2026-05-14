@@ -206,5 +206,10 @@ def test_encrypt_to_imported_vault_key(
         vault_svc_dst.import_keys(source_path=vault_path, master_passphrase=vpp)
 
     dest_msg_svc = MessageService(gpg=dest_gpg, audit=dest_audit)
-    encrypt_result = dest_msg_svc.encrypt(b"secret for charlie", recipient_fingerprints=[fp], always_trust=True)
+    encrypt_result = dest_msg_svc.encrypt(
+        b"secret for charlie",
+        recipient_fingerprints=[fp],
+        always_trust=True,
+        trust_confirmed=True
+    )
     assert "-----BEGIN PGP MESSAGE-----" in encrypt_result.armored_ciphertext

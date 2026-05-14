@@ -71,6 +71,8 @@ class GPGServiceConfig:
     home_dir: Path
     timeout_seconds: int = 60
     trusted_sha256: str | None = None
+    trusted_device: int | None = None
+    trusted_inode: int | None = None
 
 
 def _trust_from_gpg(letter: str) -> TrustLevel:
@@ -154,11 +156,17 @@ class GPGService:
             user_override_path=str(config.binary_path),
             trusted_hash=config.trusted_sha256,
             trusted_path=str(config.binary_path) if config.trusted_sha256 else None,
+            trusted_device=config.trusted_device,
+            trusted_inode=config.trusted_inode,
         )
         if detected.path != config.binary_path.resolve():
             raise GPGServiceError("GPG binary path changed before service startup")
         if config.trusted_sha256 and detected.sha256.lower() != config.trusted_sha256.lower():
             raise GPGServiceError("GPG binary hash changed before service startup")
+        if config.trusted_device is not None and detected.device != config.trusted_device:
+            raise GPGServiceError("GPG binary device changed before service startup")
+        if config.trusted_inode is not None and detected.inode != config.trusted_inode:
+            raise GPGServiceError("GPG binary inode changed before service startup")
 
     @property
     def config(self) -> GPGServiceConfig:

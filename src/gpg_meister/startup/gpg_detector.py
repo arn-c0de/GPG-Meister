@@ -62,6 +62,7 @@ class DetectionReason(StrEnum):
     WORLD_WRITABLE = "world_writable"
     PARENT_WRITABLE = "parent_writable"
     TRUST_PATH_MISMATCH = "trust_path_mismatch"
+    IDENTITY_MISMATCH = "identity_mismatch"
 
 
 class GPGDetectionError(Exception):
@@ -141,17 +142,20 @@ def _check_parent_writability(path: Path) -> None:
 def _check_root_owned(path: Path) -> bool:
     if sys.platform == "win32":
         return False
+    try:
+        return path.stat().st_uid == 0
+    except OSError:
+        return False
 
 
 def _identity(path: Path) -> tuple[int | None, int | None]:
     if sys.platform == "win32":
         return None, None
-    st = path.stat()
-    return st.st_dev, st.st_ino
     try:
-        return path.stat().st_uid == 0
+        st = path.stat()
+        return st.st_dev, st.st_ino
     except OSError:
-        return False
+        return None, None
 
 
 def _candidates_from_path() -> list[Path]:
@@ -169,6 +173,8 @@ def detect(
     user_override_path: str | None = None,
     trusted_hash: str | None = None,
     trusted_path: str | None = None,
+    trusted_device: int | None = None,
+    trusted_inode: int | None = None,
 ) -> DetectedGPG:
     """Resolve a trusted GPG binary path.
 
@@ -236,6 +242,23 @@ def detect(
                 path=override,
                 new_sha=sha,
             )
+
+        # Verify identity (device/inode) if provided, to detect file substitution.
+        if trusted_device is not None and device is not None and device != trusted_device:
+            raise GPGDetectionError(
+                DetectionReason.IDENTITY_MISMATCH,
+                f"{override} device mismatch (trusted={trusted_device}, actual={device})",
+                path=override,
+                new_sha=sha,
+            )
+        if trusted_inode is not None and inode is not None and inode != trusted_inode:
+            raise GPGDetectionError(
+                DetectionReason.IDENTITY_MISMATCH,
+                f"{override} inode mismatch (trusted={trusted_inode}, actual={inode})",
+                path=override,
+                new_sha=sha,
+            )
+
         return DetectedGPG(
             path=override,
             sha256=sha,

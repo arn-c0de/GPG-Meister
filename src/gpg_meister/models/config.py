@@ -48,6 +48,8 @@ class GPGBinaryTrust(BaseModel):
 
     path: str
     sha256: str
+    device: int | None = None
+    inode: int | None = None
 
 
 class AppConfig(BaseModel):

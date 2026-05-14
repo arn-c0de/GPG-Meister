@@ -48,11 +48,18 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
                 trusted_path=config.gpg_binary_trusted_hash.path
                 if config.gpg_binary_trusted_hash
                 else None,
+                trusted_device=config.gpg_binary_trusted_hash.device
+                if config.gpg_binary_trusted_hash
+                else None,
+                trusted_inode=config.gpg_binary_trusted_hash.inode
+                if config.gpg_binary_trusted_hash
+                else None,
             )
         except GPGDetectionError as exc:
             if exc.reason not in (
                 DetectionReason.USER_OVERRIDE_UNTRUSTED,
                 DetectionReason.HASH_MISMATCH,
+                DetectionReason.IDENTITY_MISMATCH,
             ):
                 QMessageBox.critical(
                     None,
@@ -67,25 +74,39 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
                 QMessageBox.critical(None, "GnuPG trust failed", str(exc))
                 audit.close()
                 sys.exit(1)
+
+            # For IDENTITY_MISMATCH, we re-prompt the user to re-trust the binary.
+            # We already have the new hash and path from detect().
+            mismatch = exc.reason in (DetectionReason.HASH_MISMATCH, DetectionReason.IDENTITY_MISMATCH)
             old_sha = (
                 config.gpg_binary_trusted_hash.sha256
                 if config.gpg_binary_trusted_hash
                 else None
             )
+
+            # We need the new device/inode to persist them if the user clicks 'Trust'.
+            # We'll get them from another detect() call if the user confirms,
+            # or we could have detect() return them in the exception.
+            # For now, let's just re-run detect() once more if they confirm.
+
             dlg = GpgTrustDialog(
                 exc.path,
                 exc.new_sha,
-                mismatch=(exc.reason == DetectionReason.HASH_MISMATCH),
+                mismatch=mismatch,
                 old_sha=old_sha,
             )
             if not dlg.exec():
                 audit.close()
                 sys.exit(1)
 
+            # Re-run detect without trusted_* to get the full metadata of the new binary.
+            new_gpg = detect(user_override_path=str(exc.path))
             config = config.model_copy(update={
                 "gpg_binary_trusted_hash": GPGBinaryTrust(
-                    path=str(exc.path),
-                    sha256=exc.new_sha,
+                    path=str(new_gpg.path),
+                    sha256=new_gpg.sha256,
+                    device=new_gpg.device,
+                    inode=new_gpg.inode,
                 )
             })
             config_service.save(config, paths.config_file)
@@ -171,6 +192,8 @@ def main() -> None:
             binary_path=gpg.path,
             home_dir=paths.gnupg_home,
             trusted_sha256=gpg.sha256 if not gpg.is_whitelisted else None,
+            trusted_device=gpg.device if not gpg.is_whitelisted else None,
+            trusted_inode=gpg.inode if not gpg.is_whitelisted else None,
         )
     )
     key_svc = KeyService(gpg=gpg_svc, audit=audit, metadata=metadata)
