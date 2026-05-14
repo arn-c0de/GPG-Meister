@@ -90,17 +90,28 @@ def _utc_now_iso() -> str:
 
 def _actor() -> str:
     # OS-level user. Best effort: USER / USERNAME env, falling back to uid string.
-    return os.environ.get("USER") or os.environ.get("USERNAME") or f"uid:{os.getuid()}"
+    name = os.environ.get("USER") or os.environ.get("USERNAME")
+    if name:
+        return name
+    if sys.platform != "win32":
+        return f"uid:{os.getuid()}"
+    return "unknown"
 
 
 def _check_payload(event: str, payload: Mapping[str, Any]) -> None:
     if event not in ALLOWED_EVENTS:
         raise AuditLogError(f"event {event!r} is not in the audit whitelist")
-    for key in payload:
+    _check_payload_keys(payload, reserved={"event", "ts", "actor", "outcome", "prev_hash"})
+
+
+def _check_payload_keys(obj: Mapping[str, Any], *, reserved: frozenset[str] = frozenset()) -> None:
+    for key, value in obj.items():
         if key in FORBIDDEN_KEYS:
             raise AuditLogError(f"forbidden key {key!r} in audit payload")
-        if key in {"event", "ts", "actor", "outcome", "prev_hash"}:
+        if reserved and key in reserved:
             raise AuditLogError(f"key {key!r} is reserved for the audit envelope")
+        if isinstance(value, dict):
+            _check_payload_keys(value)
 
 
 def _serialise(record: Mapping[str, Any]) -> str:

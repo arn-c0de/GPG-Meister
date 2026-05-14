@@ -180,13 +180,19 @@ class GPGService:
 
     def list_keys(self, *, secret: bool = False) -> list[KeyInfo]:
         rows: Iterable[dict[str, Any]] = self._gpg.list_keys(secret=secret)
-        secret_fps = self._secret_fingerprints()
         infos: list[KeyInfo] = []
-        for row in rows:
-            info = _to_key_info(row)
-            if info.fingerprint in secret_fps:
-                info = info.model_copy(update={"has_private_key": True})
-            infos.append(info)
+        if secret:
+            # All rows from a secret listing already have private keys.
+            for row in rows:
+                info = _to_key_info(row)
+                infos.append(info.model_copy(update={"has_private_key": True}))
+        else:
+            secret_fps = self._secret_fingerprints()
+            for row in rows:
+                info = _to_key_info(row)
+                if info.fingerprint in secret_fps:
+                    info = info.model_copy(update={"has_private_key": True})
+                infos.append(info)
         return infos
 
     def find_key(self, fingerprint: str) -> KeyInfo:

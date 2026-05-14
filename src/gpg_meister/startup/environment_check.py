@@ -167,13 +167,13 @@ def check_required_packages() -> list[CheckWarning]:
 
 
 def check_mlock() -> bool:
-    """Return True if mlock is available on this platform."""
+    """Return True if mlock succeeds on this platform."""
     if sys.platform == "win32":
         return False
     try:
         buf = ctypes.create_string_buffer(64)
-        ctypes.cdll.LoadLibrary("libc.so.6").mlock(buf, ctypes.c_size_t(64))
-        return True
+        ret = ctypes.cdll.LoadLibrary("libc.so.6").mlock(buf, ctypes.c_size_t(64))
+        return ret == 0
     except (OSError, AttributeError):
         return False
 
@@ -213,14 +213,17 @@ def _check_swap_linux() -> tuple[bool | None, list[CheckWarning]]:
         return True, []
 
     unencrypted: list[str] = []
+    swap_files: list[str] = []
     for device in swap_devices:
         if not Path(device).is_block_device():
+            swap_files.append(device)
             continue
         if not device.startswith("/dev/mapper/"):
             unencrypted.append(device)
 
+    warnings: list[CheckWarning] = []
     if unencrypted:
-        return False, [
+        warnings.append(
             CheckWarning(
                 code="swap_not_encrypted",
                 message="Swap partition(s) appear unencrypted: "
@@ -228,7 +231,19 @@ def _check_swap_linux() -> tuple[bool | None, list[CheckWarning]]:
                 + ". Private key material may be paged to disk. "
                 "Consider using an encrypted swap or disabling swap.",
             )
-        ]
+        )
+    if swap_files:
+        warnings.append(
+            CheckWarning(
+                code="swap_file_unverified",
+                message="Swap file(s) detected: "
+                + ", ".join(swap_files)
+                + ". Encryption status cannot be verified. "
+                "Private key material may be paged to an unencrypted swap file.",
+            )
+        )
+    if warnings:
+        return False, warnings
     return True, []
 
 

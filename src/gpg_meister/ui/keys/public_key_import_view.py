@@ -20,7 +20,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gpg_meister.services.key_service import ImportConflict, ImportPlanEntry, KeyService
+from gpg_meister.services.key_service import (
+    MAX_PUBLIC_KEY_IMPORT_BYTES,
+    ImportConflict,
+    ImportPlanEntry,
+    KeyService,
+)
 
 _CONFLICT_LABELS: dict[ImportConflict, str] = {
     ImportConflict.NEW: "New — will be imported",
@@ -93,6 +98,13 @@ class PublicKeyImportDialog(QDialog):
         )
         if path:
             try:
+                size = Path(path).stat().st_size
+                if size > MAX_PUBLIC_KEY_IMPORT_BYTES:
+                    self._show_error(
+                        f"File is too large ({size // 1024} KB). "
+                        f"Maximum is {MAX_PUBLIC_KEY_IMPORT_BYTES // 1024} KB."
+                    )
+                    return
                 raw = Path(path).read_bytes()
                 raw.decode("ascii")
                 self._text_edit.setPlainText(raw.decode("utf-8"))

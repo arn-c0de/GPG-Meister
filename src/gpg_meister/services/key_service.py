@@ -24,6 +24,7 @@ MAX_PUBLIC_KEY_IMPORT_BYTES = 2 * 1024 * 1024
 MAX_PUBLIC_KEY_IMPORT_COUNT = 32
 PUBLIC_KEY_BLOCK = "-----BEGIN PGP PUBLIC KEY BLOCK-----"
 PRIVATE_KEY_BLOCK = "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+SECRET_KEY_BLOCK = "-----BEGIN PGP SECRET KEY BLOCK-----"
 
 
 class ImportConflict(StrEnum):
@@ -315,7 +316,7 @@ def _validate_public_import_blob(armored: str) -> str:
         raise ValueError("public key import is too large")
     if "\x00" in blob:
         raise ValueError("binary key data is not accepted in the public-key dialog")
-    if PRIVATE_KEY_BLOCK in blob:
+    if PRIVATE_KEY_BLOCK in blob or SECRET_KEY_BLOCK in blob:
         raise ValueError("private-key material cannot be imported in the public-key dialog")
     if PUBLIC_KEY_BLOCK not in blob:
         raise ValueError("expected an armored public key block")

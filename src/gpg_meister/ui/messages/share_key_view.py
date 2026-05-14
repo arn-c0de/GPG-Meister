@@ -6,7 +6,6 @@ import re
 
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QApplication,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
@@ -134,9 +133,9 @@ class ShareKeyView(QWidget):
 
     def _copy_to_clipboard(self) -> None:
         text = self._armor_output.toPlainText()
-        cb = QApplication.clipboard()
-        if cb and text:
-            cb.setText(text)
+        if text:
+            from gpg_meister.ui.clipboard import copy_text
+            copy_text(text)
 
     def _save_to_file(self) -> None:
         idx = self._key_combo.currentIndex()

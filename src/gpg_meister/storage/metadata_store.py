@@ -74,12 +74,15 @@ class MetadataStore:
         if sys.platform != "win32":
             import os
             os.chmod(path, 0o600)
-            for sidecar in (path.parent / (path.name + "-wal"), path.parent / (path.name + "-shm")):
-                if sidecar.exists():
-                    os.chmod(sidecar, 0o600)
         with self._lock, self._conn:
             self._conn.executescript(_SCHEMA)
             self._migrate_key_metadata()
+        # Chmod sidecars AFTER executescript so the WAL/SHM files that
+        # journal_mode=WAL may create are also tightened to 0600.
+        if sys.platform != "win32":
+            for sidecar in (path.parent / (path.name + "-wal"), path.parent / (path.name + "-shm")):
+                if sidecar.exists():
+                    os.chmod(sidecar, 0o600)
 
     def _migrate_key_metadata(self) -> None:
         with self._lock:

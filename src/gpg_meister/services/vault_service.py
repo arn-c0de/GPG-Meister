@@ -61,6 +61,7 @@ from gpg_meister.services.validation import validate_fingerprint
 from gpg_meister.storage.atomic_write import atomic_write_bytes
 from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
 from gpg_meister.storage.file_lock import FileLock, FileLockTimeoutError
+from gpg_meister.storage.metadata_store import MetadataStore
 
 
 class VaultServiceError(ServiceError):
@@ -128,7 +129,14 @@ def _serialise_manifest(manifest: VaultManifest) -> bytes:
 
 
 def _deserialise_manifest(blob: bytes) -> VaultManifest:
-    obj = msgpack.unpackb(blob, raw=False)
+    obj = msgpack.unpackb(
+        blob,
+        raw=False,
+        max_str_len=MAX_CIPHERTEXT_SIZE,
+        max_bin_len=MAX_CIPHERTEXT_SIZE,
+        max_array_len=65536,
+        max_map_len=65536,
+    )
     if not isinstance(obj, dict):
         raise VaultFormatError("vault payload is not a manifest object")
     try:
@@ -165,9 +173,11 @@ class VaultService:
         *,
         gpg: GPGService,
         audit: AuditLog,
+        metadata: MetadataStore | None = None,
     ) -> None:
         self._gpg = gpg
         self._audit = audit
+        self._metadata = metadata
 
     # ------------------------------------------------------------------- create
 
@@ -258,6 +268,12 @@ class VaultService:
                 cipher=cipher.value,
                 sha256=sha,
             )
+            if self._metadata is not None:
+                self._metadata.add_vault_record(
+                    str(target_path),
+                    key_count=len(entries),
+                    description=description,
+                )
             return VaultDescriptor(path=target_path, sha256=sha, key_count=len(entries))
         except Exception as exc:
             self._audit.emit(
@@ -368,7 +384,10 @@ class VaultService:
                 fingerprint=entry.fingerprint,
                 has_private_key=entry.has_private_key,
             )
-            imported.extend(results)
+            # Only record the fingerprint that the user selected; ignore any
+            # extra fingerprints a crafted blob might have smuggled in.
+            if entry.fingerprint in results:
+                imported.append(entry.fingerprint)
 
         self._audit.emit(
             "vault_imported",

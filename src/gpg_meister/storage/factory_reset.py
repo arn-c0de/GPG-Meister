@@ -24,12 +24,15 @@ def marker_path(paths: AppPaths) -> str:
 def request_factory_reset(paths: AppPaths) -> None:
     """Schedule a factory reset for the next app launch."""
     paths.ensure()
-    (paths.config_dir / _MARKER_NAME).write_text("pending\n", encoding="utf-8")
+    marker = paths.config_dir / _MARKER_NAME
+    reject_symlink_tree(marker)
+    marker.write_text("pending\n", encoding="utf-8")
 
 
 def perform_pending_factory_reset(paths: AppPaths) -> bool:
     """Delete all local app-managed state if a reset marker is present."""
     marker = paths.config_dir / _MARKER_NAME
+    reject_symlink_tree(marker)
     if not marker.exists():
         return False
 

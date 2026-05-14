@@ -84,7 +84,12 @@ class MainWindow(QMainWindow):
         for warning in result.warnings:
             severity = (
                 ErrorSeverity.ERROR
-                if warning.code in {"config_world_readable", "missing_packages"}
+                if warning.code in {
+                    "config_world_readable",
+                    "config_unsafe_permissions",
+                    "config_readable_by_others",
+                    "missing_packages",
+                }
                 else ErrorSeverity.WARNING
             )
             banner = WarningBanner(warning.message, severity=severity, dismissible=True)

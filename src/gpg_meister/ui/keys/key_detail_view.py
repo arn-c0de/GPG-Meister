@@ -138,10 +138,8 @@ class KeyDetailView(QDialog):
         try:
             armored = self._svc.export_public(self._key.fingerprint)
             self._armor_view.setPlainText(armored)
-            from PySide6.QtWidgets import QApplication
-            cb = QApplication.clipboard()
-            if cb:
-                cb.setText(armored)
+            from gpg_meister.ui.clipboard import copy_text
+            copy_text(armored)
         except Exception as exc:
             self._armor_view.setPlainText(f"Error: {exc}")
 

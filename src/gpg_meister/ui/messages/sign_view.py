@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QComboBox,
     QGroupBox,
@@ -159,9 +158,9 @@ class SignView(QWidget):
 
     def _copy_output(self) -> None:
         text = self._output.toPlainText()
-        cb = QApplication.clipboard()
-        if cb and text:
-            cb.setText(text)
+        if text:
+            from gpg_meister.ui.clipboard import copy_text
+            copy_text(text)
 
     def _submit(self) -> None:
         passphrase = self._passphrase.text()

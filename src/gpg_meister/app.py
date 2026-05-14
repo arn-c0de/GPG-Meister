@@ -99,8 +99,13 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
                 audit.close()
                 sys.exit(1)
 
-            # Re-run detect without trusted_* to get the full metadata of the new binary.
-            new_gpg = detect(user_override_path=str(exc.path))
+            # Re-run detect with the newly accepted hash so non-whitelisted
+            # binaries don't raise USER_OVERRIDE_UNTRUSTED again.
+            new_gpg = detect(
+                user_override_path=str(exc.path),
+                trusted_hash=exc.new_sha,
+                trusted_path=str(exc.path),
+            )
             config = config.model_copy(update={
                 "gpg_binary_trusted_hash": GPGBinaryTrust(
                     path=str(new_gpg.path),
@@ -147,16 +152,41 @@ def main() -> None:
     locale_code = resolve_locale(config.locale)
     install_translator(locale_code)
 
+    from gpg_meister.storage.audit_log import verify_chain
+
+    if config.audit.hash_chain and paths.audit_log.exists():
+        ok, count = verify_chain(paths.audit_log)
+        if not ok:
+            QMessageBox.warning(
+                None,
+                "Audit log integrity warning",
+                f"The audit log at {paths.audit_log} failed chain verification "
+                f"after {count} record(s). It may have been tampered with.",
+            )
+
     audit = AuditLog(paths.audit_log, hash_chain=config.audit.hash_chain)
 
     gpg = _resolve_gpg(config, paths, audit)
 
     audit.emit("gpg_binary_resolved", path=str(gpg.path), sha256=gpg.sha256)
 
+    from gpg_meister.startup.environment_check import CheckSeverity
+
     try:
         check_result = run_all_checks(paths, gpg.path)
     except EnvironmentCheckError as exc:
         QMessageBox.critical(None, "Startup check failed", str(exc))
+        audit.close()
+        sys.exit(1)
+
+    error_checks = [w for w in check_result.warnings if w.severity == CheckSeverity.ERROR]
+    if error_checks:
+        details = "\n".join(f"• {w.message}" for w in error_checks)
+        QMessageBox.critical(
+            None,
+            "Unsafe environment — startup blocked",
+            f"GPG Meister cannot start safely:\n\n{details}",
+        )
         audit.close()
         sys.exit(1)
 
@@ -198,7 +228,7 @@ def main() -> None:
     )
     key_svc = KeyService(gpg=gpg_svc, audit=audit, metadata=metadata)
     msg_svc = MessageService(gpg=gpg_svc, audit=audit)
-    vault_svc = VaultService(gpg=gpg_svc, audit=audit)
+    vault_svc = VaultService(gpg=gpg_svc, audit=audit, metadata=metadata)
 
     window = MainWindow()
     window.show_startup_results(check_result)
