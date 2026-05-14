@@ -308,17 +308,33 @@ class GPGService:
         if including_secret:
             pass_bytes = bytes(passphrase.view()) if passphrase else b""
             reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
-            sec_result = self._gpg.delete_keys(
+            # Use --delete-secret-and-public-key to delete both in a single GPG
+            # invocation. This avoids the race where a crash between two separate
+            # calls would leave an orphan public key with no private counterpart.
+            cmd = [
+                str(self._config.binary_path),
+                "--homedir", str(self._config.home_dir),
+                "--batch",
+                "--yes",
+                "--pinentry-mode", "loopback",
+                "--delete-secret-and-public-key",
                 fp,
-                secret=True,
-                passphrase=pass_bytes.decode("utf-8") if pass_bytes else None,
-                expect_passphrase=False,
+            ]
+            proc = subprocess.run(  # noqa: S603
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=self._config.timeout_seconds,
             )
-            if str(sec_result) not in ("ok", "No such key"):
-                raise GPGProcessError(f"failed to delete secret key {fp}: {sec_result}")
-        pub_result = self._gpg.delete_keys(fp, secret=False)
-        if str(pub_result) not in ("ok", "No such key"):
-            raise GPGProcessError(f"failed to delete public key {fp}: {pub_result}")
+            if proc.returncode not in (0, 2):
+                raise GPGProcessError(
+                    f"failed to delete key {fp}: {proc.stderr[:200]}"
+                )
+        else:
+            pub_result = self._gpg.delete_keys(fp, secret=False)
+            if str(pub_result) not in ("ok", "No such key"):
+                raise GPGProcessError(f"failed to delete public key {fp}: {pub_result}")
 
     # ------------------------------------------------------------------ messages
 

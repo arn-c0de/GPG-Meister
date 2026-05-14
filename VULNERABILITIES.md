@@ -163,7 +163,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/ui/messages/decrypt_viewmodel.py:84-95`
 *   **Issue:** The passphrase is captured in a `lambda: passphrase` closure within `submit()`. This extends the lifetime of the sensitive string until the lambda object is garbage collected, which may be delayed if the GPG worker task is stalled or if a traceback holds a reference to the frame.
 
-### 8.14 Binary Data Corruption Risk in GPG Service
+### FIXED 8.14 Binary Data Corruption Risk in GPG Service
 *   **Location:** `src/gpg_meister/services/gpg_service.py:345-385`
 *   **Issue:** `encrypt()` and `sign()` decode binary `bytes` input into Python `str` using `surrogateescape` before passing them to `python-gnupg`. While `surrogateescape` is designed for round-tripping, this is unnecessary as `python-gnupg` handles binary data directly. This adds memory overhead and potential for data corruption if the resulting string is treated as text.
 
