@@ -60,6 +60,7 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
                 DetectionReason.USER_OVERRIDE_UNTRUSTED,
                 DetectionReason.HASH_MISMATCH,
                 DetectionReason.IDENTITY_MISMATCH,
+                DetectionReason.NOT_ROOT_OWNED,
             ):
                 QMessageBox.critical(
                     None,

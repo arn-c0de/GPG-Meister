@@ -28,7 +28,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 
 ## 2. Configuration & Permission Risks
 
-### 2.1 Unsafe `~/.gnupg` Permission Mutation
+### FIXED 2.1 Unsafe `~/.gnupg` Permission Mutation
 *   **Location:** `src/gpg_meister/ui/keys/first_launch_wizard.py`, `src/gpg_meister/services/gpg_service.py:135`
 *   **Issue:** Initializing `GPGService` on the user's real `~/.gnupg` triggers `ensure_dir()` which `chmod`s the directory to `0700`, potentially altering existing system permissions.
 

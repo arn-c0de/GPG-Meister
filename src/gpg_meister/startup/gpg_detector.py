@@ -63,6 +63,7 @@ class DetectionReason(StrEnum):
     PARENT_WRITABLE = "parent_writable"
     TRUST_PATH_MISMATCH = "trust_path_mismatch"
     IDENTITY_MISMATCH = "identity_mismatch"
+    NOT_ROOT_OWNED = "not_root_owned"
 
 
 class GPGDetectionError(Exception):
@@ -204,11 +205,20 @@ def detect(
         is_listed = override in literal_whitelist
         device, inode = _identity(override)
         if is_listed:
+            is_root_owned = _check_root_owned(override)
+            if not is_root_owned and sys.platform != "win32":
+                raise GPGDetectionError(
+                    DetectionReason.NOT_ROOT_OWNED,
+                    f"{override} is at a whitelisted path but is not owned by root — "
+                    "this may indicate binary substitution",
+                    path=override,
+                    new_sha=sha,
+                )
             return DetectedGPG(
                 path=override,
                 sha256=sha,
                 is_whitelisted=True,
-                is_root_owned=_check_root_owned(override),
+                is_root_owned=is_root_owned,
                 device=device,
                 inode=inode,
             )
@@ -278,11 +288,21 @@ def detect(
         _check_writability(canonical)
         _check_parent_writability(canonical)
         device, inode = _identity(canonical)
+        is_root_owned = _check_root_owned(canonical)
+        sha = _hash_file(canonical)
+        if not is_root_owned and sys.platform != "win32":
+            raise GPGDetectionError(
+                DetectionReason.NOT_ROOT_OWNED,
+                f"{canonical} is at a whitelisted path but is not owned by root — "
+                "this may indicate binary substitution",
+                path=canonical,
+                new_sha=sha,
+            )
         return DetectedGPG(
             path=canonical,
-            sha256=_hash_file(canonical),
+            sha256=sha,
             is_whitelisted=True,
-            is_root_owned=_check_root_owned(canonical),
+            is_root_owned=is_root_owned,
             device=device,
             inode=inode,
         )
