@@ -23,15 +23,18 @@ Tests live in two places:
 from __future__ import annotations
 
 import contextlib
+import concurrent.futures
 import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+_T = TypeVar("_T")
 
 import gnupg
 
@@ -172,14 +175,31 @@ class GPGService:
     def config(self) -> GPGServiceConfig:
         return self._config
 
+    def _run(self, fn: Callable[[], _T]) -> _T:
+        """Run a python-gnupg call in a thread with a timeout.
+
+        python-gnupg manages GPG subprocesses internally and exposes no timeout
+        parameter. Wrapping in a thread lets the Python side time out. The GPG
+        subprocess may linger briefly after the timeout (until its I/O is closed),
+        but the caller will not block indefinitely.
+        """
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(fn)
+            try:
+                return future.result(timeout=self._config.timeout_seconds)
+            except concurrent.futures.TimeoutError:
+                raise GPGProcessError(
+                    f"GPG operation timed out after {self._config.timeout_seconds}s"
+                ) from None
+
     # ------------------------------------------------------------------ inventory
 
     def _secret_fingerprints(self) -> set[str]:
-        rows: Iterable[dict[str, Any]] = self._gpg.list_keys(secret=True)
+        rows: Iterable[dict[str, Any]] = self._run(lambda: self._gpg.list_keys(secret=True))
         return {str(r.get("fingerprint", "")).upper() for r in rows if r.get("fingerprint")}
 
     def list_keys(self, *, secret: bool = False) -> list[KeyInfo]:
-        rows: Iterable[dict[str, Any]] = self._gpg.list_keys(secret=secret)
+        rows: Iterable[dict[str, Any]] = self._run(lambda: self._gpg.list_keys(secret=secret))
         infos: list[KeyInfo] = []
         if secret:
             # All rows from a secret listing already have private keys.
@@ -250,7 +270,7 @@ class GPGService:
             raise GPGValidationError(f"key generation not supported for {algorithm}")
 
         gen_input = self._gpg.gen_key_input(**params)
-        result = self._gpg.gen_key(gen_input)
+        result = self._run(lambda: self._gpg.gen_key(gen_input))
         fp = str(getattr(result, "fingerprint", "") or "")
         if not fp:
             raise GPGProcessError(
@@ -262,7 +282,7 @@ class GPGService:
 
     def export_public_key(self, fingerprint: str) -> str:
         fp = validate_fingerprint(fingerprint)
-        armored = self._gpg.export_keys(fp, secret=False, armor=True)
+        armored = self._run(lambda: self._gpg.export_keys(fp, secret=False, armor=True))
         if not armored:
             raise GPGKeyNotFoundError(f"no public key for {fp}")
         return str(armored)
@@ -271,13 +291,14 @@ class GPGService:
         fp = validate_fingerprint(fingerprint)
         pass_bytes = bytes(passphrase.view())
         reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
-        armored = self._gpg.export_keys(
+        pass_str = pass_bytes.decode("utf-8")
+        armored = self._run(lambda: self._gpg.export_keys(
             fp,
             secret=True,
             armor=True,
-            passphrase=pass_bytes.decode("utf-8"),
+            passphrase=pass_str,
             expect_passphrase=True,
-        )
+        ))
         if not armored:
             raise GPGPassphraseError(
                 "private key export failed — passphrase incorrect or key missing"
@@ -287,7 +308,7 @@ class GPGService:
     # --------------------------------------------------------------------- import
 
     def import_key(self, armored: str) -> list[str]:
-        result = self._gpg.import_keys(armored)
+        result = self._run(lambda: self._gpg.import_keys(armored))
         fingerprints = [str(fp) for fp in getattr(result, "fingerprints", []) if fp]
         if not fingerprints:
             raise GPGProcessError(
@@ -332,7 +353,7 @@ class GPGService:
                     f"failed to delete key {fp}: {proc.stderr[:200]}"
                 )
         else:
-            pub_result = self._gpg.delete_keys(fp, secret=False)
+            pub_result = self._run(lambda: self._gpg.delete_keys(fp, secret=False))
             if str(pub_result) not in ("ok", "No such key"):
                 raise GPGProcessError(f"failed to delete public key {fp}: {pub_result}")
 
@@ -361,7 +382,7 @@ class GPGService:
             pass_bytes = bytes(passphrase.view())
             reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
             kwargs["passphrase"] = pass_bytes.decode("utf-8")
-        result = self._gpg.encrypt(plaintext, **kwargs)
+        result = self._run(lambda: self._gpg.encrypt(plaintext, **kwargs))
         if not result.ok:
             raise GPGProcessError(f"encryption failed: {result.status}")
         return str(result)
@@ -378,7 +399,7 @@ class GPGService:
             pass_bytes = bytes(passphrase.view())
             reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
             kwargs["passphrase"] = pass_bytes.decode("utf-8")
-        result = self._gpg.decrypt(ciphertext, **kwargs)
+        result = self._run(lambda: self._gpg.decrypt(ciphertext, **kwargs))
         if not result.ok:
             if str(result.status or "").lower() in ("bad passphrase", "no secret key"):
                 raise GPGPassphraseError(f"decryption failed: {result.status}")
@@ -398,13 +419,14 @@ class GPGService:
         fp = validate_fingerprint(fingerprint)
         pass_bytes = bytes(passphrase.view())
         reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
-        result = self._gpg.sign(
+        pass_str = pass_bytes.decode("utf-8")
+        result = self._run(lambda: self._gpg.sign(
             data,
             keyid=fp,
-            passphrase=pass_bytes.decode("utf-8"),
+            passphrase=pass_str,
             detach=detached,
             clearsign=not detached,
-        )
+        ))
         if not str(result):
             raise GPGProcessError(f"signing failed: {result.status}")
         return str(result)
@@ -425,11 +447,11 @@ class GPGService:
                 tmp.write(detached_signature)
                 sig_path = tmp.name
             try:
-                result = self._gpg.verify_data(sig_path, data)
+                result = self._run(lambda: self._gpg.verify_data(sig_path, data))
             finally:
                 os.unlink(sig_path)
         else:
-            result = self._gpg.verify(data)
+            result = self._run(lambda: self._gpg.verify(data))
         valid = bool(result.valid)
         fp = str(result.fingerprint or "") or None
         signed_at: datetime | None = None

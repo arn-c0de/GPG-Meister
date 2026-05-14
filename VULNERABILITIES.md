@@ -36,7 +36,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/storage/permissions.py`, `src/gpg_meister/storage/file_lock.py`, `src/gpg_meister/storage/metadata_store.py:105`
 *   **Issue:** Symlink checks are performed separately from file opens/chmods, creating race windows for symlink-swapping attacks.
 
-### 2.3 Insecure Temp File Location
+### FIXED 2.3 Insecure Temp File Location
 *   **Location:** `src/gpg_meister/services/gpg_service.py:397`
 *   **Issue:** `verify()` creates temporary signature files inside the GPG home directory. If the home is the user's system `~/.gnupg`, this can lead to permission issues or leftover artifacts in a shared space.
 
