@@ -22,7 +22,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/security/aead.py:53, 67`, `src/gpg_meister/security/kdf.py:84`
 *   **Issue:** `bytes(key.view())` or `bytes(passphrase.view())` are called, creating untracked, immutable copies of sensitive key material in memory.
 
-### 1.5 Sensitive Data Leaks in UI/ViewModel
+### FIXED 1.5 Sensitive Data Leaks in UI/ViewModel
 *   **Location:** `src/gpg_meister/ui/keys/key_create_viewmodel.py:105`, `src/gpg_meister/ui/clipboard.py:13`, `src/gpg_meister/ui/widgets/clipboard_button.py:46`
 *   **Issue:** Passphrases and copied secrets are stored as regular Python strings. These objects are not zeroed and persist in memory until garbage collection.
 

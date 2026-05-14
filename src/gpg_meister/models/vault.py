@@ -36,7 +36,7 @@ MAX_VAULT_USER_IDS = 16
 MAX_VAULT_USER_ID_LENGTH = 512
 MAX_VAULT_DESCRIPTION_LENGTH = 4096
 MAX_VAULT_CREATED_BY_LENGTH = 256
-MAX_VAULT_ARMOR_LENGTH = 2 * 1024 * 1024
+MAX_VAULT_ARMOR_LENGTH = 8 * 1024 * 1024  # 8 MB — accommodates large keyblocks with many certifications
 
 
 class CipherAlgorithm(StrEnum):
