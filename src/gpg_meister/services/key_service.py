@@ -192,9 +192,12 @@ class KeyService:
         and computes the conflict label without touching anything.
         """
         armored = _validate_public_import_blob(armored)
-        # The simplest, side-effect-free approach is to ask GPG to list keys from
-        # a temporary, in-memory perspective. python-gnupg's `scan_keys` does
-        # exactly that.
+        # Quick pre-check: count key block headers before letting GPG parse the blob.
+        # A full scan_keys_mem on a large multi-key blob is O(n) GPG work; reject
+        # obvious over-sized batches here to prevent exhaustive pre-parse DoS.
+        header_count = armored.count(PUBLIC_KEY_BLOCK)
+        if header_count > MAX_PUBLIC_KEY_IMPORT_COUNT:
+            raise ValueError("too many keys in one import batch")
         rows = self._gpg._gpg.scan_keys_mem(armored)
         existing_pub = {k.fingerprint for k in self.list_keys()}
         existing_secret = {

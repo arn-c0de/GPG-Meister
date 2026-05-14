@@ -167,7 +167,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Location:** `src/gpg_meister/services/gpg_service.py:345-385`
 *   **Issue:** `encrypt()` and `sign()` decode binary `bytes` input into Python `str` using `surrogateescape` before passing them to `python-gnupg`. While `surrogateescape` is designed for round-tripping, this is unnecessary as `python-gnupg` handles binary data directly. This adds memory overhead and potential for data corruption if the resulting string is treated as text.
 
-### 8.15 Vault Sidecar Checksum Error Prevents Recovery
+### FIXED 8.15 Vault Sidecar Checksum Error Prevents Recovery
 *   **Location:** `src/gpg_meister/services/vault_service.py:445-455`
 *   **Issue:** `_open()` raises `VaultServiceError` on SHA-256 mismatch, making it impossible to open a vault if only the sidecar is corrupted. This contradicts the UI `error_catalog.py`, which defines a "vault_checksum_mismatch" warning with an "open anyway" option.
 
