@@ -96,7 +96,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 
 ## 7. Supply Chain & Packaging
 
-### 7.1 Sandbox Isolation Gaps
+### FIXED 7.1 Sandbox Isolation Gaps
 *   **Location:** `packaging/flatpak/io.github.arn-c0de.GPGMeister.yaml`
 *   **Issue:** The Flatpak manifest lacks GnuPG as a module. Furthermore, it doesn't grant access to the host `~/.gnupg`, which will cause the `FirstLaunchWizard` to fail or lead to insecure permission workarounds.
 
