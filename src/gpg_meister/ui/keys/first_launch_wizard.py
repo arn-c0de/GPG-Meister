@@ -62,13 +62,20 @@ class _SelectPage(QWizardPage):
         layout.addWidget(self._status)
 
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["User ID", "Algorithm", "Fingerprint", "Has private"])
+        self._table.setHorizontalHeaderLabels(["User ID", "Algorithm", "Fingerprint", "Import scope"])
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.horizontalHeader().setStretchLastSection(False)
         self._table.horizontalHeader().setMinimumSectionSize(80)
         layout.addWidget(self._table, stretch=1)
+
+        self._note = QLabel(
+            "Note: This wizard copies public keys only. "
+            "To import a private key, use the main Import dialog."
+        )
+        self._note.setWordWrap(True)
+        layout.addWidget(self._note)
 
     def initializePage(self) -> None:
         if not _SYSTEM_GNUPG.exists():
@@ -90,7 +97,8 @@ class _SelectPage(QWizardPage):
             self._table.setItem(row, 0, _cell(uid))
             self._table.setItem(row, 1, _cell(key.algorithm.value))
             self._table.setItem(row, 2, _cell(key.fingerprint[-16:]))
-            self._table.setItem(row, 3, _cell("yes" if key.has_private_key else ""))
+            scope = "public only (private: import manually)" if key.has_private_key else "public"
+            self._table.setItem(row, 3, _cell(scope))
 
     def selected_keys(self) -> list[KeyInfo]:
         rows = {idx.row() for idx in self._table.selectedIndexes()}
@@ -114,9 +122,18 @@ class _ConfirmPage(QWizardPage):
             self._detail.setText("No keys selected — nothing will be imported.")
             return
         lines = []
+        has_private = False
         for key in keys:
             uid = key.user_ids[0] if key.user_ids else "—"
-            lines.append(f"• {uid}  ({key.fingerprint[-16:]})")
+            scope = " [PUBLIC KEY ONLY — private key not imported]" if key.has_private_key else ""
+            lines.append(f"• {uid}  ({key.fingerprint[-16:]}){scope}")
+            if key.has_private_key:
+                has_private = True
+        if has_private:
+            lines.append(
+                "\nPrivate key material cannot be transferred by this wizard. "
+                "Use the main Import dialog to import private keys."
+            )
         self._detail.setText("\n".join(lines))
 
 
