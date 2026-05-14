@@ -18,10 +18,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for translation guidelines, development n
 
 ## Current Status
 
-> [!NOTE]
-> GPG Meister is actively being developed.
+> [!WARNING]
+> GPG Meister is in active development.
 >
-> You can already use it, but it is still a work in progress and some parts may change significantly between releases. Behavior, UI details, workflows, and internal structure can still evolve as the project matures.
+> **Important:** While functional, internal structures and the vault format may change significantly between releases. Always ensure you have independent backups of your GPG keys before updating the application. Behavior, UI details, and workflows are still evolving.
 
 ## What it does
 - **Key Management**: Create, import, and manage GPG keys.
