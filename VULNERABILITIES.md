@@ -122,7 +122,7 @@ This document lists security vulnerabilities and quality issues verified in the 
 *   **Issue:** Sidecar chmod ran before `PRAGMA journal_mode=WAL`, so newly created `-wal`/`-shm` files inherited the process umask.
 *   **Fix:** Sidecar chmod moved to after `executescript(_SCHEMA)`.
 
-### 8.5 Missing Runtime Timeouts for Core GPG Operations
+### FIXED 8.5 Missing Runtime Timeouts for Core GPG Operations
 *   **Location:** `src/gpg_meister/services/gpg_service.py:69-73, 201-417`
 *   **Issue:** `GPGServiceConfig.timeout_seconds` exists, but only `version()` uses it. All other GPG operations can hang indefinitely.
 

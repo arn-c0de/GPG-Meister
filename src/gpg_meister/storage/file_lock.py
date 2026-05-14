@@ -58,12 +58,19 @@ class FileLock:
             raise RuntimeError("FileLock already acquired")
 
         ensure_dir(self._lock_path.parent, mode=0o700)
-        reject_symlink(self._lock_path)
         deadline = time.monotonic() + self._timeout
 
-        # Open the lock file. We use a fresh open per acquire to keep the lock
-        # state cleanly tied to this instance.
-        self._fd = os.open(str(self._lock_path), os.O_RDWR | os.O_CREAT, 0o600)
+        # O_NOFOLLOW prevents following a symlink swapped in between the parent
+        # ensure_dir check and this open, closing the TOCTOU window.
+        open_flags = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
+        try:
+            self._fd = os.open(str(self._lock_path), open_flags, 0o600)
+        except OSError as exc:
+            raise RuntimeError(
+                f"refusing to open possible symlink as lock file: {self._lock_path}"
+            ) from exc
 
         if sys.platform == "win32":
             self._acquire_windows(deadline)

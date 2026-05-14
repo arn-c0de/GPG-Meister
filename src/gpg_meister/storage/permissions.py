@@ -64,20 +64,45 @@ def ensure_dir(path: Path, *, mode: int = 0o700) -> None:
             if not directory.is_dir():
                 raise
 
-    reject_symlink(path)
     if path.exists() and not path.is_dir():
         raise NotADirectoryError(path)
-    os.chmod(path, mode)
+    _fchmod_nofollow(path, mode)
+
+
+def _fchmod_nofollow(path: Path, mode: int) -> None:
+    """Atomically chmod `path` using O_NOFOLLOW to close the TOCTOU window.
+
+    Opens the path without following symlinks (raises OSError/ELOOP on symlink),
+    then calls fchmod on the resulting file descriptor. Closes the fd on exit.
+    Falls back to reject_symlink + os.chmod on platforms where O_NOFOLLOW is
+    unavailable (e.g. Windows — caller should gate on sys.platform).
+    """
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    else:
+        reject_symlink(path)
+        os.chmod(path, mode)
+        return
+    try:
+        fd = os.open(str(path), flags)
+    except OSError:
+        # O_NOFOLLOW raises ELOOP if path is a symlink — re-raise as RuntimeError
+        # to match the existing reject_symlink contract.
+        raise RuntimeError(f"refusing to follow symlink at managed path: {path}") from None
+    try:
+        os.fchmod(fd, mode)
+    finally:
+        os.close(fd)
 
 
 def ensure_file_mode(path: Path, *, mode: int = 0o600) -> None:
     """Set permissions of an existing file to `mode` on POSIX. No-op on Windows."""
     if sys.platform == "win32":
         return
-    reject_symlink(path)
     if not path.exists():
         raise FileNotFoundError(path)
-    os.chmod(path, mode)
+    _fchmod_nofollow(path, mode)
 
 
 def reject_symlink(path: Path) -> None:

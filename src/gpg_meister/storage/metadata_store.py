@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gpg_meister.storage.permissions import ensure_dir, reject_symlink
+from gpg_meister.storage.permissions import _fchmod_nofollow, ensure_dir, reject_symlink
 
 
 class MetadataStoreError(Exception):
@@ -72,8 +72,7 @@ class MetadataStore:
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         if sys.platform != "win32":
-            import os
-            os.chmod(path, 0o600)
+            _fchmod_nofollow(path, 0o600)
         with self._lock, self._conn:
             self._conn.executescript(_SCHEMA)
             self._migrate_key_metadata()
@@ -82,7 +81,7 @@ class MetadataStore:
         if sys.platform != "win32":
             for sidecar in (path.parent / (path.name + "-wal"), path.parent / (path.name + "-shm")):
                 if sidecar.exists():
-                    os.chmod(sidecar, 0o600)
+                    _fchmod_nofollow(sidecar, 0o600)
 
     def _migrate_key_metadata(self) -> None:
         with self._lock:
