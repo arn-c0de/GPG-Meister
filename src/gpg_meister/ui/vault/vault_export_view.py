@@ -87,6 +87,15 @@ class VaultExportView(QWidget):
         self._gpg_pp = PassphraseField(show_strength=False)
         self._gpg_pp.setPlaceholderText("Passphrase for your GPG private keys…")
         pp_layout.addWidget(self._gpg_pp)
+        
+        hint = QLabel(
+            "Note: Smartcard-backed keys (e.g. YubiKey) cannot be exported and "
+            "will only have their public part included in the vault."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("font-size: 10px; color: #666666;")
+        pp_layout.addWidget(hint)
+        
         layout.addWidget(pp_box)
 
         btn_row = QHBoxLayout()

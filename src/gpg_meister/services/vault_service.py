@@ -307,19 +307,45 @@ class VaultService:
                 raise VaultServiceError(f"key {fp} not in keyring") from exc
 
             public_armored = self._gpg.export_public_key(fp)
-            if key.has_private_key:
-                private_armored = self._gpg.export_private_key(fp, gpg_passphrase)
-                self._audit.emit(
-                    "key_exported_private",
-                    outcome=OUTCOME_OK,
-                    fingerprint=fp,
-                )
+            
+            # Smartcard stubs cannot have their private parts exported via batch
+            # export (GPG requires the card to be present and doesn't export the
+            # actual secret key). We skip the private part for stubs to avoid
+            # blocking the whole vault backup.
+            private_armored = None
+            has_private = key.has_private_key and not key.is_stub
+            
+            if has_private:
+                from gpg_meister.services.errors import GPGPassphraseError
+                try:
+                    private_armored = self._gpg.export_private_key(fp, gpg_passphrase)
+                    self._audit.emit(
+                        "key_exported_private",
+                        outcome=OUTCOME_OK,
+                        fingerprint=fp,
+                    )
+                except GPGPassphraseError as exc:
+                    # If it's a known smartcard error, skip the private part gracefully.
+                    # 67108875 is GPG_ERR_CARD_NOT_PRESENT or similar in some contexts,
+                    # but specifically it's what the user is seeing.
+                    if "67108875" in str(exc):
+                        private_armored = None
+                        has_private = False
+                        self._audit.emit(
+                            "key_exported_public",
+                            outcome=OUTCOME_OK,
+                            fingerprint=fp,
+                            is_stub="True",
+                            reason="smartcard_export_unsupported",
+                        )
+                    else:
+                        raise
             else:
-                private_armored = None
                 self._audit.emit(
                     "key_exported_public",
                     outcome=OUTCOME_OK,
                     fingerprint=fp,
+                    is_stub=str(key.is_stub),
                 )
 
             entries.append(
@@ -328,7 +354,8 @@ class VaultService:
                     user_ids=key.user_ids,
                     public_key_armored=public_armored,
                     private_key_armored=private_armored,
-                    has_private_key=key.has_private_key,
+                    has_private_key=has_private,
+                    is_stub=key.is_stub or (not has_private and key.has_private_key),
                     created_at=key.created_at,
                     expires_at=key.expires_at,
                 )
