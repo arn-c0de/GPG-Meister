@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+
 from PySide6.QtWidgets import QTabWidget, QTextBrowser, QWidget
 
 from gpg_meister.ui.help.glossary import TERMS
@@ -96,7 +98,7 @@ Re-enter it carefully — remember that Caps Lock affects passphrase input.</p>
 def _build_glossary_html() -> str:
     parts = ["<h2>Glossary</h2>"]
     for term, definition in TERMS.items():
-        parts.append(f"<h3>{term}</h3><p>{definition}</p>")
+        parts.append(f"<h3>{html.escape(term)}</h3><p>{html.escape(definition)}</p>")
     return "\n".join(parts)
 
 

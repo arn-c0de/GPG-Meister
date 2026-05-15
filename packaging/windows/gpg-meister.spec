@@ -35,7 +35,7 @@ exe = EXE(
     name="gpg-meister",
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,
     upx=True,
     console=False,
 )
@@ -44,7 +44,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=False,
+    strip=True,
     upx=True,
     upx_exclude=[],
     name="gpg-meister",

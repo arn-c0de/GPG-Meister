@@ -83,10 +83,12 @@ class FileLock:
         if self._fd is None:
             raise RuntimeError("FileLock file descriptor is not open")
         op = fcntl.LOCK_EX if self._exclusive else fcntl.LOCK_SH
+        open_flags = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
         while True:
             try:
                 fcntl.flock(self._fd, op | fcntl.LOCK_NB)
-                return
             except BlockingIOError:
                 if time.monotonic() >= deadline:
                     self._close_fd()
@@ -95,6 +97,30 @@ class FileLock:
                         f"{self._timeout}s"
                     ) from None
                 time.sleep(self._poll)
+                continue
+
+            # After acquiring the lock, verify that the fd and the current
+            # filesystem path refer to the same inode.  If a previous holder
+            # deleted the lock file between our open() and flock(), a racing
+            # process could have created a new lock file and acquired their own
+            # lock — making our lock meaningless.  Re-opening and retrying
+            # closes this window.
+            try:
+                fd_stat = os.fstat(self._fd)
+                path_stat = os.stat(str(self._lock_path))
+            except OSError:
+                # Lock file was removed; re-open and retry.
+                self._close_fd()
+                self._fd = os.open(str(self._lock_path), open_flags, 0o600)
+                continue
+
+            if fd_stat.st_ino != path_stat.st_ino or fd_stat.st_dev != path_stat.st_dev:
+                # Different inode — lock file was replaced; re-open and retry.
+                self._close_fd()
+                self._fd = os.open(str(self._lock_path), open_flags, 0o600)
+                continue
+
+            return
 
     def _acquire_windows(self, deadline: float) -> None:  # pragma: no cover
         import importlib

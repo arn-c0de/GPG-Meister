@@ -28,6 +28,8 @@ _LINUX_WHITELIST: tuple[str, ...] = (
     "/usr/local/bin/gpg2",
     "/bin/gpg",
     "/snap/bin/gpg",
+    "/app/bin/gpg",
+    "/app/bin/gpg2",
 )
 
 _MACOS_WHITELIST: tuple[str, ...] = (

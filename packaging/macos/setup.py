@@ -14,6 +14,7 @@ DATA_FILES = [
 ]
 OPTIONS = {
     "argv_emulation": False,
+    "strip": True,
     "packages": ["gpg_meister"],
     "plist": {
         "CFBundleDisplayName": "GPG Meister",

@@ -19,27 +19,42 @@ from types import TracebackType
 from typing import Self
 
 _libc = None
+_kernel32 = None
 if sys.platform.startswith(("linux", "darwin")):
     try:
         _libc = ctypes.CDLL(None, use_errno=True)
     except OSError:
         _libc = None
+elif sys.platform == "win32":
+    try:
+        _kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    except (AttributeError, OSError):
+        _kernel32 = None
 
 
 def _try_mlock(buf: ctypes.Array[ctypes.c_char]) -> bool:
-    if _libc is None or not hasattr(_libc, "mlock"):
-        return False
     addr = ctypes.addressof(buf)
     n = len(buf)
+    if sys.platform == "win32":
+        if _kernel32 is None:
+            return False
+        return bool(_kernel32.VirtualLock(ctypes.c_void_p(addr), ctypes.c_size_t(n)))
+    if _libc is None or not hasattr(_libc, "mlock"):
+        return False
     res: int = _libc.mlock(ctypes.c_void_p(addr), ctypes.c_size_t(n))
     return bool(res == 0)
 
 
 def _try_munlock(buf: ctypes.Array[ctypes.c_char]) -> None:
-    if _libc is None or not hasattr(_libc, "munlock"):
-        return
     addr = ctypes.addressof(buf)
     n = len(buf)
+    if sys.platform == "win32":
+        if _kernel32 is None:
+            return
+        _kernel32.VirtualUnlock(ctypes.c_void_p(addr), ctypes.c_size_t(n))
+        return
+    if _libc is None or not hasattr(_libc, "munlock"):
+        return
     _libc.munlock(ctypes.c_void_p(addr), ctypes.c_size_t(n))
 
 

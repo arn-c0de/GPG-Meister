@@ -164,7 +164,8 @@ def _validate_import_kdf(params: KDFParams) -> None:
 
 
 def _read_sidecar_digest(sidecar: Path) -> str:
-    raw = sidecar.read_bytes()[:256]
+    with sidecar.open("rb") as _f:
+        raw = _f.read(256)
     parts = raw.decode("ascii", errors="strict").split()
     if not parts:
         raise VaultServiceError("vault checksum sidecar is empty")

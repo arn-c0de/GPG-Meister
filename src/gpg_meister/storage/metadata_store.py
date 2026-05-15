@@ -8,6 +8,7 @@ All timestamps are stored as UTC ISO 8601 strings.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 import threading
@@ -69,15 +70,25 @@ class MetadataStore:
         reject_symlink(path)
         self._path = path
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(str(path), check_same_thread=False)
+        # Restrict umask to 0o177 (files created by SQLite, including the WAL and
+        # SHM sidecars, will get at most 0o600 permissions). The saved umask is
+        # restored immediately after connect so the change is as narrow as possible.
+        _saved_umask: int | None = None
+        if sys.platform != "win32":
+            _saved_umask = os.umask(0o177)
+        try:
+            self._conn = sqlite3.connect(str(path), check_same_thread=False)
+        finally:
+            if _saved_umask is not None:
+                os.umask(_saved_umask)
         self._conn.row_factory = sqlite3.Row
         if sys.platform != "win32":
             _fchmod_nofollow(path, 0o600)
         with self._lock, self._conn:
             self._conn.executescript(_SCHEMA)
             self._migrate_key_metadata()
-        # Chmod sidecars AFTER executescript so the WAL/SHM files that
-        # journal_mode=WAL may create are also tightened to 0600.
+        # Belt-and-suspenders: explicitly chmod any WAL/SHM files created during
+        # schema setup in case the umask was not honoured by SQLite's internal open.
         if sys.platform != "win32":
             for sidecar in (path.parent / (path.name + "-wal"), path.parent / (path.name + "-shm")):
                 if sidecar.exists():

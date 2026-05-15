@@ -136,6 +136,15 @@ class GPGService:
         if not config.binary_path.exists():
             raise GPGServiceError(f"GPG binary does not exist: {config.binary_path}")
         self._revalidate_binary(config)
+        # Capture device/inode immediately after hash-based validation so that
+        # _assert_binary_not_swapped() can perform a cheap pre-invocation check.
+        try:
+            _st = config.binary_path.stat()
+            self._binary_dev: int | None = _st.st_dev
+            self._binary_ino: int | None = _st.st_ino
+        except OSError:
+            self._binary_dev = None
+            self._binary_ino = None
         # Only chmod the home directory when we are creating it. If it already
         # exists (e.g. the user's real ~/.gnupg) we must not mutate its permissions,
         # because that would alter existing system configuration (vuln 2.1).
@@ -159,6 +168,19 @@ class GPGService:
                 raise GPGServiceError(
                     f"python-gnupg did not apply required option {needed!r}"
                 )
+
+    def _assert_binary_not_swapped(self) -> None:
+        """Lightweight pre-invocation check: verify the binary's inode/device match startup."""
+        if self._binary_dev is None and self._binary_ino is None:
+            return
+        try:
+            st = self._config.binary_path.stat()
+        except OSError as exc:
+            raise GPGServiceError(f"GPG binary inaccessible before invocation: {exc}") from exc
+        if self._binary_dev is not None and st.st_dev != self._binary_dev:
+            raise GPGServiceError("GPG binary device changed since startup — possible substitution")
+        if self._binary_ino is not None and st.st_ino != self._binary_ino:
+            raise GPGServiceError("GPG binary inode changed since startup — possible substitution")
 
     def _revalidate_binary(self, config: GPGServiceConfig) -> None:
         from gpg_meister.startup.gpg_detector import detect
@@ -191,6 +213,7 @@ class GPGService:
         subprocess may linger briefly after the timeout (until its I/O is closed),
         but the caller will not block indefinitely.
         """
+        self._assert_binary_not_swapped()
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
             future = ex.submit(fn)
             try:
@@ -249,6 +272,11 @@ class GPGService:
         validate_expiry(expiry)
 
         pass_bytes = bytes(passphrase.view())
+        # Newlines in the passphrase can inject extra directives into GPG's
+        # batch parameter file built by gen_key_input. Reject them before the
+        # batch file is constructed.
+        if b"\n" in pass_bytes or b"\r" in pass_bytes:
+            raise GPGValidationError("passphrase must not contain newline characters")
         reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
 
         params: dict[str, Any]
@@ -335,6 +363,7 @@ class GPGService:
     ) -> None:
         fp = validate_fingerprint(fingerprint)
         if including_secret:
+            self._assert_binary_not_swapped()
             pass_bytes = bytes(passphrase.view()) if passphrase else b""
             reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
             # Use --delete-secret-and-public-key to delete both in a single GPG
@@ -491,6 +520,7 @@ class GPGService:
 
     def version(self) -> tuple[int, ...]:
         """Return the GPG binary's version as a tuple, e.g. (2, 4, 4)."""
+        self._assert_binary_not_swapped()
         proc = subprocess.run(  # noqa: S603
             [str(self._config.binary_path), "--version"],
             check=False,
