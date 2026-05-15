@@ -165,4 +165,9 @@ def message_for_exception(exc: BaseException) -> str:
         return format_message(code)
     if isinstance(exc, ValueError):
         return str(exc)
+    
+    # Fallback: include the actual error message so users can debug without logs.
+    msg = str(exc).strip()
+    if msg:
+        return f"The operation failed: {msg}"
     return "The operation failed. Check the diagnostic log for details."

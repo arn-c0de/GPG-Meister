@@ -145,6 +145,7 @@ class VaultKeyEntry(BaseModel):
     public_key_armored: str = Field(..., min_length=1, max_length=MAX_VAULT_ARMOR_LENGTH)
     private_key_armored: str | None = Field(default=None, max_length=MAX_VAULT_ARMOR_LENGTH)
     has_private_key: bool
+    is_stub: bool = False
     created_at: datetime
     expires_at: datetime | None = None
 

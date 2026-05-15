@@ -40,6 +40,7 @@ class KeyInfo(BaseModel):
     expires_at: datetime | None = None
     is_revoked: bool = False
     has_private_key: bool = False
+    is_stub: bool = False
     trust: TrustLevel = TrustLevel.UNKNOWN
     label: str = ""
     purpose: str = ""

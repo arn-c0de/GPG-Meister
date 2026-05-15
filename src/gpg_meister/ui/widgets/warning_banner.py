@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
 
+from gpg_meister.ui.clipboard import copy_text
 from gpg_meister.ui.errors.user_error import ErrorSeverity
 
 _SEVERITY_STYLES: dict[ErrorSeverity, str] = {
@@ -79,9 +80,14 @@ class WarningBanner(QFrame):
         if action_text:
             self._action_btn = QPushButton(action_text)
             self._action_btn.clicked.connect(self.action_clicked.emit)
-            # Use a slightly more prominent style for the action button if needed,
-            # but for now, it inherits the general QPushButton style from _apply_style.
             layout.addWidget(self._action_btn)
+
+        # Always add a Copy button for easier error reporting
+        copy_btn = QPushButton("Copy")
+        copy_btn.setFlat(True)
+        copy_btn.setToolTip("Copy message to clipboard")
+        copy_btn.clicked.connect(lambda: copy_text(self._message_label.text()))
+        layout.addWidget(copy_btn)
 
         if dismissible:
             close_btn = QPushButton("✕")

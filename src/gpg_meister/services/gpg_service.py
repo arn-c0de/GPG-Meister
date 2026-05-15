@@ -112,6 +112,11 @@ def _to_key_info(entry: dict[str, Any]) -> KeyInfo:
     created = int(entry.get("date") or 0)
     expires_raw = entry.get("expires") or ""
     expires = int(expires_raw) if expires_raw and expires_raw.isdigit() else 0
+    
+    # Field 15 in colons format is the S/N of a token (smartcard).
+    # python-gnupg populates this as 'token_sn'.
+    is_stub = bool(entry.get("token_sn"))
+    
     return KeyInfo(
         fingerprint=fingerprint,
         user_ids=user_ids,
@@ -122,6 +127,7 @@ def _to_key_info(entry: dict[str, Any]) -> KeyInfo:
         expires_at=datetime.fromtimestamp(expires, tz=UTC) if expires else None,
         is_revoked=str(entry.get("trust", "")) == "r",
         has_private_key="sec" in entry.get("type", "") if isinstance(entry.get("type"), str) else False,
+        is_stub=is_stub,
         trust=_trust_from_gpg(str(entry.get("trust", "-"))[:1] or "-"),
     )
 
@@ -318,28 +324,43 @@ class GPGService:
 
     def export_public_key(self, fingerprint: str) -> str:
         fp = validate_fingerprint(fingerprint)
-        armored = self._run(lambda: self._gpg.export_keys(fp, secret=False, armor=True))
+        result = self._run(lambda: self._gpg.export_keys(fp, secret=False, armor=True))
+        armored = str(result)
         if not armored:
-            raise GPGKeyNotFoundError(f"no public key for {fp}")
-        return str(armored)
+            err = getattr(result, "stderr", "")
+            status = getattr(result, "status", "")
+            msg = f"no public key for {fp}"
+            if err or status:
+                msg += f": {err or status}"
+            raise GPGKeyNotFoundError(msg)
+        return armored
 
     def export_private_key(self, fingerprint: str, passphrase: SecureBytes) -> str:
         fp = validate_fingerprint(fingerprint)
         pass_bytes = bytes(passphrase.view())
         reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
         pass_str = pass_bytes.decode("utf-8")
-        armored = self._run(lambda: self._gpg.export_keys(
+        result = self._run(lambda: self._gpg.export_keys(
             fp,
             secret=True,
             armor=True,
             passphrase=pass_str,
             expect_passphrase=True,
         ))
+        armored = str(result)
         if not armored:
-            raise GPGPassphraseError(
-                "private key export failed — passphrase incorrect or key missing"
-            )
-        return str(armored)
+            err = getattr(result, "stderr", "")
+            status = getattr(result, "status", "")
+            if "bad passphrase" in err.lower() or "bad passphrase" in status.lower():
+                raise GPGPassphraseError("private key export failed: incorrect passphrase")
+            
+            msg = f"private key export failed for {fp}"
+            if err or status:
+                msg += f": {err or status}"
+            else:
+                msg += " — key missing or passphrase incorrect"
+            raise GPGPassphraseError(msg)
+        return armored
 
     # --------------------------------------------------------------------- import
 
