@@ -7,7 +7,7 @@ from collections.abc import Callable
 from threading import Lock
 from typing import Any
 
-from PySide6.QtCore import QObject, QRunnable, Signal
+from PySide6.QtCore import QObject, QRunnable, QTimer, Signal
 
 from gpg_meister.ui.errors.error_catalog import message_for_exception
 
@@ -30,8 +30,10 @@ class Worker(QRunnable):
         self._args = args
         self._kwargs = kwargs
         self.signals = _Signals()
-        # Keep a Python reference until `run()` completes. Without this, PySide
-        # can garbage-collect the QRunnable wrapper before QThreadPool executes it.
+        # Keep a Python reference until queued signals are delivered on the main
+        # thread. Without this, PySide can garbage-collect the QRunnable and its
+        # _Signals QObject before the cross-thread signal events are processed,
+        # causing Qt to silently drop them.
         with self._live_workers_lock:
             self._live_workers.add(self)
         self.setAutoDelete(True)
@@ -44,5 +46,12 @@ class Worker(QRunnable):
             self.signals.error.emit(message_for_exception(exc))
         finally:
             self.signals.finished.emit()
-            with self._live_workers_lock:
-                self._live_workers.discard(self)
+            # Schedule removal on the main thread via a zero-delay timer.
+            # This guarantees the queued result/finished signal events (posted
+            # above) are delivered *before* this worker is removed from the live
+            # set and potentially garbage-collected together with self.signals.
+            QTimer.singleShot(0, self._release)
+
+    def _release(self) -> None:
+        with self._live_workers_lock:
+            self._live_workers.discard(self)
