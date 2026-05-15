@@ -59,7 +59,7 @@ def test_create_writes_vault_and_sidecar(
         result = vault_service.create(
             target_path=target,
             master_passphrase=master,
-            gpg_passphrase=gpgpw,
+            gpg_passphrases={fp: gpgpw},
             fingerprints=[fp],
             description="dev",
         )
@@ -84,7 +84,7 @@ def test_create_and_preview_roundtrip(
         vault_service.create(
             target_path=target,
             master_passphrase=master,
-            gpg_passphrase=gpgpw,
+            gpg_passphrases={fp: gpgpw},
             fingerprints=[fp],
             description="dev",
         )
@@ -111,7 +111,7 @@ def test_import_into_separate_keyring(
         vault_service.create(
             target_path=target,
             master_passphrase=master,
-            gpg_passphrase=gpgpw,
+            gpg_passphrases={fp: gpgpw},
             fingerprints=[fp],
         )
 
@@ -146,7 +146,7 @@ def test_wrong_master_passphrase_raises_decryption_error(
         vault_service.create(
             target_path=target,
             master_passphrase=master,
-            gpg_passphrase=gpgpw,
+            gpg_passphrases={fp: gpgpw},
             fingerprints=[fp],
         )
 
@@ -167,7 +167,7 @@ def test_header_tampering_detected_via_aad(
         vault_service.create(
             target_path=target,
             master_passphrase=master,
-            gpg_passphrase=gpgpw,
+            gpg_passphrases={fp: gpgpw},
             fingerprints=[fp],
         )
 
@@ -200,7 +200,7 @@ def test_ciphertext_tampering_detected(
         vault_service.create(
             target_path=target,
             master_passphrase=master,
-            gpg_passphrase=gpgpw,
+            gpg_passphrases={fp: gpgpw},
             fingerprints=[fp],
         )
 
@@ -228,7 +228,7 @@ def test_corrupted_sidecar_is_detected(
         vault_service.create(
             target_path=target,
             master_passphrase=master,
-            gpg_passphrase=gpgpw,
+            gpg_passphrases={fp: gpgpw},
             fingerprints=[fp],
         )
 
@@ -281,7 +281,7 @@ def test_two_key_backup_create_decrypt_import_workflow(
         result = vault_service.create(
             target_path=vault_path,
             master_passphrase=master,
-            gpg_passphrase=gpgpw,
+            gpg_passphrases={fp1: gpgpw, fp2: gpgpw},
             fingerprints=[fp1, fp2],
             description="two-key regression",
         )
@@ -338,7 +338,7 @@ def test_audit_records_vault_creation(
         vault_service.create(
             target_path=target,
             master_passphrase=master,
-            gpg_passphrase=gpgpw,
+            gpg_passphrases={fp: gpgpw},
             fingerprints=[fp],
         )
 
