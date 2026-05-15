@@ -134,7 +134,7 @@ def test_key_create_dialog_surfaces_background_errors() -> None:
     _pump_until(lambda: not dlg._error_label.isHidden())
 
     assert not dlg._error_label.isHidden()
-    assert dlg._error_label.text() == "create failed"
+    assert dlg._error_label.text() == "The operation failed. Check the diagnostic log for details."
 
 
 def test_encrypt_viewmodel_emits_result() -> None:
@@ -144,6 +144,7 @@ def test_encrypt_viewmodel_emits_result() -> None:
 
     vm.set_plaintext("hello")
     vm.set_recipients(["A" * 40])
+    vm.set_trust_confirmed(True)
     vm.submit()
 
     _pump_until(lambda: len(results) == 1)

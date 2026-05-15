@@ -84,8 +84,10 @@ def derive_key(passphrase: SecureBytes, salt: bytes, params: KDFParams) -> Secur
     # mutable so we can zero it in-place, unlike immutable bytes objects.
     passphrase_buf = bytearray(passphrase.view())
     try:
+        # argon2-cffi >= 25.1.0 (with cffi >= 1.17 on Python 3.14+) may reject
+        # bytearray in hash_secret_raw. Convert to a short-lived bytes copy.
         raw = hash_secret_raw(
-            secret=passphrase_buf,
+            secret=bytes(passphrase_buf),
             salt=salt,
             time_cost=params.time_cost,
             memory_cost=params.memory_cost,
