@@ -242,6 +242,87 @@ def test_corrupted_sidecar_is_detected(
         vault_service.preview(source_path=target, master_passphrase=master)
 
 
+def test_two_key_backup_create_decrypt_import_workflow(
+    tmp_path: Path, isolated_gpg: GPGService, vault_service: VaultService, audit: AuditLog
+) -> None:
+    """Full backup workflow: 2 keys → vault → decrypt → import into fresh keyring.
+
+    This is the regression test for the Gemini-era refactor of vault_service /
+    gpg_service.  It exercises the complete save-and-restore path end-to-end.
+    """
+    KEY_PW = b"hunter2 correct horse staple"
+    MASTER_PW = b"my-very-secret-vault-master-pw"
+
+    with SecureBytes.from_bytes(KEY_PW) as pw:
+        fp1 = isolated_gpg.generate_key(
+            name="Alice",
+            email="alice@vault-test.local",
+            algorithm=KeyAlgorithm.EDDSA,
+            length=255,
+            expiry="1y",
+            passphrase=pw,
+        )
+        fp2 = isolated_gpg.generate_key(
+            name="Bob",
+            email="bob@vault-test.local",
+            algorithm=KeyAlgorithm.EDDSA,
+            length=255,
+            expiry="1y",
+            passphrase=pw,
+        )
+
+    vault_path = tmp_path / "two_keys.gpgvault"
+
+    # --- create backup ---
+    with (
+        SecureBytes.from_bytes(MASTER_PW) as master,
+        SecureBytes.from_bytes(KEY_PW) as gpgpw,
+    ):
+        result = vault_service.create(
+            target_path=vault_path,
+            master_passphrase=master,
+            gpg_passphrase=gpgpw,
+            fingerprints=[fp1, fp2],
+            description="two-key regression",
+        )
+
+    assert vault_path.exists(), "vault file must be written to disk"
+    sidecar = vault_path.with_name(vault_path.name + ".sha256")
+    assert sidecar.exists(), "sha256 sidecar must be written"
+    assert result.key_count == 2
+
+    # --- decrypt / preview ---
+    with SecureBytes.from_bytes(MASTER_PW) as master:
+        preview = vault_service.preview(source_path=vault_path, master_passphrase=master)
+
+    assert preview.description == "two-key regression"
+    fps_in_vault = {e.fingerprint for e in preview.keys}
+    assert fp1 in fps_in_vault, "fp1 must be in decrypted vault"
+    assert fp2 in fps_in_vault, "fp2 must be in decrypted vault"
+
+    for entry in preview.keys:
+        assert entry.has_private_key, f"entry {entry.fingerprint} must carry private key flag"
+        assert entry.private_key_armored, f"entry {entry.fingerprint} must carry private key data"
+        assert entry.public_key_armored, f"entry {entry.fingerprint} must carry public key data"
+
+    # --- import into a fresh keyring ---
+    fresh_home = tmp_path / "fresh-gnupg"
+    fresh_home.mkdir(mode=0o700)
+    fresh_gpg = GPGService(
+        GPGServiceConfig(binary_path=isolated_gpg.config.binary_path, home_dir=fresh_home)
+    )
+    fresh_vault = VaultService(gpg=fresh_gpg, audit=AuditLog(tmp_path / "fresh-audit.log"))
+
+    with SecureBytes.from_bytes(MASTER_PW) as master:
+        imported = fresh_vault.import_keys(source_path=vault_path, master_passphrase=master)
+
+    assert fp1 in imported, "fp1 must be importable from vault"
+    assert fp2 in imported, "fp2 must be importable from vault"
+
+    present = {k.fingerprint for k in fresh_gpg.list_keys()}
+    assert fp1 in present and fp2 in present, "both keys must appear in fresh keyring"
+
+
 def test_audit_records_vault_creation(
     tmp_path: Path, isolated_gpg: GPGService, vault_service: VaultService, audit: AuditLog
 ) -> None:
