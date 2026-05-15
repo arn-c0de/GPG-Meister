@@ -91,6 +91,7 @@ def test_whitelist_match_returns_detection(
 ) -> None:
     fake = _make_fake_gpg(tmp_path)
     monkeypatch.setattr(gpg_detector, "_check_parent_writability", lambda _path: None)
+    monkeypatch.setattr(gpg_detector, "_check_root_owned", lambda _path: True)
     monkeypatch.setattr(gpg_detector, "_platform_whitelist", lambda: (fake,))
     result = detect()
     assert result.path == fake.resolve()
@@ -111,6 +112,7 @@ def test_symlink_to_outside_whitelist_is_rejected(
     # Whitelist lists the link path, but its canonical target is outside the
     # whitelist set — must be refused.
     monkeypatch.setattr(gpg_detector, "_platform_whitelist", lambda: (link,))
+    monkeypatch.setattr(gpg_detector, "_check_root_owned", lambda _path: True)
     with pytest.raises(GPGDetectionError) as exc:
         detect()
     assert exc.value.reason is DetectionReason.NOT_FOUND

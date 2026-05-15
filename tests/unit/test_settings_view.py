@@ -125,6 +125,11 @@ def test_factory_reset_schedules_when_second_confirmation_matches(
         "getText",
         lambda *args, **kwargs: ("RESET", True),
     )
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Ok,
+    )
 
     view._confirm_factory_reset()
     app.processEvents()

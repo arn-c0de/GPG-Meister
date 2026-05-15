@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +25,8 @@ def test_detached_verify_uses_gpg_home_for_temp_signature(tmp_path: Path) -> Non
     service = GPGService.__new__(GPGService)
     service._config = GPGServiceConfig(binary_path=tmp_path / "gpg", home_dir=tmp_path / "gnupg")
     service._gpg = _FakeGPG()
+    service._binary_dev = None
+    service._binary_ino = None
     service._config.home_dir.mkdir(mode=0o700)
 
     valid, fingerprint, signed_at = service.verify(b"payload", detached_signature=b"sig")

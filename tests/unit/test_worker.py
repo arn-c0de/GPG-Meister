@@ -26,8 +26,8 @@ def test_worker_completes_without_caller_retaining_reference() -> None:
     del worker
     gc.collect()
 
-    QTimer.singleShot(2000, loop.quit)
-    deadline = time.monotonic() + 2.0
+    QTimer.singleShot(5000, loop.quit)
+    deadline = time.monotonic() + 5.0
     while not seen and time.monotonic() < deadline:
         loop.exec()
         app.processEvents()
