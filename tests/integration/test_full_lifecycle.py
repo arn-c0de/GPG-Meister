@@ -101,7 +101,7 @@ def test_full_key_encrypt_sign_vault_import_decrypt_verify(
         descriptor = vault_svc_src.create(
             target_path=vault_path,
             master_passphrase=vpp,
-            gpg_passphrase=gpp,
+            gpg_passphrases={fp: gpp},
             fingerprints=[fp],
             description="lifecycle test",
         )
@@ -157,7 +157,7 @@ def test_vault_export_includes_only_selected_keys(
         descriptor = vault_svc.create(
             target_path=vault_path,
             master_passphrase=vpp,
-            gpg_passphrase=gpp,
+            gpg_passphrases={key_a.fingerprint: gpp},
             fingerprints=[key_a.fingerprint],  # only Alice
         )
 
@@ -197,7 +197,7 @@ def test_encrypt_to_imported_vault_key(
         vault_svc_src.create(
             target_path=vault_path,
             master_passphrase=vpp,
-            gpg_passphrase=gpp,
+            gpg_passphrases={fp: gpp},
             fingerprints=[fp],
         )
 

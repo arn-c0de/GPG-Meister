@@ -134,7 +134,7 @@ def test_key_create_dialog_surfaces_background_errors() -> None:
     _pump_until(lambda: not dlg._error_label.isHidden())
 
     assert not dlg._error_label.isHidden()
-    assert dlg._error_label.text() == "The operation failed. Check the diagnostic log for details."
+    assert dlg._error_label.text() == "The operation failed: create failed"
 
 
 def test_encrypt_viewmodel_emits_result() -> None:
@@ -218,11 +218,13 @@ def test_vault_export_viewmodel_emits_result() -> None:
     results: list[VaultDescriptor] = []
     vm.operation_succeeded.connect(results.append)
 
-    vm.set_selected(["A" * 40])
+    fp = "A" * 40
+    vm.set_selected([fp])
     vm.set_target_path(Path("/tmp/test.vault"))
     vm.set_master_passphrase("correct horse battery staple")
     vm.set_confirm_passphrase("correct horse battery staple")
-    vm.set_gpg_passphrase("correct horse battery staple")
+    vm.set_key_passphrase(fp, "correct horse battery staple")
+    vm.unlock_key(fp)
     vm.submit()
 
     _pump_until(lambda: len(results) == 1)

@@ -196,7 +196,7 @@ class VaultService:
         *,
         target_path: Path,
         master_passphrase: SecureBytes,
-        gpg_passphrase: SecureBytes,
+        gpg_passphrases: dict[str, SecureBytes],
         fingerprints: Iterable[str],
         description: str = "",
         created_by: str = "",
@@ -205,10 +205,14 @@ class VaultService:
     ) -> VaultDescriptor:
         """Build a vault from the supplied key fingerprints.
 
+        `gpg_passphrases` maps each fingerprint to its GPG passphrase.
+        Stub (smartcard) keys that have no private key to export do not need
+        an entry in the dict.
+
         Order of operations (planv2.md §4.6):
           1. Acquire an exclusive file lock on the target.
           2. Validate fingerprints.
-          3. Export private keys via the GPG service (using `gpg_passphrase`).
+          3. Export private keys via the GPG service (per-key passphrase).
           4. Build the manifest and msgpack-serialise.
           5. Generate salt+nonce, derive vault key.
           6. Encrypt with AAD = canonical header bytes.
@@ -233,7 +237,7 @@ class VaultService:
             ) from exc
 
         try:
-            entries = self._collect_entries(fps, gpg_passphrase)
+            entries = self._collect_entries(fps, gpg_passphrases)
 
             manifest = VaultManifest(
                 created_by=created_by,
@@ -297,7 +301,7 @@ class VaultService:
             lock.release()
 
     def _collect_entries(
-        self, fingerprints: tuple[str, ...], gpg_passphrase: SecureBytes
+        self, fingerprints: tuple[str, ...], gpg_passphrases: dict[str, SecureBytes]
     ) -> tuple[VaultKeyEntry, ...]:
         entries: list[VaultKeyEntry] = []
         for fp in fingerprints:
@@ -307,27 +311,26 @@ class VaultService:
                 raise VaultServiceError(f"key {fp} not in keyring") from exc
 
             public_armored = self._gpg.export_public_key(fp)
-            
-            # Smartcard stubs cannot have their private parts exported via batch
-            # export (GPG requires the card to be present and doesn't export the
-            # actual secret key). We skip the private part for stubs to avoid
-            # blocking the whole vault backup.
+
+            # Smartcard stubs cannot have their private parts exported; skip them.
             private_armored = None
             has_private = key.has_private_key and not key.is_stub
-            
+
             if has_private:
                 from gpg_meister.services.errors import GPGPassphraseError
+                key_pw = gpg_passphrases.get(fp)
+                if key_pw is None:
+                    raise VaultServiceError(
+                        f"no passphrase provided for private key {fp[-16:]}"
+                    )
                 try:
-                    private_armored = self._gpg.export_private_key(fp, gpg_passphrase)
+                    private_armored = self._gpg.export_private_key(fp, key_pw)
                     self._audit.emit(
                         "key_exported_private",
                         outcome=OUTCOME_OK,
                         fingerprint=fp,
                     )
                 except GPGPassphraseError as exc:
-                    # If it's a known smartcard error, skip the private part gracefully.
-                    # 67108875 is GPG_ERR_CARD_NOT_PRESENT or similar in some contexts,
-                    # but specifically it's what the user is seeing.
                     if "67108875" in str(exc):
                         private_armored = None
                         has_private = False
