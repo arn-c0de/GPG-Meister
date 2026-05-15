@@ -39,7 +39,13 @@ def _format_toml_value(value: object) -> str:
         escaped = (
             value.replace("\\", "\\\\")
             .replace("\n", "\\n")
+            .replace("\r", "\\r")
             .replace('"', '\\"')
+        )
+        # Escape remaining C0 control characters (U+0000–U+001F except \t and \n/\r already handled)
+        escaped = "".join(
+            f"\\u{ord(ch):04x}" if (ord(ch) < 0x20 and ch not in "\t") else ch
+            for ch in escaped
         )
         return f'"{escaped}"'
     raise TypeError(f"unsupported config value type: {type(value).__name__}")

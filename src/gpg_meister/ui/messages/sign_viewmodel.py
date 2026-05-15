@@ -80,10 +80,13 @@ class SignViewModel(QObject):
         fp = self._fingerprint
         pp_str = get_passphrase()
         pp_bytes = pp_str.encode()
+        del pp_str
+        pp_secure = SecureBytes.from_bytes(pp_bytes)
+        del pp_bytes
         detached = self._detached
 
         def _do() -> SignResult:
-            with SecureBytes.from_bytes(pp_bytes) as pp:
+            with pp_secure as pp:
                 return self._svc.sign(data_bytes, fingerprint=fp, passphrase=pp, detached=detached)
 
         w = Worker(_do)

@@ -400,14 +400,25 @@ class VaultService:
                     reason=type(exc).__name__,
                 )
                 raise
+            # Remove any smuggled keys that were not in the user's selection.
+            extra = set(results) - {entry.fingerprint}
+            for smuggled_fp in extra:
+                self._audit.emit(
+                    "key_imported",
+                    outcome=OUTCOME_WARNING,
+                    fingerprint=smuggled_fp,
+                    reason="smuggled_key_removed",
+                )
+                try:
+                    self._gpg.delete_key(smuggled_fp, including_secret=True)
+                except Exception:
+                    pass
             self._audit.emit(
                 "key_imported",
                 outcome=OUTCOME_OK,
                 fingerprint=entry.fingerprint,
                 has_private_key=entry.has_private_key,
             )
-            # Only record the fingerprint that the user selected; ignore any
-            # extra fingerprints a crafted blob might have smuggled in.
             if entry.fingerprint in results:
                 imported.append(entry.fingerprint)
 

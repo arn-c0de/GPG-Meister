@@ -323,4 +323,6 @@ def _validate_public_import_blob(armored: str) -> str:
         raise ValueError("private-key material cannot be imported in the public-key dialog")
     if PUBLIC_KEY_BLOCK not in blob:
         raise ValueError("expected an armored public key block")
+    if blob.count(PUBLIC_KEY_BLOCK) > MAX_PUBLIC_KEY_IMPORT_COUNT:
+        raise ValueError("too many keys in one import batch")
     return blob

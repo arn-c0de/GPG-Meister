@@ -92,18 +92,15 @@ class VaultExportViewModel(QObject):
         self.loading_changed.emit(True)
         fps = list(self._selected_fps)
         target = self._target_path
-        master_bytes = self._master_passphrase.encode()
-        gpg_bytes = self._gpg_passphrase.encode()
+        master_secure = SecureBytes.from_bytes(self._master_passphrase.encode())
         self._master_passphrase = ""
         self._confirm_passphrase = ""
+        gpg_secure = SecureBytes.from_bytes(self._gpg_passphrase.encode())
         self._gpg_passphrase = ""
         desc = self._description
 
         def _do() -> VaultDescriptor:
-            with (
-                SecureBytes.from_bytes(master_bytes) as master_pp,
-                SecureBytes.from_bytes(gpg_bytes) as gpg_pp,
-            ):
+            with master_secure as master_pp, gpg_secure as gpg_pp:
                 return self._vault_svc.create(
                     target_path=target,
                     master_passphrase=master_pp,

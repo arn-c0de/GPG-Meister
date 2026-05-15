@@ -18,7 +18,6 @@ dependencies = [
     "tomli-w>=1.2",
     "msgpack>=1.0",
     "structlog>=24.0",
-    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]

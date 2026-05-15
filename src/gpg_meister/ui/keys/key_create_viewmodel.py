@@ -104,9 +104,11 @@ class KeyCreateViewModel(QObject):
         self.loading_changed.emit(True)
         # Convert to SecureBytes and drop plain-string references immediately so
         # neither the str nor the intermediate bytes object is captured by the closure.
-        pp_secure = SecureBytes.from_bytes(self._passphrase.encode())
+        pp_raw = self._passphrase.encode()
         self._passphrase = ""
         self._confirm = ""
+        pp_secure = SecureBytes.from_bytes(pp_raw)
+        del pp_raw
 
         def _do() -> KeyInfo:
             with pp_secure as pp:

@@ -145,6 +145,8 @@ class FirstLaunchWizard(QWizard):
         gpg_binary: Path,
         target_key_service: KeyService,
         parent: QWidget | None = None,
+        *,
+        trusted_sha256: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Import from system keyring")
@@ -152,6 +154,7 @@ class FirstLaunchWizard(QWizard):
         self.setMinimumSize(600, 400)
 
         self._key_svc = target_key_service
+        self._trusted_sha256 = trusted_sha256
         self._select_page = _SelectPage(gpg_binary)
         self._confirm_page = _ConfirmPage()
 
@@ -176,13 +179,19 @@ class FirstLaunchWizard(QWizard):
                 GPGServiceConfig(
                     binary_path=self._select_page._binary,
                     home_dir=_SYSTEM_GNUPG,
+                    trusted_sha256=self._trusted_sha256,
                 )
             )
             for key in keys:
                 armored = system_svc.export_public_key(key.fingerprint)
                 self._key_svc.import_armored(armored)
         except Exception as exc:
-            _log.warning("First-launch key import failed: %s", exc)
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                "Import Failed",
+                f"Key import failed: {exc}\n\nNo keys were imported.",
+            )
 
 
 def _cell(text: str) -> QTableWidgetItem:

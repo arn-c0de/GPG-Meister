@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -27,6 +28,7 @@ from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.security.vault_format import MAGIC
 from gpg_meister.services.vault_service import VaultChecksumMismatchError, VaultPreview, VaultService
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
+from gpg_meister.ui.worker import Worker
 
 _PAGE_FILE = 0
 _PAGE_PREVIEW = 1
@@ -108,6 +110,8 @@ class _PassphrasePage(QWizardPage):
         )
         self._vault_svc = vault_svc
         self._preview: VaultPreview | None = None
+        self._validated = False
+        self._working = False
 
         layout = QVBoxLayout(self)
         self._pp_field = PassphraseField(show_strength=False)
@@ -120,6 +124,10 @@ class _PassphrasePage(QWizardPage):
         layout.addWidget(self._status_label)
         layout.addStretch()
 
+    def initializePage(self) -> None:
+        self._validated = False
+        self._working = False
+        self._preview = None
 
     def preview(self) -> VaultPreview | None:
         return self._preview
@@ -128,27 +136,53 @@ class _PassphrasePage(QWizardPage):
         return self._pp_field.text()
 
     def validatePage(self) -> bool:
+        if self._validated:
+            return True
+        if self._working:
+            return False
         vault_path = Path(self.field("vault_path"))
         pp_text = self._pp_field.text()
         if not pp_text:
             self._status_label.setText("Passphrase is required.")
             self._status_label.setStyleSheet("color: #cc0000;")
             return False
+
         self._status_label.setText("Decrypting vault… (this may take a moment)")
         self._status_label.setStyleSheet("color: #666666;")
-        # processEvents to show the status label before blocking
-        from PySide6.QtWidgets import QApplication
-        QApplication.processEvents()
-        try:
-            with SecureBytes.from_bytes(pp_text.encode()) as pp:
-                self._preview = self._vault_svc.preview(
-                    source_path=vault_path, master_passphrase=pp
-                )
-            self._status_label.setText("Vault decrypted successfully.")
-            self._status_label.setStyleSheet("color: #006600;")
-            return True
-        except VaultChecksumMismatchError:
-            from PySide6.QtWidgets import QMessageBox
+        self._set_next_enabled(False)
+        self._working = True
+
+        pp_bytes = pp_text.encode()
+        pp_secure = SecureBytes.from_bytes(pp_bytes)
+        del pp_bytes
+
+        def _do() -> VaultPreview:
+            with pp_secure as pp:
+                return self._vault_svc.preview(source_path=vault_path, master_passphrase=pp)
+
+        w = Worker(_do)
+        w.signals.result.connect(self._on_preview_result)
+        w.signals.error.connect(self._on_preview_error)
+        QThreadPool.globalInstance().start(w)
+        return False
+
+    def _on_preview_result(self, result: object) -> None:
+        self._working = False
+        if not isinstance(result, VaultPreview):
+            self._on_preview_error("Unexpected result from preview")
+            return
+        self._preview = result
+        self._validated = True
+        self._status_label.setText("Vault decrypted successfully.")
+        self._status_label.setStyleSheet("color: #006600;")
+        self._set_next_enabled(True)
+        self.wizard().next()
+
+    def _on_preview_error(self, msg: str) -> None:
+        self._working = False
+        # VaultChecksumMismatchError surfaces as a specific message; show dialog.
+        if "checksum" in msg.lower():
+            self._set_next_enabled(True)
             reply = QMessageBox.warning(
                 self,
                 "Vault Checksum Mismatch",
@@ -159,29 +193,49 @@ class _PassphrasePage(QWizardPage):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
-            if reply != QMessageBox.StandardButton.Yes:
-                self._status_label.setText("Import cancelled.")
-                self._status_label.setStyleSheet("color: #666666;")
-                return False
-            with SecureBytes.from_bytes(pp_text.encode()) as pp:
-                self._preview = self._vault_svc.preview(
+            if reply == QMessageBox.StandardButton.Yes:
+                self._run_preview_skip_checksum()
+                return
+            self._status_label.setText("Import cancelled.")
+            self._status_label.setStyleSheet("color: #666666;")
+            return
+        self._status_label.setText(msg)
+        self._status_label.setStyleSheet("color: #cc0000;")
+        self._set_next_enabled(True)
+
+    def _run_preview_skip_checksum(self) -> None:
+        vault_path = Path(self.field("vault_path"))
+        pp_text = self._pp_field.text()
+        self._set_next_enabled(False)
+        self._working = True
+
+        pp_bytes = pp_text.encode()
+        pp_secure = SecureBytes.from_bytes(pp_bytes)
+        del pp_bytes
+
+        def _do() -> VaultPreview:
+            with pp_secure as pp:
+                return self._vault_svc.preview(
                     source_path=vault_path, master_passphrase=pp, skip_checksum=True
                 )
-            self._status_label.setText("Vault opened (checksum ignored).")
-            self._status_label.setStyleSheet("color: #cc6600;")
-            return True
-        except DecryptionError:
-            self._status_label.setText("Wrong passphrase or corrupted vault.")
-            self._status_label.setStyleSheet("color: #cc0000;")
-            return False
-        except VaultFormatError as exc:
-            self._status_label.setText(f"Invalid vault format: {exc}")
-            self._status_label.setStyleSheet("color: #cc0000;")
-            return False
-        except Exception:
-            self._status_label.setText("Error: the vault could not be opened.")
-            self._status_label.setStyleSheet("color: #cc0000;")
-            return False
+
+        w = Worker(_do)
+        w.signals.result.connect(self._on_preview_result)
+        w.signals.error.connect(lambda msg: self._on_skip_checksum_error(msg))
+        QThreadPool.globalInstance().start(w)
+
+    def _on_skip_checksum_error(self, msg: str) -> None:
+        self._working = False
+        self._status_label.setText(msg)
+        self._status_label.setStyleSheet("color: #cc0000;")
+        self._set_next_enabled(True)
+
+    def _set_next_enabled(self, enabled: bool) -> None:
+        wiz = self.wizard()
+        if wiz is not None:
+            btn = wiz.button(QWizard.WizardButton.NextButton)
+            if btn is not None:
+                btn.setEnabled(enabled)
 
 
 class _SelectPage(QWizardPage):
@@ -279,29 +333,51 @@ class _ResultPage(QWizardPage):
             return
 
         vault_path = Path(self.field("vault_path"))
+
+        # Read passphrase, wrap in SecureBytes, and clear str reference immediately.
         pp_text = pp_page.passphrase()
+        pp_bytes = pp_text.encode()
+        del pp_text
+        pp_secure = SecureBytes.from_bytes(pp_bytes)
+        del pp_bytes
 
         self._log.setPlainText("Importing keys…")
-        from PySide6.QtWidgets import QApplication
-        QApplication.processEvents()
+        self._set_finish_enabled(False)
 
-        lines: list[str] = []
-        try:
-            with SecureBytes.from_bytes(pp_text.encode()) as pp:
-                imported = self._vault_svc.import_keys(
+        def _do() -> list[str]:
+            with pp_secure as pp:
+                return self._vault_svc.import_keys(
                     source_path=vault_path,
                     master_passphrase=pp,
                     fingerprints=fps,
                 )
-            self._imported = imported
-            lines.append(f"Successfully imported {len(imported)} key(s):\n")
-            for fp in imported:
-                lines.append(f"  • {fp}")
-        except Exception:
-            lines.append("Import failed.")
-        finally:
-            pp_page._pp_field.clear()
+
+        w = Worker(_do)
+        w.signals.result.connect(self._on_import_done)
+        w.signals.error.connect(self._on_import_error)
+        w.signals.finished.connect(lambda: pp_page._pp_field.clear())
+        w.signals.finished.connect(lambda: self._set_finish_enabled(True))
+        QThreadPool.globalInstance().start(w)
+
+    def _on_import_done(self, result: object) -> None:
+        if not isinstance(result, list):
+            self._log.setPlainText("Import failed: unexpected result.")
+            return
+        self._imported = result
+        lines = [f"Successfully imported {len(result)} key(s):\n"]
+        for fp in result:
+            lines.append(f"  • {fp}")
         self._log.setPlainText("\n".join(lines))
+
+    def _on_import_error(self, msg: str) -> None:
+        self._log.setPlainText(f"Import failed: {msg}")
+
+    def _set_finish_enabled(self, enabled: bool) -> None:
+        wiz = self.wizard()
+        if wiz is not None:
+            btn = wiz.button(QWizard.WizardButton.FinishButton)
+            if btn is not None:
+                btn.setEnabled(enabled)
 
     def imported_fingerprints(self) -> list[str]:
         return list(self._imported)

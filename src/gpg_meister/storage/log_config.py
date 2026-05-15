@@ -40,6 +40,7 @@ _DENY_LIST: frozenset[str] = frozenset(
 
 _CONTENT_TRIGGERS: tuple[str, ...] = (
     "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+    "-----BEGIN PGP SECRET KEY BLOCK-----",
     "-----BEGIN PGP MESSAGE-----",
 )
 
@@ -158,5 +159,5 @@ def _open_log_file(path: Path) -> Any:
     fh = path.open("a", encoding="utf-8")
     if sys.platform != "win32":
         import os
-        os.chmod(path, 0o600)
+        os.fchmod(fh.fileno(), 0o600)
     return fh

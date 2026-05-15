@@ -62,10 +62,12 @@ FORBIDDEN_KEYS: Final[frozenset[str]] = frozenset(
         "secret",
         "private_key",
         "private_key_armored",
+        "armored_private",
         "plaintext",
         "decrypted",
         "vault_key",
         "derived_key",
+        "salt",
         "pin",
         "token",
     }
@@ -93,13 +95,13 @@ def _utc_now_iso() -> str:
 
 
 def _actor() -> str:
-    # OS-level user. Best effort: USER / USERNAME env, falling back to uid string.
-    name = os.environ.get("USER") or os.environ.get("USERNAME")
-    if name:
-        return name
     if sys.platform != "win32":
-        return f"uid:{os.getuid()}"
-    return "unknown"
+        import pwd as _pwd
+        try:
+            return _pwd.getpwuid(os.geteuid()).pw_name
+        except (KeyError, AttributeError):
+            return f"uid:{os.geteuid()}"
+    return os.environ.get("USERNAME") or "unknown"
 
 
 def _check_payload(event: str, payload: Mapping[str, Any]) -> None:
@@ -224,8 +226,7 @@ class AuditLog:
         for raw in reversed(lines):
             raw = raw.strip()
             if raw:
-                line = raw.decode("utf-8", errors="replace")
-                return hashlib.sha256(line.encode("utf-8")).hexdigest()
+                return hashlib.sha256(raw).hexdigest()
         # Tail chunk didn't contain a complete line — fall back to full scan.
         with self._path.open("rb") as f:
             last: bytes | None = None
@@ -235,8 +236,7 @@ class AuditLog:
                     last = raw
         if last is None:
             return None
-        line = last.decode("utf-8", errors="replace")
-        return hashlib.sha256(line.encode("utf-8")).hexdigest()
+        return hashlib.sha256(last).hexdigest()
 
 
 def verify_chain(path: Path) -> tuple[bool, int]:
@@ -251,7 +251,8 @@ def verify_chain(path: Path) -> tuple[bool, int]:
     count = 0
     with path.open("rb") as f:
         for raw in f:
-            line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            line_bytes = raw.rstrip(b"\n")
+            line = line_bytes.decode("utf-8", errors="replace")
             if not line:
                 continue
             count += 1
@@ -268,5 +269,5 @@ def verify_chain(path: Path) -> tuple[bool, int]:
                 expected = prev_hash or ""
                 if stored != expected:
                     return False, count
-                prev_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
+                prev_hash = hashlib.sha256(line_bytes).hexdigest()
     return True, count

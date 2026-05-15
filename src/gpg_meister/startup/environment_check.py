@@ -59,7 +59,6 @@ _REQUIRED_PACKAGES = [
     "pydantic",
     "msgpack",
     "structlog",
-    "psutil",
     "PySide6",
 ]
 

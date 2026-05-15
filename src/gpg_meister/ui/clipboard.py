@@ -5,33 +5,26 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-_copied_text: str | None = None
-_timer: QTimer | None = None
-
 
 def copy_text(text: str, *, clear_after_seconds: int = 60) -> None:
-    """Copy text and clear it later if clipboard content is unchanged."""
-    global _copied_text, _timer
+    """Copy text and schedule an independent per-copy clear timer."""
     if not text:
         return
     clipboard = QApplication.clipboard()
     if clipboard is None:
         return
     clipboard.setText(text)
-    _copied_text = text
-    if _timer is None:
-        _timer = QTimer()
-        _timer.setSingleShot(True)
-        _timer.timeout.connect(_clear_if_unchanged)
-    if clear_after_seconds > 0:
-        _timer.start(clear_after_seconds * 1000)
-    else:
-        _timer.stop()
+    if clear_after_seconds <= 0:
+        return
+    snapshot = text
+    timer = QTimer()
+    timer.setSingleShot(True)
 
+    def _clear() -> None:
+        cb = QApplication.clipboard()
+        if cb is not None and cb.text() == snapshot:
+            cb.clear()
+        timer.deleteLater()
 
-def _clear_if_unchanged() -> None:
-    global _copied_text
-    clipboard = QApplication.clipboard()
-    if clipboard is not None and clipboard.text() == _copied_text:
-        clipboard.clear()
-    _copied_text = None
+    timer.timeout.connect(_clear)
+    timer.start(clear_after_seconds * 1000)

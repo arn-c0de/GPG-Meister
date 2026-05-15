@@ -27,6 +27,7 @@ import concurrent.futures
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -446,17 +447,36 @@ class GPGService:
     ) -> tuple[bool, str | None, datetime | None]:
         """Return (valid, signer_fingerprint, signed_at)."""
         if detached_signature is not None:
-            with tempfile.NamedTemporaryFile(
-                suffix=".asc",
-                dir=tempfile.gettempdir(),
-                delete=False,
-            ) as tmp:
-                tmp.write(detached_signature)
-                sig_path = tmp.name
-            try:
-                result = self._run(lambda: self._gpg.verify_data(sig_path, data))
-            finally:
-                os.unlink(sig_path)
+            if sys.platform == "linux" and hasattr(os, "O_TMPFILE"):
+                try:
+                    fd = os.open(tempfile.gettempdir(), os.O_TMPFILE | os.O_RDWR, 0o600)
+                    try:
+                        os.write(fd, detached_signature)
+                        sig_path = f"/proc/self/fd/{fd}"
+                        result = self._run(lambda: self._gpg.verify_data(sig_path, data))
+                    finally:
+                        os.close(fd)
+                except OSError:
+                    # Filesystem may not support O_TMPFILE; fall back to NamedTemporaryFile.
+                    with tempfile.NamedTemporaryFile(suffix=".asc", delete=False) as tmp:
+                        tmp.write(detached_signature)
+                        sig_path = tmp.name
+                    try:
+                        result = self._run(lambda: self._gpg.verify_data(sig_path, data))
+                    finally:
+                        os.unlink(sig_path)
+            else:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".asc",
+                    dir=tempfile.gettempdir(),
+                    delete=False,
+                ) as tmp:
+                    tmp.write(detached_signature)
+                    sig_path = tmp.name
+                try:
+                    result = self._run(lambda: self._gpg.verify_data(sig_path, data))
+                finally:
+                    os.unlink(sig_path)
         else:
             result = self._run(lambda: self._gpg.verify(data))
         valid = bool(result.valid)
