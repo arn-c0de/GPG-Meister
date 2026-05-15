@@ -257,6 +257,11 @@ def _check_swap_linux() -> tuple[bool | None, list[CheckWarning]]:
             continue
         if _is_dm_crypt_device(device):
             continue  # device-mapper crypto target — treat as encrypted
+        
+        # Whitelist zram devices (swap-in-RAM, no disk persistence).
+        if device.startswith("/dev/zram") or "/dev/zram" in device:
+            continue
+
         if not device.startswith("/dev/mapper/"):
             unencrypted.append(device)
 

@@ -32,6 +32,15 @@ _FIRST_STEPS_HTML = """
   <li>Copy the armored output and send it to the recipient.</li>
 </ol>
 
+<h3>Decrypt a message</h3>
+<ol>
+  <li>Go to the <b>Messages</b> tab and select <b>Decrypt</b>.</li>
+  <li>Paste the armored PGP message into the text area.</li>
+  <li>Click <b>Decrypt</b>.</li>
+  <li>If the message is encrypted for your private key, you will be prompted for your passphrase.</li>
+  <li>The decrypted plaintext will appear in the output area.</li>
+</ol>
+
 <h3>Create a vault backup</h3>
 <ol>
   <li>Go to the <b>Vault</b> tab and select <b>Export</b>.</li>
