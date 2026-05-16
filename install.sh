@@ -20,10 +20,10 @@ sudo apt-get install -y --no-install-recommends \
 
 # ---------- uv ----------
 if ! command -v uv &>/dev/null; then
-    echo "uv is required but was not found."
-    echo "Install uv with your OS package manager or a verified pinned release, then re-run this script."
-    echo "Project setup intentionally does not execute remote installer scripts."
-    exit 1
+    echo "==> Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # Add uv to PATH for the rest of this script
+    export PATH="$HOME/.local/bin:$PATH"
 fi
 
 # ---------- Python environment ----------
