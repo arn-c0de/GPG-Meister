@@ -19,9 +19,12 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import sys
 import threading
+
+_log = logging.getLogger(__name__)
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -188,9 +191,16 @@ class AuditLog:
             record["prev_hash"] = self._prev_hash or ""
         line = _serialise(record)
         data = (line + "\n").encode("utf-8")
-        self._fh.write(data)
-        self._fh.flush()
-        os.fsync(self._fh.fileno())
+        try:
+            self._fh.write(data)
+            self._fh.flush()
+            os.fsync(self._fh.fileno())
+        except OSError as exc:
+            # I/O failure must not abort the operation that triggered this audit
+            # event — key material cannot be un-generated or un-deleted.  Fall
+            # back to stderr so the failure is visible without crashing the app.
+            _log.error("audit log write failed (%s): %s", type(exc).__name__, exc)
+            return
         if self._hash_chain:
             self._prev_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
 

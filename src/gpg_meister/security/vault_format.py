@@ -125,8 +125,8 @@ def unpack(data: bytes) -> UnpackedFrame:
         raise VaultFormatError(f"header fields are invalid: {exc}") from exc
 
     (ct_len,) = struct.unpack(">I", data[header_end : header_end + LENGTH_FIELD])
-    if ct_len > MAX_CIPHERTEXT_SIZE:
-        raise VaultFormatError(f"ciphertext length {ct_len} exceeds maximum")
+    if ct_len == 0 or ct_len > MAX_CIPHERTEXT_SIZE:
+        raise VaultFormatError(f"invalid ciphertext length: {ct_len}")
 
     ct_start = header_end + LENGTH_FIELD
     ct_end = ct_start + ct_len
