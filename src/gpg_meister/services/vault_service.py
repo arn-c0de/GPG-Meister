@@ -67,6 +67,7 @@ from gpg_meister.storage.audit_log import (
 )
 from gpg_meister.storage.file_lock import FileLock, FileLockTimeoutError
 from gpg_meister.storage.metadata_store import MetadataStore
+from gpg_meister.storage.permissions import ensure_dir
 
 
 class VaultServiceError(ServiceError):
@@ -231,7 +232,7 @@ class VaultService:
 
         params = kdf_params or high_memory_params()
         target_path = Path(target_path).resolve()
-        target_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_dir(target_path.parent)
 
         try:
             lock = FileLock(target_path, exclusive=True, timeout=5.0)
