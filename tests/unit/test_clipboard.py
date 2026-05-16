@@ -1,0 +1,32 @@
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtWidgets import QApplication
+
+from gpg_meister.ui import clipboard
+
+
+def test_copy_text_keeps_clear_timer_alive() -> None:
+    app = QApplication.instance() or QApplication([])
+    before = len(clipboard._ACTIVE_TIMERS)
+
+    clipboard.copy_text("secret", clear_after_seconds=60)
+
+    assert len(clipboard._ACTIVE_TIMERS) == before + 1
+    assert app.clipboard().text() == "secret"
+
+    timer = clipboard._ACTIVE_TIMERS.pop()
+    timer.stop()
+    timer.deleteLater()
+
+
+def test_copy_text_without_auto_clear_does_not_create_timer() -> None:
+    QApplication.instance() or QApplication([])
+    before = len(clipboard._ACTIVE_TIMERS)
+
+    clipboard.copy_text("public", clear_after_seconds=0)
+
+    assert len(clipboard._ACTIVE_TIMERS) == before
