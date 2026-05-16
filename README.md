@@ -1,5 +1,9 @@
 # GPG Meister
 
+<p align="center">
+  <img src="logo.png" alt="GPG Meister Logo" width="140">
+</p>
+
 [![Architecture](https://img.shields.io/badge/architecture-MVVM-1f6feb)](#tech)
 [![UI](https://img.shields.io/badge/UI-Qt%206-0A7EA4)](#tech)
 [![Runtime](https://img.shields.io/badge/runtime-local--first-2ea043)](#security)

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
@@ -47,6 +49,9 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("GPG Meister")
         self.setMinimumSize(820, 560)
+        _icon_path = Path(__file__).parent.parent / "logo.png"
+        if _icon_path.exists():
+            self.setWindowIcon(QIcon(str(_icon_path)))
         self._banners: list[WarningBanner] = []
         self._tab_pages: list[AppPage] = []
         self._build_ui()

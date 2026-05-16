@@ -10,7 +10,9 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING
 
-from PySide6.QtGui import QColor, QPalette
+from pathlib import Path
+
+from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 if TYPE_CHECKING:
@@ -118,10 +120,16 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
             config_service.save(config, paths.config_file)
 
 
+def _app_icon() -> QIcon:
+    path = Path(__file__).parent / "logo.png"
+    return QIcon(str(path)) if path.exists() else QIcon()
+
+
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("GPG Meister")
     app.setOrganizationName("GPG Meister")
+    app.setWindowIcon(_app_icon())
     _remember_default_appearance(app)
 
     from gpg_meister.storage.factory_reset import perform_pending_factory_reset
