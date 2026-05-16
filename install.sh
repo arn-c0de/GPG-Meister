@@ -20,10 +20,15 @@ sudo apt-get install -y --no-install-recommends \
 
 # ---------- uv ----------
 if ! command -v uv &>/dev/null; then
-    echo "==> Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    # Add uv to PATH for the rest of this script
+    echo "==> Installing uv via pip (no remote shell script)..."
+    # pip verifies PyPI package hashes; no piped-shell attack surface.
+    python3 -m pip install --user --quiet uv
     export PATH="$HOME/.local/bin:$PATH"
+    if ! command -v uv &>/dev/null; then
+        echo "ERROR: uv still not found after pip install." >&2
+        echo "       Try: python3 -m pip install --user uv  then re-run." >&2
+        exit 1
+    fi
 fi
 
 # ---------- Python environment ----------
