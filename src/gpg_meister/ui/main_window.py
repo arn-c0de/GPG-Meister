@@ -48,7 +48,7 @@ class MainWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("GPG Meister")
-        self.setMinimumSize(820, 560)
+        self.setMinimumSize(820, 780)
         _icon_path = Path(__file__).parent.parent / "logo.png"
         if _icon_path.exists():
             self.setWindowIcon(QIcon(str(_icon_path)))

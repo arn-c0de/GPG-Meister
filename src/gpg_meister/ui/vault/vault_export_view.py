@@ -57,7 +57,7 @@ class VaultExportView(QWidget):
         self._key_list = QListWidget()
         self._key_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         key_layout.addWidget(self._key_list)
-        layout.addWidget(key_box)
+        layout.addWidget(key_box, stretch=1)
 
         # Per-key unlock panel
         unlock_box = QGroupBox("Unlock key for export")
@@ -115,6 +115,7 @@ class VaultExportView(QWidget):
         self._pp_mismatch = QLabel("")
         self._pp_mismatch.setStyleSheet("color: #cc0000;")
         pp_layout.addWidget(self._pp_mismatch)
+        pp_box.setMinimumHeight(200)
         layout.addWidget(pp_box)
 
         btn_row = QHBoxLayout()
@@ -140,8 +141,6 @@ class VaultExportView(QWidget):
         self._result_label.setWordWrap(True)
         self._result_label.hide()
         layout.addWidget(self._result_label)
-
-        layout.addStretch()
 
     def _connect_signals(self) -> None:
         self._vm.keys_loaded.connect(self._on_keys_loaded)
