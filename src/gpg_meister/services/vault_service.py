@@ -490,11 +490,10 @@ class VaultService:
         if not src.exists():
             raise VaultServiceError(f"vault file does not exist: {src}")
 
-        with FileLock(src, exclusive=False, timeout=5.0):
-            with src.open("rb") as fh:
-                data = fh.read(MAX_VAULT_FRAME_SIZE + 1)
-            if len(data) > MAX_VAULT_FRAME_SIZE:
-                raise VaultServiceError("vault file is too large")
+        with FileLock(src, exclusive=False, timeout=5.0), src.open("rb") as fh:
+            data = fh.read(MAX_VAULT_FRAME_SIZE + 1)
+        if len(data) > MAX_VAULT_FRAME_SIZE:
+            raise VaultServiceError("vault file is too large")
 
         try:
             frame = vault_unpack(data)

@@ -187,7 +187,7 @@ def test_unpack_rejects_excessive_time_cost() -> None:
 
 
 def test_header_bytes_match_canonical_form(sample_header: VaultHeader) -> None:
-    frame, header_bytes = pack(sample_header, b"")
+    frame, header_bytes = pack(sample_header, b"\x00")
     result = unpack(frame)
     # The bytes returned by unpack() are the same bytes embedded in the frame —
     # critical for AAD reproducibility.

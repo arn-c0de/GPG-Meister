@@ -13,6 +13,7 @@ The SensitiveDataFilter processor:
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -156,11 +157,7 @@ def _open_log_file(path: Path) -> Any:
 
     ensure_dir(path.parent, mode=0o700)
     reject_symlink(path)
-    import os
-
-    open_flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
-    if hasattr(os, "O_NOFOLLOW"):
-        open_flags |= os.O_NOFOLLOW
+    open_flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(str(path), open_flags, 0o600)
     fh = os.fdopen(fd, "a", encoding="utf-8", closefd=True)
     if sys.platform != "win32":
