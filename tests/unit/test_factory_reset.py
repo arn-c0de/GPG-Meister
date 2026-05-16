@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+import pytest
 
 from gpg_meister.storage.factory_reset import perform_pending_factory_reset, request_factory_reset
 from gpg_meister.storage.paths import AppPaths
@@ -54,3 +57,21 @@ def test_perform_pending_factory_reset_is_noop_without_marker(tmp_path: Path) ->
     changed = perform_pending_factory_reset(paths)
 
     assert changed is False
+
+
+def test_factory_reset_rejects_gnupg_symlink_before_wipe(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    paths.ensure()
+    external = tmp_path / "external-secret"
+    external.write_text("do not touch", encoding="utf-8")
+    link = paths.gnupg_home / "secret-key"
+    try:
+        os.symlink(external, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available on this platform")
+    request_factory_reset(paths)
+
+    with pytest.raises(RuntimeError, match="symlink"):
+        perform_pending_factory_reset(paths)
+
+    assert external.read_text(encoding="utf-8") == "do not touch"

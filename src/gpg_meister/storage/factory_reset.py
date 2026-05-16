@@ -31,6 +31,7 @@ def _secure_wipe_gnupg_keys(data_dir: Path) -> None:
     gnupg_dir = data_dir / "gnupg"
     if not gnupg_dir.exists():
         return
+    reject_symlink_tree(gnupg_dir)
     shred = shutil.which("shred") if sys.platform == "linux" else None
     for item in gnupg_dir.rglob("*"):
         if not item.is_file():

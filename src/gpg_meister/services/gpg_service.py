@@ -414,6 +414,11 @@ class GPGService:
             pub_result = self._run(lambda: self._gpg.delete_keys(fp, secret=False))
             if str(pub_result) not in ("ok", "No such key"):
                 raise GPGProcessError(f"failed to delete public key {fp}: {pub_result}")
+        try:
+            self.find_key(fp)
+        except GPGKeyNotFoundError:
+            return
+        raise GPGProcessError(f"failed to delete key {fp}: key is still present")
 
     # ------------------------------------------------------------------ messages
 

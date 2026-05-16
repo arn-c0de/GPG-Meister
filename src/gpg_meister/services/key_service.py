@@ -17,7 +17,12 @@ from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.errors import GPGKeyNotFoundError
 from gpg_meister.services.gpg_service import GPGService
 from gpg_meister.services.validation import validate_fingerprint
-from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
+from gpg_meister.storage.audit_log import (
+    OUTCOME_FAILED,
+    OUTCOME_OK,
+    OUTCOME_WARNING,
+    AuditLog,
+)
 from gpg_meister.storage.metadata_store import MetadataStore
 
 MAX_PUBLIC_KEY_IMPORT_BYTES = 2 * 1024 * 1024
@@ -176,6 +181,8 @@ class KeyService:
             fingerprint=fp,
             including_secret=including_secret,
         )
+        if self._metadata is not None:
+            self._metadata.delete_key(fp)
 
     # -------------------------------------------------------------------- import
 
@@ -232,6 +239,7 @@ class KeyService:
 
     def import_armored(self, armored: str) -> list[str]:
         armored = _validate_public_import_blob(armored)
+        planned_fingerprints = {entry.fingerprint for entry in self.plan_import(armored)}
         try:
             fps = self._gpg.import_key(armored)
         except Exception as exc:
@@ -241,11 +249,25 @@ class KeyService:
                 reason=type(exc).__name__,
             )
             raise
-        if len(fps) > MAX_PUBLIC_KEY_IMPORT_COUNT:
-            raise ValueError("too many keys in one import batch")
+        retained_fps: list[str] = []
         for fp in fps:
-            self._audit.emit("key_imported", outcome=OUTCOME_OK, fingerprint=fp)
-        return fps
+            if fp in planned_fingerprints:
+                retained_fps.append(fp)
+                self._audit.emit("key_imported", outcome=OUTCOME_OK, fingerprint=fp)
+                continue
+            self._audit.emit(
+                "key_imported",
+                outcome=OUTCOME_WARNING,
+                fingerprint=fp,
+                reason="smuggled_key_removed",
+            )
+            try:
+                self._gpg.delete_key(fp, including_secret=False)
+            except Exception:
+                pass
+        if len(retained_fps) > MAX_PUBLIC_KEY_IMPORT_COUNT:
+            raise ValueError("too many keys in one import batch")
+        return retained_fps
 
     # ------------------------------------------------------------------- export
 
