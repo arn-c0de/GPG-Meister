@@ -23,8 +23,6 @@ import logging
 import os
 import sys
 import threading
-
-_log = logging.getLogger(__name__)
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +30,8 @@ from typing import Any, Final
 
 from gpg_meister.storage.file_lock import FileLock
 from gpg_meister.storage.permissions import _fchmod_nofollow, ensure_dir, reject_symlink
+
+_log = logging.getLogger(__name__)
 
 # Whitelisted audit event names. Anything else is rejected.
 ALLOWED_EVENTS: Final[frozenset[str]] = frozenset(
