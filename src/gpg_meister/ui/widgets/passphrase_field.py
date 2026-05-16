@@ -74,11 +74,8 @@ class PassphraseField(QWidget):
 
             self._strength_label = QLabel("")
             self._strength_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+            self._strength_label.hide()
             layout.addWidget(self._strength_label)
-
-        self._capslock_label = QLabel("")
-        self._capslock_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        layout.addWidget(self._capslock_label)
 
     def _toggle_visibility(self, checked: bool) -> None:
         if checked:
@@ -104,7 +101,7 @@ class PassphraseField(QWidget):
     def _update_strength(self, text: str) -> None:
         if not text:
             self._strength_bar.setValue(0)
-            self._strength_label.setText("")
+            self._strength_label.hide()
             return
 
         result = assess(text)
@@ -120,6 +117,7 @@ class PassphraseField(QWidget):
         self._strength_bar.setValue(bar_val)
         self._strength_label.setText(label_text)
         self._strength_label.setStyleSheet(style)
+        self._strength_label.show()
 
     def text(self) -> str:
         return self._field.text()
@@ -130,12 +128,3 @@ class PassphraseField(QWidget):
     def setPlaceholderText(self, text: str) -> None:
         self._field.setPlaceholderText(text)
 
-    def _check_capslock(self) -> None:
-        try:
-            from PySide6.QtGui import QGuiApplication
-            modifiers = QGuiApplication.queryKeyboardModifiers()
-            from PySide6.QtCore import Qt as QtCore
-            caps = bool(modifiers & QtCore.KeyboardModifier.GroupSwitchModifier)
-            self._capslock_label.setText("Caps Lock is on" if caps else "")
-        except Exception:  # noqa: S110
-            pass  # Caps Lock detection is best-effort; never block on failure.
