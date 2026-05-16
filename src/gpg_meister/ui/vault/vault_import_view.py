@@ -79,7 +79,8 @@ class _FilePage(QWizardPage):
             self._info_label.setStyleSheet("")
             return
         try:
-            data = p.read_bytes()[: len(MAGIC)]
+            with p.open("rb") as fh:
+                data = fh.read(len(MAGIC))
             if data != MAGIC:
                 self._info_label.setText("This does not appear to be a valid GPG Meister vault file.")
                 self._info_label.setStyleSheet("color: #cc0000;")
