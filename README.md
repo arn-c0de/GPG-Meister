@@ -77,7 +77,23 @@ Prebuilt releases for Linux, Windows, and macOS are available here:
 git clone https://github.com/arn-c0de/GPG-Meister.git
 cd GPG-Meister
 uv sync --extra dev
-uv run gpg-meister
+uv run gpgmeister
+```
+
+### Run `gpgmeister` from anywhere
+
+`install.sh` links `gpgmeister` into `~/.local/bin` automatically, so after
+installation the command is available system-wide:
+
+```bash
+gpgmeister
+```
+
+Make sure `~/.local/bin` is in your `PATH` (it usually is by default on Linux).
+If not, add it once:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
 ### Checks

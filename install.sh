@@ -35,5 +35,17 @@ fi
 echo "==> Syncing Python environment..."
 uv sync
 
+# ---------- global launcher ----------
+INSTALL_DIR="$HOME/.local/bin"
+mkdir -p "$INSTALL_DIR"
+ln -sf "$(pwd)/.venv/bin/gpgmeister" "$INSTALL_DIR/gpgmeister"
+echo "==> Linked gpgmeister -> $INSTALL_DIR/gpgmeister"
+
+if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+    echo ""
+    echo "NOTE: Add ~/.local/bin to your PATH if not already set:"
+    echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc && source ~/.bashrc"
+fi
+
 echo ""
-echo "Done. Run ./start.sh to launch GPG Meister."
+echo "Done. Run 'gpgmeister' from anywhere or './start.sh' from this folder."

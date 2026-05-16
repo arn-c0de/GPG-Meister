@@ -36,7 +36,7 @@ packaging = [
 ]
 
 [project.scripts]
-gpg-meister = "gpg_meister.app:main"
+gpgmeister = "gpg_meister.app:main"
 
 [build-system]
 requires = ["hatchling"]
