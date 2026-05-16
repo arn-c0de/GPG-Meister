@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import html
 
-from PySide6.QtWidgets import QTabWidget, QTextBrowser, QWidget
+from PySide6.QtCore import QEvent, QObject
+from PySide6.QtWidgets import QTabWidget, QTextBrowser, QToolTip, QWidget
 
 from gpg_meister.ui.help.glossary import TERMS
 
@@ -104,8 +105,68 @@ Re-enter it carefully — remember that Caps Lock affects passphrase input.</p>
 """
 
 
+_CSS = (
+    "<style>"
+    "h2 { margin-top: 4px; margin-bottom: 4px; }"
+    "h3 { margin-top: 10px; margin-bottom: 2px; }"
+    "p  { margin-top: 1px; margin-bottom: 4px; }"
+    "li { margin-top: 1px; margin-bottom: 1px; }"
+    "ol, ul { margin-top: 2px; margin-bottom: 4px; }"
+    "</style>"
+)
+
+_TOOLTIPS: dict[str, str | None] = {
+    "Keys": "The Keys tab — create, import, and manage your GPG key pairs.",
+    "Messages": "The Messages tab — encrypt, decrypt, sign, and verify text messages.",
+    "Vault": "The Vault tab — export and import encrypted .gpgm key backup files.",
+    "New Key…": "Opens the key creation wizard to generate a new GPG key pair.",
+    "Ed25519 + Curve25519": "A modern elliptic-curve algorithm. Ed25519 for signing, Curve25519 for encryption. Recommended for new keys.",
+    "Create Key": "Generates the new key pair and adds it to the keyring.",
+    "Encrypt": "Encrypts the message so only the selected recipients can read it.",
+    "Add": "Adds a recipient's public key to the encryption target list.",
+    "I have verified the recipients": "Required checkbox confirming you checked each recipient's fingerprint before encrypting.",
+    "Decrypt": "Decrypts a PGP-armored message using your private key and passphrase.",
+    "Export": "The Export sub-tab — create a .gpgm vault backup from selected keys.",
+    "Create Vault": "Generates the encrypted .gpgm vault file with the selected keys.",
+    "Keys → Import Public Key…": "Go to the Keys tab and click 'Import Public Key…' to add a recipient's public key to your keyring.",
+    "Keyloggers and screen capture": "Malware running under your user account can record keystrokes and screenshots, capturing passphrases as you type.",
+    "Root / administrator access": "Any process with root/admin privileges can read process memory and key files regardless of encryption.",
+    "Compromised operating system": "A backdoored kernel or shared library can intercept cryptographic operations at any level.",
+    "Physical access without full-disk encryption": "Without full-disk encryption (e.g. LUKS), an attacker with physical access can read key files directly from disk.",
+    "Quantum computers": "RSA and Ed25519 are not quantum-resistant. Post-quantum algorithms are not yet supported by GnuPG.",
+    "Passphrase brute-force with unlimited tries": "Argon2id slows down guessing significantly, but an extremely weak passphrase can still be cracked offline.",
+    "Key server trust": "GPG Meister never fetches keys automatically. You are responsible for verifying key authenticity out-of-band.",
+}
+
+
+class _CharTooltipFilter(QObject):
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.ToolTip and isinstance(watched, QTextBrowser):
+            cursor = watched.cursorForPosition(event.pos())
+            tip = cursor.charFormat().toolTip()
+            if tip:
+                QToolTip.showText(event.globalPos(), tip, watched)
+            else:
+                QToolTip.hideText()
+            return True
+        return super().eventFilter(watched, event)
+
+
+def _apply_char_tooltips(browser: QTextBrowser) -> None:
+    doc = browser.document()
+    for term, tip in _TOOLTIPS.items():
+        if tip is None:
+            continue
+        cursor = doc.find(term)
+        while not cursor.isNull():
+            fmt = cursor.charFormat()
+            fmt.setToolTip(tip)
+            cursor.setCharFormat(fmt)
+            cursor = doc.find(term, cursor)
+
+
 def _build_glossary_html() -> str:
-    parts = ["<h2>Glossary</h2>"]
+    parts = [_CSS, "<h2>Glossary</h2>"]
     for term, definition in TERMS.items():
         parts.append(f"<h3>{html.escape(term)}</h3><p>{html.escape(definition)}</p>")
     return "\n".join(parts)
@@ -117,15 +178,17 @@ class HelpView(QTabWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setDocumentMode(True)
-        self.addTab(_html_browser(_FIRST_STEPS_HTML), "First Steps")
+        self.addTab(_html_browser(_CSS + _FIRST_STEPS_HTML), "First Steps")
         self.addTab(_html_browser(_build_glossary_html()), "Glossary")
-        self.addTab(_html_browser(_SECURITY_HTML), "Security Boundaries")
-        self.addTab(_html_browser(_TROUBLESHOOTING_HTML), "Troubleshooting")
+        self.addTab(_html_browser(_CSS + _SECURITY_HTML), "Security Boundaries")
+        self.addTab(_html_browser(_CSS + _TROUBLESHOOTING_HTML), "Troubleshooting")
 
 
-def _html_browser(html: str) -> QTextBrowser:
+def _html_browser(content: str) -> QTextBrowser:
     browser = QTextBrowser()
     browser.setOpenExternalLinks(False)
-    browser.setHtml(html)
+    browser.setHtml(content)
     browser.setReadOnly(True)
+    _apply_char_tooltips(browser)
+    browser.installEventFilter(_CharTooltipFilter(browser))
     return browser

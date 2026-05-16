@@ -59,7 +59,12 @@ from gpg_meister.services.errors import GPGKeyNotFoundError, ServiceError
 from gpg_meister.services.gpg_service import GPGService
 from gpg_meister.services.validation import validate_fingerprint
 from gpg_meister.storage.atomic_write import atomic_write_bytes
-from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
+from gpg_meister.storage.audit_log import (
+    OUTCOME_FAILED,
+    OUTCOME_OK,
+    OUTCOME_WARNING,
+    AuditLog,
+)
 from gpg_meister.storage.file_lock import FileLock, FileLockTimeoutError
 from gpg_meister.storage.metadata_store import MetadataStore
 
@@ -434,16 +439,24 @@ class VaultService:
             # Remove any smuggled keys that were not in the user's selection.
             extra = set(results) - {entry.fingerprint}
             for smuggled_fp in extra:
-                self._audit.emit(
-                    "key_imported",
-                    outcome=OUTCOME_WARNING,
-                    fingerprint=smuggled_fp,
-                    reason="smuggled_key_removed",
-                )
                 try:
                     self._gpg.delete_key(smuggled_fp, including_secret=True)
-                except Exception:
-                    pass
+                    self._audit.emit(
+                        "key_imported",
+                        outcome=OUTCOME_WARNING,
+                        fingerprint=smuggled_fp,
+                        reason="smuggled_key_removed",
+                    )
+                except Exception as exc:
+                    self._audit.emit(
+                        "key_imported",
+                        outcome=OUTCOME_FAILED,
+                        fingerprint=smuggled_fp,
+                        reason=f"smuggled_key_deletion_failed:{type(exc).__name__}",
+                    )
+                    raise ServiceError(
+                        f"Smuggled key {smuggled_fp[-16:]} could not be removed from keyring"
+                    ) from exc
             self._audit.emit(
                 "key_imported",
                 outcome=OUTCOME_OK,
