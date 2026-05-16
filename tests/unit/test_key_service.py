@@ -23,8 +23,14 @@ class _FakeGPGService:
     def __init__(self, keys: list[KeyInfo]) -> None:
         self._keys = {key.fingerprint: key for key in keys}
         self._generated = 0
+        self._scan_rows: list[dict[str, object]] = []
+        self._import_fingerprints: list[str] = []
+        self.deleted: list[tuple[str, bool]] = []
+        self._gpg = self
 
     def list_keys(self, *, secret: bool = False) -> list[KeyInfo]:
+        if secret:
+            return [key for key in self._keys.values() if key.has_private_key]
         return list(self._keys.values())
 
     def find_key(self, fingerprint: str) -> KeyInfo:
@@ -50,6 +56,22 @@ class _FakeGPGService:
             created_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
         return fingerprint
+
+    def delete_key(
+        self,
+        fingerprint: str,
+        *,
+        including_secret: bool = False,
+        passphrase: object | None = None,
+    ) -> None:
+        self.deleted.append((fingerprint, including_secret))
+        self._keys.pop(fingerprint, None)
+
+    def scan_keys_mem(self, _armored: str) -> list[dict[str, object]]:
+        return self._scan_rows
+
+    def import_key(self, _armored: str) -> list[str]:
+        return self._import_fingerprints
 
 
 def test_list_keys_merges_user_context_from_metadata(tmp_path: Path) -> None:
@@ -134,4 +156,46 @@ def test_create_persists_optional_context_metadata(tmp_path: Path) -> None:
     assert row["platform"] == "GitHub"
     assert row["notes"] == "Release automation"
     metadata.close()
+    audit.close()
+
+
+def test_delete_removes_metadata_row(tmp_path: Path) -> None:
+    key = _key("C" * 40)
+    gpg = _FakeGPGService([key])
+    metadata = MetadataStore(tmp_path / "meta.sqlite3")
+    metadata.upsert_key(key.fingerprint, label="Delete me")
+    audit = AuditLog(tmp_path / "audit.log")
+    service = KeyService(gpg=gpg, audit=audit, metadata=metadata)
+
+    service.delete(key.fingerprint, including_secret=False)
+
+    assert metadata.get_key(key.fingerprint) is None
+    assert gpg.deleted == [(key.fingerprint, False)]
+    metadata.close()
+    audit.close()
+
+
+def test_import_armored_removes_unplanned_imported_keys(tmp_path: Path) -> None:
+    planned_fp = "D" * 40
+    smuggled_fp = "E" * 40
+    gpg = _FakeGPGService([])
+    gpg._scan_rows = [
+        {
+            "fingerprint": planned_fp,
+            "uids": ["Alice <alice@example.org>"],
+            "type": "pub",
+        }
+    ]
+    gpg._import_fingerprints = [planned_fp, smuggled_fp]
+    audit = AuditLog(tmp_path / "audit.log")
+    service = KeyService(gpg=gpg, audit=audit)
+
+    imported = service.import_armored(
+        "-----BEGIN PGP PUBLIC KEY BLOCK-----\n"
+        "test\n"
+        "-----END PGP PUBLIC KEY BLOCK-----"
+    )
+
+    assert imported == [planned_fp]
+    assert gpg.deleted == [(smuggled_fp, False)]
     audit.close()
