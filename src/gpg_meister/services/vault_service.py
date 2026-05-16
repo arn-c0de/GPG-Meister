@@ -67,7 +67,7 @@ from gpg_meister.storage.audit_log import (
 )
 from gpg_meister.storage.file_lock import FileLock, FileLockTimeoutError
 from gpg_meister.storage.metadata_store import MetadataStore
-from gpg_meister.storage.permissions import ensure_dir
+from gpg_meister.storage.permissions import ensure_dir, reject_symlink
 
 
 class VaultServiceError(ServiceError):
@@ -231,7 +231,9 @@ class VaultService:
             raise VaultServiceError("at least one key fingerprint is required")
 
         params = kdf_params or high_memory_params()
-        target_path = Path(target_path).resolve()
+        target_path = Path(target_path)
+        reject_symlink(target_path)
+        target_path = target_path.resolve()
         ensure_dir(target_path.parent)
 
         try:
@@ -487,11 +489,12 @@ class VaultService:
         src = Path(source_path).resolve()
         if not src.exists():
             raise VaultServiceError(f"vault file does not exist: {src}")
-        if src.stat().st_size > MAX_VAULT_FRAME_SIZE:
-            raise VaultServiceError("vault file is too large")
 
         with FileLock(src, exclusive=False, timeout=5.0):
-            data = src.read_bytes()
+            with src.open("rb") as fh:
+                data = fh.read(MAX_VAULT_FRAME_SIZE + 1)
+            if len(data) > MAX_VAULT_FRAME_SIZE:
+                raise VaultServiceError("vault file is too large")
 
         try:
             frame = vault_unpack(data)

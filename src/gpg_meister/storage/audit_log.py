@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from gpg_meister.storage.file_lock import FileLock
-from gpg_meister.storage.permissions import _fchmod_nofollow, ensure_dir, reject_symlink
+from gpg_meister.storage.permissions import ensure_dir, reject_symlink
 
 _log = logging.getLogger(__name__)
 
@@ -145,10 +145,14 @@ class AuditLog:
         reject_symlink(path)
         # Open append-binary so write() is atomic on POSIX for small records, and
         # we control text encoding ourselves.
-        self._fh = path.open("ab")
+        open_flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
+        fd = os.open(str(path), open_flags, 0o600)
+        self._fh = os.fdopen(fd, "ab", closefd=True)
         if sys.platform != "win32":
             with contextlib.suppress(OSError):
-                _fchmod_nofollow(path, 0o600)
+                os.fchmod(self._fh.fileno(), 0o600)
         if self._hash_chain:
             self._prev_hash = self._scan_for_last_hash()
         # Self-announce so an empty log file always carries at least one record

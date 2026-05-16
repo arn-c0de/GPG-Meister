@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import sys
 from pathlib import Path
@@ -44,6 +45,17 @@ def test_audit_file_is_mode_0600(tmp_path: Path) -> None:
         pass
     mode = stat.S_IMODE(log_path.stat().st_mode)
     assert mode == 0o600
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlinks")
+def test_audit_log_rejects_symlink_path(tmp_path: Path) -> None:
+    target = tmp_path / "target.log"
+    target.write_text("", encoding="utf-8")
+    link = tmp_path / "audit.log"
+    os.symlink(target, link)
+
+    with pytest.raises((OSError, RuntimeError)):
+        AuditLog(link)
 
 
 def test_unknown_event_rejected(tmp_path: Path) -> None:

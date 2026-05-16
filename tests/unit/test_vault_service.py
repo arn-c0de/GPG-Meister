@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from gpg_meister.models.vault import VaultKeyEntry, VaultManifest
 from gpg_meister.security.secure_bytes import SecureBytes
-from gpg_meister.services.vault_service import VaultService
+from gpg_meister.services import vault_service as vault_service_module
+from gpg_meister.services.vault_service import VaultService, VaultServiceError
 
 
 class _Audit:
@@ -74,3 +78,41 @@ def test_import_keys_removes_smuggled_keys(monkeypatch, tmp_path: Path) -> None:
             "reason": "smuggled_key_removed",
         },
     ) in audit.events
+
+
+def test_open_rejects_oversized_vault_with_bounded_read(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "oversized.gpgm"
+    source_path.write_bytes(b"012345678")
+    service = VaultService(gpg=_GPG([]), audit=_Audit())  # type: ignore[arg-type]
+    monkeypatch.setattr(vault_service_module, "MAX_VAULT_FRAME_SIZE", 8)
+
+    with (
+        SecureBytes.from_bytes(b"master passphrase") as master,
+        pytest.raises(VaultServiceError, match="too large"),
+    ):
+        service.preview(source_path=source_path, master_passphrase=master)
+
+
+def test_create_rejects_symlink_target(tmp_path: Path) -> None:
+    target = tmp_path / "target.gpgm"
+    target.write_bytes(b"existing")
+    link = tmp_path / "backup.gpgm"
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available on this platform")
+    service = VaultService(gpg=_GPG([]), audit=_Audit())  # type: ignore[arg-type]
+
+    with (
+        SecureBytes.from_bytes(b"master passphrase") as master,
+        pytest.raises(RuntimeError, match="symlink"),
+    ):
+        service.create(
+            target_path=link,
+            master_passphrase=master,
+            gpg_passphrases={},
+            fingerprints=["A" * 40],
+        )

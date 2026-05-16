@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import stat
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ import structlog
 from gpg_meister.storage.log_config import (
     _AUDIT_EVENT_NAMES,
     _REDACTED,
+    _open_log_file,
     configure_logging,
     sensitive_data_filter,
 )
@@ -92,3 +94,14 @@ def test_log_file_mode_0600(tmp_path: Path) -> None:
     configure_logging(log_file=log_file, dev=True)
     mode = stat.S_IMODE(log_file.stat().st_mode)
     assert mode == 0o600
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlinks")
+def test_log_file_rejects_symlink_path(tmp_path: Path) -> None:
+    target = tmp_path / "target.log"
+    target.write_text("", encoding="utf-8")
+    link = tmp_path / "diag.log"
+    os.symlink(target, link)
+
+    with pytest.raises((OSError, RuntimeError)):
+        _open_log_file(link)
