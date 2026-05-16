@@ -14,7 +14,7 @@ from enum import StrEnum
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo
 from gpg_meister.security.secure_bytes import SecureBytes
-from gpg_meister.services.errors import GPGKeyNotFoundError
+from gpg_meister.services.errors import GPGKeyNotFoundError, ServiceError
 from gpg_meister.services.gpg_service import GPGService
 from gpg_meister.services.validation import validate_fingerprint
 from gpg_meister.storage.audit_log import (
@@ -255,18 +255,24 @@ class KeyService:
                 retained_fps.append(fp)
                 self._audit.emit("key_imported", outcome=OUTCOME_OK, fingerprint=fp)
                 continue
-            self._audit.emit(
-                "key_imported",
-                outcome=OUTCOME_WARNING,
-                fingerprint=fp,
-                reason="smuggled_key_removed",
-            )
             try:
                 self._gpg.delete_key(fp, including_secret=False)
-            except Exception:
-                pass
-        if len(retained_fps) > MAX_PUBLIC_KEY_IMPORT_COUNT:
-            raise ValueError("too many keys in one import batch")
+                self._audit.emit(
+                    "key_imported",
+                    outcome=OUTCOME_WARNING,
+                    fingerprint=fp,
+                    reason="smuggled_key_removed",
+                )
+            except Exception as exc:
+                self._audit.emit(
+                    "key_imported",
+                    outcome=OUTCOME_FAILED,
+                    fingerprint=fp,
+                    reason=f"smuggled_key_deletion_failed:{type(exc).__name__}",
+                )
+                raise ServiceError(
+                    f"Smuggled key {fp[-16:]} could not be removed from keyring"
+                ) from exc
         return retained_fps
 
     # ------------------------------------------------------------------- export
