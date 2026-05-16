@@ -271,15 +271,17 @@ class VaultExportView(QWidget):
     def _on_unlock_clicked(self) -> None:
         if not self._active_fp:
             return
-        self._vm.set_key_passphrase(self._active_fp, self._unlock_pp.text())
-        if self._vm.unlock_key(self._active_fp):
+        fp = self._active_fp
+        self._vm.set_key_passphrase(fp, self._unlock_pp.text())
+        if self._vm.unlock_key(fp):
+            # Null active_fp BEFORE clear() so the passphrase_changed signal that
+            # clear() fires does not call set_key_passphrase(fp, "") and wipe the
+            # passphrase we just stored.
+            self._active_fp = None
             self._unlock_pp.clear()
             self._unlock_pp.setEnabled(False)
             self._btn_unlock.setEnabled(False)
-            uid_text = self._unlock_label.text().split("\n")[-1]
-            self._unlock_label.setText(
-                f"✓ Unlocked — click another key to continue."
-            )
+            self._unlock_label.setText("✓ Unlocked — click another key to continue.")
 
     # ------------------------------------------------------------------ path
 
