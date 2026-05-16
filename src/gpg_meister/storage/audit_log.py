@@ -145,9 +145,7 @@ class AuditLog:
         reject_symlink(path)
         # Open append-binary so write() is atomic on POSIX for small records, and
         # we control text encoding ourselves.
-        open_flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0)
-        if hasattr(os, "O_NOFOLLOW"):
-            open_flags |= os.O_NOFOLLOW
+        open_flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(str(path), open_flags, 0o600)
         self._fh = os.fdopen(fd, "ab", closefd=True)
         if sys.platform != "win32":
