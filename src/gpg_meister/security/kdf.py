@@ -98,9 +98,9 @@ def derive_key(passphrase: SecureBytes, salt: bytes, params: KDFParams) -> Secur
     except argon2_exceptions.Argon2Error as exc:
         raise KDFError(f"argon2id failed: {exc}") from exc
     finally:
-        # Zero the passphrase copy in-place (bytearray is mutable).
-        for i in range(len(passphrase_buf)):
-            passphrase_buf[i] = 0
+        # Zero via ctypes.memset so no runtime can optimise the wipe away.
+        _pbuf = (ctypes.c_char * len(passphrase_buf)).from_buffer(passphrase_buf)
+        ctypes.memset(_pbuf, 0, len(passphrase_buf))
 
     # raw is a bytes object from argon2-cffi; copy to SecureBytes, then attempt
     # to zero the intermediate via ctypes. PyBytesObject data starts at
