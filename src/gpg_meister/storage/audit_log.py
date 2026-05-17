@@ -110,7 +110,7 @@ def _actor() -> str:
 def _check_payload(event: str, payload: Mapping[str, Any]) -> None:
     if event not in ALLOWED_EVENTS:
         raise AuditLogError(f"event {event!r} is not in the audit whitelist")
-    _check_payload_keys(payload, reserved={"event", "ts", "actor", "outcome", "prev_hash"})
+    _check_payload_keys(payload, reserved=frozenset({"event", "ts", "actor", "outcome", "prev_hash"}))
 
 
 def _check_payload_keys(obj: Mapping[str, Any], *, reserved: frozenset[str] = frozenset()) -> None:
@@ -210,10 +210,8 @@ class AuditLog:
             return
         if self._hash_chain:
             self._prev_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
-            try:
+            with contextlib.suppress(OSError):
                 self._tip_path.write_bytes((self._prev_hash + "\n").encode("ascii"))
-            except OSError:
-                pass
 
     def close(self) -> None:
         with self._lock:
@@ -292,11 +290,13 @@ def verify_chain(path: Path) -> tuple[bool, int]:
                     return False, count
                 prev_hash = hashlib.sha256(line_bytes).hexdigest()
     tip_path = path.with_name(path.name + ".tip")
-    if tip_path.exists() and prev_hash is not None:
+    if prev_hash is not None:
+        if not tip_path.exists():
+            return False, count
         try:
             tip_hash = tip_path.read_text(encoding="ascii").strip()
         except OSError:
-            tip_hash = ""
-        if len(tip_hash) == 64 and tip_hash != prev_hash:
+            return False, count
+        if len(tip_hash) != 64 or tip_hash != prev_hash:
             return False, count
     return True, count

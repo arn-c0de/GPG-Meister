@@ -51,6 +51,7 @@ class CheckResult:
     warnings: list[CheckWarning] = field(default_factory=list)
     gpg_version: str = ""
     mlock_available: bool = False
+    core_dumps_disabled: bool = False
     swap_encrypted: bool | None = None
 
 
@@ -67,6 +68,27 @@ _REQUIRED_PACKAGES = [
     "structlog",
     "PySide6",
 ]
+
+_PR_SET_DUMPABLE = 4
+
+
+def disable_core_dumps() -> bool:
+    """Disable OS core dumps for this process where the platform exposes controls."""
+    ok = True
+    if resource is not None:
+        try:
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        except (AttributeError, OSError, ValueError):
+            ok = False
+    if sys.platform.startswith("linux"):
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+            ret = libc.prctl(_PR_SET_DUMPABLE, 0, 0, 0, 0)
+        except (AttributeError, OSError):
+            return False
+        if ret != 0:
+            return False
+    return ok
 
 
 def check_gpg_version(gpg_path: Path) -> str:
@@ -377,6 +399,15 @@ def run_all_checks(
     Soft issues are collected into the returned CheckResult.warnings list.
     """
     result = CheckResult()
+    result.core_dumps_disabled = disable_core_dumps()
+    if not result.core_dumps_disabled:
+        result.warnings.append(
+            CheckWarning(
+                code="core_dumps_enabled",
+                message="Core dumps could not be disabled for this process.",
+                severity=CheckSeverity.ERROR,
+            )
+        )
 
     # Hard: GPG version
     result.gpg_version = check_gpg_version(gpg_path)

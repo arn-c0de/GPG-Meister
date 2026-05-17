@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,3 +39,36 @@ def test_dm_crypt_detection_walks_parent_slaves(tmp_path: Path) -> None:
     (dm_luks / "dm" / "uuid").write_text("CRYPT-LUKS2-example\n", encoding="utf-8")
 
     assert env._is_dm_crypt_device("/dev/dm-1", sys_block_root=sys_block) is True
+
+
+def test_disable_core_dumps_uses_rlimit_and_prctl(monkeypatch: MonkeyPatch) -> None:
+    calls: list[tuple[object, object]] = []
+    monkeypatch.setattr(env, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(
+        env,
+        "resource",
+        SimpleNamespace(
+            RLIMIT_CORE=4,
+            setrlimit=lambda which, limits: calls.append((which, limits)),
+        ),
+    )
+    monkeypatch.setattr(
+        ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: SimpleNamespace(prctl=lambda *_args: 0),
+    )
+
+    assert env.disable_core_dumps() is True
+    assert calls == [(4, (0, 0))]
+
+
+def test_disable_core_dumps_fails_when_prctl_fails(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(env, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(env, "resource", None)
+    monkeypatch.setattr(
+        ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: SimpleNamespace(prctl=lambda *_args: -1),
+    )
+
+    assert env.disable_core_dumps() is False
