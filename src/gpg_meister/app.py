@@ -8,9 +8,8 @@ and exit without opening the main window.
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
-
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -203,6 +202,7 @@ def main() -> None:
         "startup_environment_check",
         gpg_version=check_result.gpg_version,
         mlock_available=str(check_result.mlock_available),
+        core_dumps_disabled=str(check_result.core_dumps_disabled),
         swap_encrypted=str(check_result.swap_encrypted),
         warning_count=str(len(check_result.warnings)),
     )
@@ -357,7 +357,7 @@ def _check_backup_staleness(
 
     from gpg_meister.ui.worker import Worker
 
-    def _do() -> list:
+    def _do() -> list[object]:
         return [k for k in gpg_svc.list_keys() if k.has_private_key]
 
     def _on_result(private_keys: object) -> None:

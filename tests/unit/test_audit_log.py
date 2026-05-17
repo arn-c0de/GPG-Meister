@@ -205,3 +205,25 @@ def test_chain_tip_detects_tail_truncation(tmp_path: Path) -> None:
 
     ok, _ = verify_chain(log_path)
     assert not ok
+
+
+def test_chain_verification_requires_tip_file(tmp_path: Path) -> None:
+    log_path = tmp_path / "audit.log"
+    with AuditLog(log_path, hash_chain=True) as log:
+        log.emit("key_generated", fingerprint="A")
+
+    log_path.with_name("audit.log.tip").unlink()
+
+    ok, _ = verify_chain(log_path)
+    assert not ok
+
+
+def test_chain_verification_rejects_malformed_tip_file(tmp_path: Path) -> None:
+    log_path = tmp_path / "audit.log"
+    with AuditLog(log_path, hash_chain=True) as log:
+        log.emit("key_generated", fingerprint="A")
+
+    log_path.with_name("audit.log.tip").write_text("not-a-sha256\n", encoding="ascii")
+
+    ok, _ = verify_chain(log_path)
+    assert not ok

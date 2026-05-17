@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from subprocess import CompletedProcess
 
-from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
+from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig, _write_all
 
 
 def test_detached_verify_uses_gpg_home_for_temp_signature(tmp_path: Path) -> None:
@@ -28,7 +29,7 @@ def test_detached_verify_uses_gpg_home_for_temp_signature(tmp_path: Path) -> Non
             b"[GNUPG:] VALIDSIG " + (b"A" * 40) + b" 0 0 0 0 0 0 0 0 0\n",
         )
 
-    service._run_gpg = _fake_run_gpg  # type: ignore[method-assign]
+    service._run_gpg = _fake_run_gpg  # type: ignore[assignment,method-assign]
 
     valid, fingerprint, signed_at = service.verify(b"payload", detached_signature=b"sig")
 
@@ -41,3 +42,18 @@ def test_detached_verify_uses_gpg_home_for_temp_signature(tmp_path: Path) -> Non
     assert captured_data_path.parent == service._config.home_dir
     assert not captured_sig_path.exists()
     assert not captured_data_path.exists()
+
+
+def test_write_all_accepts_memoryview_without_buffered_writer() -> None:
+    read_fd, write_fd = os.pipe()
+    try:
+        data = bytearray(b"secret-passphrase")
+        _write_all(write_fd, memoryview(data))
+        os.close(write_fd)
+        write_fd = -1
+
+        assert os.read(read_fd, 1024) == b"secret-passphrase"
+    finally:
+        if write_fd >= 0:
+            os.close(write_fd)
+        os.close(read_fd)
