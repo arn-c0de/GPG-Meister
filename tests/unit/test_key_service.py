@@ -67,7 +67,7 @@ class _FakeGPGService:
         self.deleted.append((fingerprint, including_secret))
         self._keys.pop(fingerprint, None)
 
-    def scan_keys_mem(self, _armored: str) -> list[dict[str, object]]:
+    def scan_keys(self, _armored: str) -> list[dict[str, object]]:
         return self._scan_rows
 
     def import_key(self, _armored: str) -> list[str]:

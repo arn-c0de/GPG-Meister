@@ -5,6 +5,8 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
+from gpg_meister.ui.clipboard import set_sensitive_text
+
 
 class ClipboardButton(QPushButton):
     """A button that copies text to the clipboard and optionally clears it after a delay.
@@ -52,11 +54,8 @@ class ClipboardButton(QPushButton):
         if not text:
             return
 
-        clipboard = QApplication.clipboard()
-        if clipboard is None:
+        if not set_sensitive_text(text):
             return
-
-        clipboard.setText(text)
         self._copied_text = text
 
         if self._clear_after_ms > 0:

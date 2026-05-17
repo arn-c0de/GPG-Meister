@@ -17,6 +17,13 @@ def test_copy_text_keeps_clear_timer_alive() -> None:
 
     assert len(clipboard._ACTIVE_TIMERS) == before + 1
     assert app.clipboard().text() == "secret"
+    mime = app.clipboard().mimeData()
+    assert mime.hasFormat("x-kde-passwordManagerHint")
+    assert bytes(mime.data("x-kde-passwordManagerHint")) == b"secret"
+    assert mime.hasFormat(
+        "application/x-qt-windows-mime;value=\"ExcludeClipboardContentFromMonitorProcessing\""
+    )
+    assert mime.hasFormat("org.nspasteboard.TransientType")
 
     timer = clipboard._ACTIVE_TIMERS.pop()
     timer.stop()

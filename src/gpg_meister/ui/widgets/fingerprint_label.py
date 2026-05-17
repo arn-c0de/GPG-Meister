@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+
+from gpg_meister.ui.clipboard import set_sensitive_text
 
 
 def _format_fingerprint(fp: str) -> str:
@@ -68,6 +70,4 @@ class FingerprintLabel(QWidget):
         return self._raw
 
     def _copy(self) -> None:
-        clipboard = QApplication.clipboard()
-        if clipboard:
-            clipboard.setText(self._raw)
+        set_sensitive_text(self._raw)
