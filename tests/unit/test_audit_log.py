@@ -180,3 +180,28 @@ def test_empty_chain_verification(tmp_path: Path) -> None:
     ok, count = verify_chain(log_path)
     assert ok
     assert count == 0
+
+
+def test_forbidden_key_in_list_rejected(tmp_path: Path) -> None:
+    """FORBIDDEN_KEYS check must recurse into list/tuple values."""
+    with (
+        AuditLog(tmp_path / "audit.log") as log,
+        pytest.raises(AuditLogError, match="forbidden"),
+    ):
+        log.emit("key_generated", details=[{"passphrase": "secret"}])
+
+
+def test_chain_tip_detects_tail_truncation(tmp_path: Path) -> None:
+    """verify_chain must return False when the tip file shows records were removed."""
+    log_path = tmp_path / "audit.log"
+    with AuditLog(log_path, hash_chain=True) as log:
+        log.emit("key_generated", fingerprint="A")
+        log.emit("vault_created", outcome=OUTCOME_OK)
+
+    # Remove the last record from the log file.
+    raw = log_path.read_bytes()
+    lines = raw.rstrip(b"\n").split(b"\n")
+    log_path.write_bytes(b"\n".join(lines[:-1]) + b"\n")
+
+    ok, _ = verify_chain(log_path)
+    assert not ok

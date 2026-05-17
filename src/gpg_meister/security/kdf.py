@@ -28,7 +28,7 @@ from gpg_meister.models.kdf_params import (
     high_memory_params,
 )
 from gpg_meister.security.errors import KDFError
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 
 if TYPE_CHECKING:
     pass
@@ -102,17 +102,10 @@ def derive_key(passphrase: SecureBytes, salt: bytes, params: KDFParams) -> Secur
         _pbuf = (ctypes.c_char * len(passphrase_buf)).from_buffer(passphrase_buf)
         ctypes.memset(_pbuf, 0, len(passphrase_buf))
 
-    # raw is a bytes object from argon2-cffi; copy to SecureBytes, then attempt
-    # to zero the intermediate via ctypes. PyBytesObject data starts at
-    # sys.getsizeof(b"") - 1 bytes past id(raw) on CPython.
+    # raw is a bytes object from argon2-cffi; copy to SecureBytes, then
+    # best-effort zero the intermediate via the shared CPython hack.
     result = SecureBytes.from_bytes(raw)
-    try:
-        import sys as _sys
-        _offset = _sys.getsizeof(b"") - 1
-        _buf = (ctypes.c_char * len(raw)).from_address(id(raw) + _offset)
-        ctypes.memset(_buf, 0, len(raw))
-    except Exception:  # noqa: BLE001
-        pass  # zeroing is best-effort; never raise here
+    _zero_bytes_object(raw)
     return result
 
 

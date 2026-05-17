@@ -121,6 +121,10 @@ def _check_payload_keys(obj: Mapping[str, Any], *, reserved: frozenset[str] = fr
             raise AuditLogError(f"key {key!r} is reserved for the audit envelope")
         if isinstance(value, dict):
             _check_payload_keys(value)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                if isinstance(item, dict):
+                    _check_payload_keys(item)
 
 
 def _serialise(record: Mapping[str, Any]) -> str:
@@ -138,6 +142,7 @@ class AuditLog:
 
     def __init__(self, path: Path, *, hash_chain: bool = False) -> None:
         self._path = path
+        self._tip_path = path.with_name(path.name + ".tip")
         self._hash_chain = hash_chain
         self._lock = threading.Lock()
         self._prev_hash: str | None = None
@@ -205,6 +210,10 @@ class AuditLog:
             return
         if self._hash_chain:
             self._prev_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
+            try:
+                self._tip_path.write_bytes((self._prev_hash + "\n").encode("ascii"))
+            except OSError:
+                pass
 
     def close(self) -> None:
         with self._lock:
@@ -282,4 +291,12 @@ def verify_chain(path: Path) -> tuple[bool, int]:
                 if stored != expected:
                     return False, count
                 prev_hash = hashlib.sha256(line_bytes).hexdigest()
+    tip_path = path.with_name(path.name + ".tip")
+    if tip_path.exists() and prev_hash is not None:
+        try:
+            tip_hash = tip_path.read_text(encoding="ascii").strip()
+        except OSError:
+            tip_hash = ""
+        if len(tip_hash) == 64 and tip_hash != prev_hash:
+            return False, count
     return True, count

@@ -6,10 +6,12 @@ from pathlib import Path
 
 import pytest
 
+from gpg_meister.models.kdf_params import KDFAlgorithm, KDFParams
 from gpg_meister.models.vault import VaultKeyEntry, VaultManifest
+from gpg_meister.security.errors import VaultFormatError
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services import vault_service as vault_service_module
-from gpg_meister.services.vault_service import VaultService, VaultServiceError
+from gpg_meister.services.vault_service import VaultService, VaultServiceError, _validate_import_kdf
 
 
 class _Audit:
@@ -94,6 +96,25 @@ def test_open_rejects_oversized_vault_with_bounded_read(
         pytest.raises(VaultServiceError, match="too large"),
     ):
         service.preview(source_path=source_path, master_passphrase=master)
+
+
+def test_validate_import_kdf_rejects_weak_params() -> None:
+    """Floor check must reject params that Pydantic bypasses (defense-in-depth)."""
+    weak = KDFParams.model_construct(
+        algorithm=KDFAlgorithm.ARGON2ID,
+        time_cost=1,
+        memory_cost=1024,
+        parallelism=1,
+        hash_len=32,
+        salt_len=16,
+    )
+    with pytest.raises(VaultFormatError, match="floor"):
+        _validate_import_kdf(weak)
+
+
+def test_validate_import_kdf_accepts_valid_params() -> None:
+    from gpg_meister.models.kdf_params import high_memory_params
+    _validate_import_kdf(high_memory_params())
 
 
 def test_create_rejects_symlink_target(tmp_path: Path) -> None:
