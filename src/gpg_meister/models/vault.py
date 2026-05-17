@@ -11,7 +11,7 @@ import base64
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from gpg_meister.models.kdf_params import (
     MAX_HASH_LEN,
@@ -142,8 +142,6 @@ class VaultKeyEntry(BaseModel):
 
     fingerprint: str = Field(..., min_length=FINGERPRINT_LENGTH, max_length=FINGERPRINT_LENGTH)
     user_ids: tuple[str, ...] = Field(..., max_length=MAX_VAULT_USER_IDS)
-    public_key_armored: str = Field(..., min_length=1, max_length=MAX_VAULT_ARMOR_LENGTH)
-    private_key_armored: str | None = Field(default=None, max_length=MAX_VAULT_ARMOR_LENGTH)
     has_private_key: bool
     is_stub: bool = False
     created_at: datetime
@@ -165,16 +163,10 @@ class VaultKeyEntry(BaseModel):
                 raise ValueError("vault user ID is too long")
         return value
 
-    @model_validator(mode="after")
-    def _validate_private_key_material(self) -> VaultKeyEntry:
-        if self.has_private_key and not self.private_key_armored:
-            raise ValueError("private key entry is missing private key material")
-        return self
-
     def __repr__(self) -> str:
         return (
             f"VaultKeyEntry(fingerprint={self.fingerprint!r}, "
-            f"has_private_key={self.has_private_key}, private_key_armored=<redacted>)"
+            f"has_private_key={self.has_private_key}, key_material=<segmented>)"
         )
 
     def __str__(self) -> str:

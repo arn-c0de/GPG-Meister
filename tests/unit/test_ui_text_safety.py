@@ -40,7 +40,6 @@ def _vault_preview(description: str) -> VaultPreview:
             VaultKeyEntry(
                 fingerprint="B" * 40,
                 user_ids=("Alice",),
-                public_key_armored="pub",
                 has_private_key=False,
                 created_at=datetime(2026, 1, 1, tzinfo=UTC),
             ),

@@ -302,8 +302,6 @@ def test_two_key_backup_create_decrypt_import_workflow(
 
     for entry in preview.keys:
         assert entry.has_private_key, f"entry {entry.fingerprint} must carry private key flag"
-        assert entry.private_key_armored, f"entry {entry.fingerprint} must carry private key data"
-        assert entry.public_key_armored, f"entry {entry.fingerprint} must carry public key data"
 
     # --- import into a fresh keyring ---
     fresh_home = tmp_path / "fresh-gnupg"

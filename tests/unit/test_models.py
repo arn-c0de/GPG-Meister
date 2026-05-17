@@ -189,14 +189,11 @@ def test_vault_key_entry_repr_redacts_private_key() -> None:
     entry = VaultKeyEntry(
         fingerprint=VALID_FP,
         user_ids=("Alice <a@example.org>",),
-        public_key_armored="-----BEGIN PGP PUBLIC KEY BLOCK-----\n…",
-        private_key_armored="-----BEGIN PGP PRIVATE KEY BLOCK-----\nSECRET",
         has_private_key=True,
         created_at=_now_utc(),
     )
     text = repr(entry)
-    assert "SECRET" not in text
-    assert "<redacted>" in text
+    assert "key_material=<segmented>" in text
 
 
 def test_vault_manifest_repr_redacts_keys() -> None:
@@ -209,15 +206,12 @@ def test_vault_manifest_repr_redacts_keys() -> None:
             VaultKeyEntry(
                 fingerprint=VALID_FP,
                 user_ids=("u",),
-                public_key_armored="pub",
-                private_key_armored="PRIVATE_SECRET",
                 has_private_key=True,
                 created_at=_now_utc(),
             ),
         ),
     )
     text = repr(manifest)
-    assert "PRIVATE_SECRET" not in text
     assert "<redacted>" in text
 
 

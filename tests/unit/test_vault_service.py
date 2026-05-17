@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import struct
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,7 +12,16 @@ from gpg_meister.models.vault import VaultKeyEntry, VaultManifest
 from gpg_meister.security.errors import VaultFormatError
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services import vault_service as vault_service_module
-from gpg_meister.services.vault_service import VaultService, VaultServiceError, _validate_import_kdf
+from gpg_meister.services.vault_service import (
+    VaultService,
+    VaultServiceError,
+    _CollectedEntry,
+    _deserialise_segmented_payload,
+    _KeySlice,
+    _OpenedVault,
+    _serialise_segmented_payload,
+    _validate_import_kdf,
+)
 
 
 class _Audit:
@@ -27,22 +37,23 @@ class _GPG:
         self.returned_fingerprints = returned_fingerprints
         self.deleted: list[tuple[str, bool]] = []
 
-    def import_key(self, _armored: str) -> list[str]:
+    def import_key(self, _armored: object) -> list[str]:
         return self.returned_fingerprints
 
     def delete_key(self, fingerprint: str, *, including_secret: bool = False) -> None:
         self.deleted.append((fingerprint, including_secret))
 
 
-def test_import_keys_removes_smuggled_keys(monkeypatch, tmp_path: Path) -> None:
+def test_import_keys_removes_smuggled_keys(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     selected_fp = "A" * 40
     smuggled_fp = "B" * 40
     source_path = tmp_path / "backup.gpgm"
     entry = VaultKeyEntry(
         fingerprint=selected_fp,
         user_ids=("Alice <alice@example.org>",),
-        public_key_armored="-----BEGIN PGP PUBLIC KEY BLOCK-----\nselected\n",
-        private_key_armored=None,
         has_private_key=False,
         is_stub=False,
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -61,7 +72,12 @@ def test_import_keys_removes_smuggled_keys(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         service,
         "_open",
-        lambda **_kwargs: (manifest, source_path),
+        lambda **_kwargs: _OpenedVault(
+            manifest=manifest,
+            src_path=source_path,
+            plaintext=bytearray(b"public"),
+            key_slices={selected_fp: _KeySlice(0, 6, 6, 6)},
+        ),
     )
 
     with SecureBytes.from_bytes(b"master passphrase") as master:
@@ -82,8 +98,42 @@ def test_import_keys_removes_smuggled_keys(monkeypatch, tmp_path: Path) -> None:
     ) in audit.events
 
 
+def test_segmented_payload_keeps_key_material_out_of_manifest() -> None:
+    fp = "A" * 40
+    entry = VaultKeyEntry(
+        fingerprint=fp,
+        user_ids=("Alice <alice@example.org>",),
+        has_private_key=True,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    manifest = VaultManifest(
+        created_by="test",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        app_version="test",
+        description="",
+        keys=(entry,),
+    )
+    public_key = b"-----BEGIN PGP PUBLIC KEY BLOCK-----\npublic\n"
+    private_key = b"-----BEGIN PGP PRIVATE KEY BLOCK-----\nPRIVATE_SECRET\n"
+
+    payload = _serialise_segmented_payload(
+        (_CollectedEntry(entry=entry, public_key=public_key, private_key=private_key),),
+        manifest,
+    )
+    manifest_len = struct.unpack_from(">I", payload, 0)[0]
+    manifest_segment = payload[4 : 4 + manifest_len]
+
+    assert b"PRIVATE_SECRET" not in manifest_segment
+    parsed, key_slices = _deserialise_segmented_payload(payload)
+
+    assert parsed.keys == (entry,)
+    key_slice = key_slices[fp]
+    assert payload[key_slice.public_start : key_slice.public_end] == public_key
+    assert payload[key_slice.private_start : key_slice.private_end] == private_key
+
+
 def test_open_rejects_oversized_vault_with_bounded_read(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     source_path = tmp_path / "oversized.gpgm"
