@@ -6,7 +6,7 @@ from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo
 from gpg_meister.security.password_policy import assess
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.ui.worker import Worker
 
@@ -108,7 +108,7 @@ class KeyCreateViewModel(QObject):
         self._passphrase = ""
         self._confirm = ""
         pp_secure = SecureBytes.from_bytes(pp_raw)
-        del pp_raw
+        _zero_bytes_object(pp_raw)
 
         def _do() -> KeyInfo:
             with pp_secure as pp:

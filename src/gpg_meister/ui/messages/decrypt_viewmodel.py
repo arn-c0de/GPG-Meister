@@ -7,7 +7,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from gpg_meister.models.message import DecryptResult
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.message_service import MessageService
 from gpg_meister.ui.worker import Worker
 
@@ -50,7 +50,12 @@ class DecryptViewModel(QObject):
         pp_str = get_passphrase()
         # Convert to SecureBytes on the UI thread and drop the plain-string
         # reference immediately so it is not captured by the closure below.
-        pp_secure = SecureBytes.from_bytes(pp_str.encode()) if pp_str else None
+        if pp_str:
+            _pp_raw = pp_str.encode()
+            pp_secure = SecureBytes.from_bytes(_pp_raw)
+            _zero_bytes_object(_pp_raw)
+        else:
+            pp_secure = None
         del pp_str
 
         def _do() -> DecryptResult:

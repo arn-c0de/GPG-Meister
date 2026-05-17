@@ -7,7 +7,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from gpg_meister.models.message import SignResult
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.message_service import MessageService
 from gpg_meister.ui.worker import Worker
@@ -82,7 +82,7 @@ class SignViewModel(QObject):
         pp_bytes = pp_str.encode()
         del pp_str
         pp_secure = SecureBytes.from_bytes(pp_bytes)
-        del pp_bytes
+        _zero_bytes_object(pp_bytes)
         detached = self._detached
 
         def _do() -> SignResult:

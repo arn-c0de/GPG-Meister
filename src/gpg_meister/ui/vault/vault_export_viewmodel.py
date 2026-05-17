@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from gpg_meister.models.key_info import KeyInfo
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.vault_service import VaultDescriptor, VaultService
 from gpg_meister.ui.worker import Worker
@@ -147,16 +147,19 @@ class VaultExportViewModel(QObject):
         target = self._target_path
         desc = self._description
 
-        master_secure = SecureBytes.from_bytes(self._master_passphrase.encode())
+        _master_raw = self._master_passphrase.encode()
+        master_secure = SecureBytes.from_bytes(_master_raw)
+        _zero_bytes_object(_master_raw)
         self._master_passphrase = ""
         self._confirm_passphrase = ""
 
         # Capture per-key SecureBytes and wipe plaintext.
-        gpg_secure: dict[str, SecureBytes] = {
-            fp: SecureBytes.from_bytes(self._key_passphrases[fp].encode())
-            for fp in fps
-            if fp in self._key_passphrases
-        }
+        gpg_secure: dict[str, SecureBytes] = {}
+        for fp in fps:
+            if fp in self._key_passphrases:
+                _raw = self._key_passphrases[fp].encode()
+                gpg_secure[fp] = SecureBytes.from_bytes(_raw)
+                _zero_bytes_object(_raw)
         for fp in fps:
             self._key_passphrases.pop(fp, None)
         self._unlocked_fps.difference_update(fps)
