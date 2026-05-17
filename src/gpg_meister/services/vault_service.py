@@ -48,7 +48,7 @@ from gpg_meister.security.aead import encrypt as aead_encrypt
 from gpg_meister.security.aead import generate_nonce
 from gpg_meister.security.errors import DecryptionError, VaultFormatError
 from gpg_meister.security.kdf import derive_key, generate_salt
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.security.vault_format import (
     HEADER_OFFSET,
     LENGTH_FIELD,
@@ -149,8 +149,8 @@ def _deserialise_manifest(blob: bytes) -> VaultManifest:
     obj = msgpack.unpackb(
         blob,
         raw=False,
-        max_str_len=MAX_CIPHERTEXT_SIZE,
-        max_bin_len=MAX_CIPHERTEXT_SIZE,
+        max_str_len=64 * 1024,   # 64 KiB — sufficient for any armored key
+        max_bin_len=64 * 1024,
         max_array_len=65536,
         max_map_len=65536,
     )
@@ -551,6 +551,7 @@ class VaultService:
                 )
 
         manifest = _deserialise_manifest(plaintext)
+        _zero_bytes_object(plaintext)
         # NONCE_LEN sanity check defends against header tampering that survives the
         # AEAD (it should never happen — AAD covers everything — but it's cheap).
         if len(nonce) != NONCE_LEN:
