@@ -40,7 +40,7 @@ _T = TypeVar("_T")
 import gnupg
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo, TrustLevel
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.errors import (
     GPGKeyNotFoundError,
     GPGPassphraseError,
@@ -278,12 +278,16 @@ class GPGService:
         validate_expiry(expiry)
 
         pass_bytes = bytes(passphrase.view())
-        # Newlines in the passphrase can inject extra directives into GPG's
-        # batch parameter file built by gen_key_input. Reject them before the
-        # batch file is constructed.
-        if b"\n" in pass_bytes or b"\r" in pass_bytes:
-            raise GPGValidationError("passphrase must not contain newline characters")
-        reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+        try:
+            # Newlines in the passphrase can inject extra directives into GPG's
+            # batch parameter file built by gen_key_input. Reject them before the
+            # batch file is constructed.
+            if b"\n" in pass_bytes or b"\r" in pass_bytes:
+                raise GPGValidationError("passphrase must not contain newline characters")
+            reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+            pass_str = pass_bytes.decode("utf-8")
+        finally:
+            _zero_bytes_object(pass_bytes)
 
         params: dict[str, Any]
         if algorithm is KeyAlgorithm.EDDSA:
@@ -295,7 +299,7 @@ class GPGService:
                 "subkey_type": "ECDH",
                 "subkey_curve": "cv25519",
                 "expire_date": expiry,
-                "passphrase": pass_bytes.decode("utf-8"),
+                "passphrase": pass_str,
             }
         elif algorithm is KeyAlgorithm.RSA:
             params = {
@@ -306,7 +310,7 @@ class GPGService:
                 "subkey_type": "RSA",
                 "subkey_length": length,
                 "expire_date": expiry,
-                "passphrase": pass_bytes.decode("utf-8"),
+                "passphrase": pass_str,
             }
         else:
             raise GPGValidationError(f"key generation not supported for {algorithm}")
@@ -338,8 +342,11 @@ class GPGService:
     def export_private_key(self, fingerprint: str, passphrase: SecureBytes) -> str:
         fp = validate_fingerprint(fingerprint)
         pass_bytes = bytes(passphrase.view())
-        reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
-        pass_str = pass_bytes.decode("utf-8")
+        try:
+            reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+            pass_str = pass_bytes.decode("utf-8")
+        finally:
+            _zero_bytes_object(pass_bytes)
         result = self._run(lambda: self._gpg.export_keys(
             fp,
             secret=True,
@@ -386,7 +393,10 @@ class GPGService:
         if including_secret:
             self._assert_binary_not_swapped()
             pass_bytes = bytes(passphrase.view()) if passphrase else b""
-            reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+            try:
+                reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+            finally:
+                _zero_bytes_object(pass_bytes)
             # Use --delete-secret-and-public-key to delete both in a single GPG
             # invocation. This avoids the race where a crash between two separate
             # calls would leave an orphan public key with no private counterpart.
@@ -443,8 +453,11 @@ class GPGService:
             if passphrase is None:
                 raise GPGValidationError("signing requires a passphrase")
             pass_bytes = bytes(passphrase.view())
-            reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
-            kwargs["passphrase"] = pass_bytes.decode("utf-8")
+            try:
+                reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+                kwargs["passphrase"] = pass_bytes.decode("utf-8")
+            finally:
+                _zero_bytes_object(pass_bytes)
         result = self._run(lambda: self._gpg.encrypt(plaintext, **kwargs))
         if not result.ok:
             raise GPGProcessError(f"encryption failed: {result.status}")
@@ -460,8 +473,11 @@ class GPGService:
         kwargs: dict[str, Any] = {}
         if passphrase is not None:
             pass_bytes = bytes(passphrase.view())
-            reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
-            kwargs["passphrase"] = pass_bytes.decode("utf-8")
+            try:
+                reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+                kwargs["passphrase"] = pass_bytes.decode("utf-8")
+            finally:
+                _zero_bytes_object(pass_bytes)
         result = self._run(lambda: self._gpg.decrypt(ciphertext, **kwargs))
         if not result.ok:
             if str(result.status or "").lower() in ("bad passphrase", "no secret key"):
@@ -481,8 +497,11 @@ class GPGService:
     ) -> str:
         fp = validate_fingerprint(fingerprint)
         pass_bytes = bytes(passphrase.view())
-        reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
-        pass_str = pass_bytes.decode("utf-8")
+        try:
+            reject_passphrase_in_argv(list(self._gpg.options or ()), pass_bytes)
+            pass_str = pass_bytes.decode("utf-8")
+        finally:
+            _zero_bytes_object(pass_bytes)
         result = self._run(lambda: self._gpg.sign(
             data,
             keyid=fp,

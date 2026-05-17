@@ -157,6 +157,22 @@ class SecureBytes:
         return self._closed
 
 
+def _zero_bytes_object(raw: bytes) -> None:
+    """Best-effort in-place zero of a CPython bytes object's internal buffer.
+
+    Shares the same CPython-internal hack used in kdf.py: the data array of a
+    PyBytesObject starts exactly (sys.getsizeof(b"") - 1) bytes past id(raw).
+    Silently a no-op on non-CPython runtimes or future CPython internals changes.
+    """
+    try:
+        import sys as _sys
+        _offset = _sys.getsizeof(b"") - 1
+        _buf = (ctypes.c_char * len(raw)).from_address(id(raw) + _offset)
+        ctypes.memset(_buf, 0, len(raw))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @contextmanager
 def secure_bytes_from(source: bytes) -> Iterator[SecureBytes]:
     """Convenience wrapper: create a SecureBytes from a regular bytes object.

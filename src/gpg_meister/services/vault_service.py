@@ -28,6 +28,8 @@ from gpg_meister.models.kdf_params import (
     MAX_IMPORT_MEMORY_COST_KB,
     MAX_IMPORT_PARALLELISM,
     MAX_IMPORT_TIME_COST,
+    MIN_MEMORY_COST_KB,
+    MIN_TIME_COST,
     KDFAlgorithm,
     KDFParams,
     high_memory_params,
@@ -161,6 +163,8 @@ def _deserialise_manifest(blob: bytes) -> VaultManifest:
 
 
 def _validate_import_kdf(params: KDFParams) -> None:
+    if params.time_cost < MIN_TIME_COST or params.memory_cost < MIN_MEMORY_COST_KB:
+        raise VaultFormatError("vault KDF parameters are below the import safety floor")
     if (
         params.time_cost > MAX_IMPORT_TIME_COST
         or params.memory_cost > MAX_IMPORT_MEMORY_COST_KB
