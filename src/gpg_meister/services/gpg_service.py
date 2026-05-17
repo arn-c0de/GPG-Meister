@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo, TrustLevel
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
+from gpg_meister.security.secure_bytes import SecureBytes, zero_mutable_buffer
 from gpg_meister.services.errors import (
     GPGKeyNotFoundError,
     GPGPassphraseError,
@@ -250,17 +250,17 @@ class GPGService:
         self._assert_binary_not_swapped()
         pass_read: int | None = None
         pass_write: int | None = None
-        pass_bytes = b""
+        pass_bytes = bytearray()
         cmd = self._base_cmd()
         if status_fd:
             cmd.extend(["--status-fd", "2"])
         if passphrase is not None:
             pass_bytes = (
-                bytes(passphrase.view())
+                bytearray(passphrase.view())
                 if isinstance(passphrase, SecureBytes)
-                else bytes(passphrase)
+                else bytearray(passphrase)
             )
-            if b"\n" in pass_bytes or b"\r" in pass_bytes:
+            if 0x0A in pass_bytes or 0x0D in pass_bytes:
                 raise GPGValidationError("passphrase must not contain newline characters")
             reject_passphrase_in_argv(cmd, pass_bytes)
             pass_read, pass_write = os.pipe()
@@ -287,8 +287,8 @@ class GPGService:
             # Zero pass_bytes as soon as the pipe is flushed; don't hold it
             # on the heap through the full communicate() timeout window.
             if pass_bytes:
-                _zero_bytes_object(pass_bytes)
-                pass_bytes = b""
+                zero_mutable_buffer(pass_bytes)
+                pass_bytes = bytearray()
             try:
                 stdout, stderr = proc.communicate(
                     input=input_data,
@@ -309,7 +309,7 @@ class GPGService:
                 with contextlib.suppress(OSError):
                     os.close(pass_write)
             if pass_bytes:
-                _zero_bytes_object(pass_bytes)
+                zero_mutable_buffer(pass_bytes)
 
     # ------------------------------------------------------------------ inventory
 
@@ -367,12 +367,9 @@ class GPGService:
         validate_key_algorithm_and_length(algorithm, length)
         validate_expiry(expiry)
 
-        pass_bytes = bytes(passphrase.view())
-        try:
-            if b"\n" in pass_bytes or b"\r" in pass_bytes:
-                raise GPGValidationError("passphrase must not contain newline characters")
-        finally:
-            _zero_bytes_object(pass_bytes)
+        pass_view = passphrase.view()
+        if 0x0A in pass_view or 0x0D in pass_view:
+            raise GPGValidationError("passphrase must not contain newline characters")
 
         if algorithm is KeyAlgorithm.EDDSA:
             quick_args = ["--quick-generate-key", f"{name} <{email}>", "future-default", "default", expiry]
