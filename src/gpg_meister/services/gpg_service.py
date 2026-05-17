@@ -284,6 +284,11 @@ class GPGService:
                     pass_write = None
                     pass_pipe.write(pass_bytes)
                     pass_pipe.write(b"\n")
+            # Zero pass_bytes as soon as the pipe is flushed; don't hold it
+            # on the heap through the full communicate() timeout window.
+            if pass_bytes:
+                _zero_bytes_object(pass_bytes)
+                pass_bytes = b""
             try:
                 stdout, stderr = proc.communicate(
                     input=input_data,

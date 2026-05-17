@@ -77,6 +77,8 @@ def perform_pending_factory_reset(paths: AppPaths) -> bool:
     ):
         if directory.exists():
             reject_symlink_tree(directory)
+            if directory.is_symlink():
+                raise RuntimeError(f"refusing to delete symlink: {directory}")
             shutil.rmtree(directory)
 
     paths.ensure()

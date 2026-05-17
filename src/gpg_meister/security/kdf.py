@@ -83,11 +83,13 @@ def derive_key(passphrase: SecureBytes, salt: bytes, params: KDFParams) -> Secur
     # Use bytearray for both the passphrase copy and the derived key — bytearray is
     # mutable so we can zero it in-place, unlike immutable bytes objects.
     passphrase_buf = bytearray(passphrase.view())
+    # argon2-cffi >= 25.1.0 (with cffi >= 1.17 on Python 3.14+) may reject
+    # bytearray in hash_secret_raw. Keep an explicit reference so the finally
+    # block can zero it with _zero_bytes_object before CPython frees it.
+    _secret = bytes(passphrase_buf)
     try:
-        # argon2-cffi >= 25.1.0 (with cffi >= 1.17 on Python 3.14+) may reject
-        # bytearray in hash_secret_raw. Convert to a short-lived bytes copy.
         raw = hash_secret_raw(
-            secret=bytes(passphrase_buf),
+            secret=_secret,
             salt=salt,
             time_cost=params.time_cost,
             memory_cost=params.memory_cost,
@@ -98,6 +100,7 @@ def derive_key(passphrase: SecureBytes, salt: bytes, params: KDFParams) -> Secur
     except argon2_exceptions.Argon2Error as exc:
         raise KDFError(f"argon2id failed: {exc}") from exc
     finally:
+        _zero_bytes_object(_secret)
         # Zero via ctypes.memset so no runtime can optimise the wipe away.
         _pbuf = (ctypes.c_char * len(passphrase_buf)).from_buffer(passphrase_buf)
         ctypes.memset(_pbuf, 0, len(passphrase_buf))
