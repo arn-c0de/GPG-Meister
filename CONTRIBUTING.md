@@ -1,12 +1,12 @@
 # Contributing to GPG Meister
 
-Contributions are welcome. Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md) when participating in issues, pull requests, translation work, or other project communication.
+Contributions are welcome. Please follow the project [Code of Conduct](CODE_OF_CONDUCT.md) when participating in issues, pull requests, translation work, documentation, or other project communication.
 
 ## Languages
 
-GPG Meister currently ships with English (`en`) and German (`de`). More languages are tracked in [issue #1](https://github.com/arn-c0de/GPG-Meister/issues/1).
+GPG Meister currently ships with English (`en`) and German (`de`). Additional languages are tracked in [issue #1](https://github.com/arn-c0de/GPG-Meister/issues/1).
 
-Languages are discovered from bundled Qt `.qm` files in `src/gpg_meister/i18n/`. To add one, add a translated `.ts` file, build the matching `.qm` with `python scripts/build_translations.py`, and verify that it appears in Settings.
+Languages are discovered from bundled Qt `.qm` files in `src/gpg_meister/i18n/`. To add a language, provide a translated `.ts` file, build the matching `.qm` file with `python scripts/build_translations.py`, and verify that the language appears in Settings.
 
 Keep security terms precise, do not weaken warnings or delete confirmations, and add a `terms_<language>.md` glossary when needed.
 
@@ -14,7 +14,7 @@ Keep security terms precise, do not weaken warnings or delete confirmations, and
 
 Small voluntary UI/UX improvements are tracked in [issue #2](https://github.com/arn-c0de/GPG-Meister/issues/2).
 
-Useful contributions include cleaner spacing, better layout behavior, clearer feedback, accessibility improvements, and more consistent visual hierarchy. Larger redesign ideas should be discussed in issue #2 first.
+Useful contributions include cleaner spacing, better layout behavior, clearer feedback, accessibility improvements, and a more consistent visual hierarchy. Larger redesign ideas should be discussed in issue #2 first.
 
 ## Development
 
@@ -27,7 +27,7 @@ uv run ruff check .
 uv run mypy
 ```
 
-Keep changes focused. Security-sensitive code, cryptography, vault handling, GPG process handling, and key deletion flows need extra review and tests.
+Keep changes focused. Security-sensitive code, cryptography, vault handling, GPG process handling, and key deletion flows require extra review and focused tests.
 
 ## Hall of Fame
 

@@ -4,20 +4,20 @@
 
 GPG Meister is actively developed and security-sensitive by design.
 
-The project handles GPG workflows, encrypted vault export and import, local metadata, and sensitive user interactions. Because of that, security reports are taken seriously.
+The project handles GPG workflows, encrypted vault export and import, local metadata, and security-sensitive user interactions. Security reports are treated as high priority.
 
 ## Supported versions
 
 Security fixes are focused on the latest public release branch and the current development branch.
 
-At the moment, treat the newest published release and the newest active branch as the supported targets.
+At the moment, treat the newest published release and the active development branch as the supported targets.
 
 ## Reporting a vulnerability
 
 Please do not open a public GitHub issue for a suspected security vulnerability.
 
 Use one of these private contact paths instead:
-2
+
 - Email: `arn-c0de@protonmail.com`
 - GitHub profile contact path: `https://github.com/arn-c0de`
 
@@ -33,7 +33,7 @@ Please include as much of the following as possible:
 - expected impact
 - whether the issue can expose private key material, passphrases, decrypted content, metadata, or filesystem paths
 
-If you are unsure whether something is security-relevant, report it anyway.
+If you are unsure whether something is security-relevant, report it privately.
 
 ## Preferred disclosure process
 
@@ -66,7 +66,7 @@ Examples that are usually lower priority unless they create a security impact:
 
 ## Hardening notes
 
-GPG Meister already includes several defensive measures, including:
+GPG Meister includes several defensive measures:
 
 - local-first operation
 - dedicated GPG home usage

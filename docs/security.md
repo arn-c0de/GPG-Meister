@@ -2,13 +2,13 @@
 
 The security code lives in `src/gpg_meister/security`.
 
-These modules do not know about Qt. They focus on sensitive bytes, key derivation, encryption, and vault framing rules.
+These modules are independent of Qt. They focus on sensitive bytes, key derivation, authenticated encryption, and vault framing rules.
 
 ## `secure_bytes.py`
 
 `SecureBytes` is a short-lived container for sensitive data.
 
-It gives the app:
+It provides:
 
 - a writable in-memory buffer
 - best-effort `mlock` on supported systems
@@ -18,7 +18,7 @@ It gives the app:
 
 Important limitation:
 
-Python cannot guarantee perfect secret handling because copies may still exist inside CPython or third-party libraries. The code is honest about that and tries to reduce the exposure window.
+Python cannot guarantee perfect secret handling because copies may still exist inside CPython or third-party libraries. The implementation reduces the exposure window where possible.
 
 ## `kdf.py`
 
@@ -48,7 +48,7 @@ The API is intentionally small:
 - `encrypt(...)`
 - `decrypt(...)`
 
-All decryption failures return the same generic error message. This is good because it avoids leaking details about whether the passphrase, ciphertext, or header was wrong.
+All decryption failures return the same generic error message. This avoids leaking whether the passphrase, ciphertext, or header was wrong.
 
 ## `vault_format.py`
 
@@ -65,9 +65,9 @@ Main protections:
 
 The header bytes are reused as AEAD associated data, so header tampering is detected during decryption.
 
-## What is important in the real implementation
+## Implementation Notes
 
-The code is more defensive than a simple architecture sketch:
+The implementation includes defense-in-depth beyond the architecture sketch:
 
 - KDF bounds are enforced twice: in models and in runtime helpers.
 - vault reads reject oversized payloads early.

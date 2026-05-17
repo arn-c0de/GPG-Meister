@@ -2,7 +2,7 @@
 
 The UI code lives in `src/gpg_meister/ui`.
 
-It uses PySide6 and follows an MVVM-like split:
+It uses PySide6 and follows a lightweight MVVM-style split:
 
 - views build widgets
 - viewmodels manage state and call services
@@ -19,7 +19,7 @@ It provides:
 - a status bar
 - methods to install the real tab views after wiring
 
-The placeholder-tab approach keeps the startup structure simple and clear.
+The placeholder-tab approach keeps startup wiring explicit while services and views are assembled.
 
 ## Viewmodels
 
@@ -43,13 +43,13 @@ It wraps a callable in a `QRunnable` and emits:
 - `error`
 - `finished`
 
-One useful implementation detail:
+Useful implementation detail:
 
 it keeps a Python reference to live workers so PySide does not garbage-collect them before the thread pool runs them.
 
 ## Key UI area
 
-The keys section is currently one of the best examples of the architecture.
+The keys section is the clearest example of the UI architecture.
 
 It includes:
 
@@ -78,14 +78,14 @@ The message and vault tabs follow the same pattern:
 - background worker prevents UI freeze
 - result is rendered back into the widgets
 
-## Design reality
+## Architecture Fit
 
-The plan describes a clean MVVM architecture, and the current code mostly follows it.
+The plan describes a clean MVVM architecture, and the current code follows it in a practical Qt form.
 
-It is not a heavy framework-driven MVVM implementation. It is a practical Qt version:
+It is not a heavy framework-driven MVVM implementation. The code uses:
 
 - signal-based communication
 - service-driven viewmodels
 - low logic in widgets
 
-That is a good fit for this project size.
+This keeps the UI structure understandable without adding a large binding framework.
