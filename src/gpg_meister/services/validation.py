@@ -19,8 +19,12 @@ _FINGERPRINT_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9A-F]{40}$")
 # NOT try to be exhaustive — the value will be embedded in a GPG user ID by the
 # caller, not used for routing.
 _EMAIL_RE: Final[re.Pattern[str]] = re.compile(
-    r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$"
+    r"^[A-Za-z0-9](?:[A-Za-z0-9._%+-]{0,62}[A-Za-z0-9])?"
+    r"@"
+    r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+    r"[A-Za-z]{2,63}$"
 )
+_USER_NAME_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$")
 _EXPIRY_OFFSET_RE: Final[re.Pattern[str]] = re.compile(r"^[1-9][0-9]*[ymwd]$")
 
 # Allowed key lengths per algorithm.
@@ -48,14 +52,14 @@ def validate_email(email: str) -> str:
 
 
 def validate_user_name(name: str) -> str:
-    """A GPG user ID name. Must not contain control characters or angle brackets."""
+    """A GPG user ID name with a deliberately small ASCII allow-list."""
     stripped = name.strip()
     if not stripped:
         raise GPGValidationError("user name must not be empty")
-    if any(ord(c) < 0x20 for c in stripped):
-        raise GPGValidationError("user name must not contain control characters")
-    if "<" in stripped or ">" in stripped:
-        raise GPGValidationError("user name must not contain angle brackets")
+    if not _USER_NAME_RE.match(stripped) or "--" in stripped:
+        raise GPGValidationError(
+            "user name must contain only ASCII letters, digits, spaces, dots, underscores and hyphens"
+        )
     return stripped
 
 
@@ -82,7 +86,7 @@ def validate_expiry(value: str) -> str:
     return value
 
 
-def reject_passphrase_in_argv(argv: list[str], passphrase: bytes) -> None:
+def reject_passphrase_in_argv(argv: list[str], passphrase: bytes | bytearray | memoryview) -> None:
     """Assert that no element of `argv` contains the passphrase bytes.
 
     Run as a defence-in-depth check before every subprocess call that involves a
@@ -90,12 +94,10 @@ def reject_passphrase_in_argv(argv: list[str], passphrase: bytes) -> None:
     """
     if not passphrase:
         return
-    text = passphrase.decode("utf-8", errors="ignore") if passphrase else ""
+    needle = passphrase
     for item in argv:
-        if passphrase and (
-            (isinstance(item, str) and text and text in item)
-            or (isinstance(item, bytes) and passphrase in item)
-        ):
+        item_bytes = item.encode("utf-8", errors="ignore") if isinstance(item, str) else item
+        if passphrase and isinstance(item_bytes, bytes) and needle in item_bytes:
             raise GPGValidationError(
                 "passphrase bytes appeared in subprocess argv — refusing to call GPG"
             )

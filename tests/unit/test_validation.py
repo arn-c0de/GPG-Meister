@@ -44,7 +44,16 @@ def test_email_accepted(good: str) -> None:
 
 @pytest.mark.parametrize(
     "bad",
-    ["", "no-at", "a@", "@b.de", "a@b", "a b@c.de"],
+    [
+        "",
+        "no-at",
+        "a@",
+        "@b.de",
+        "a@b",
+        "a b@c.de",
+        "admin|logger@example.org",
+        "alice@example-.org",
+    ],
 )
 def test_email_rejected(bad: str) -> None:
     with pytest.raises(GPGValidationError):
@@ -61,8 +70,14 @@ def test_user_name_rejects_control_chars() -> None:
         validate_user_name("Alice\x00")
 
 
-def test_user_name_accepts_unicode() -> None:
-    assert validate_user_name("Müller, Anna-Marie") == "Müller, Anna-Marie"
+def test_user_name_rejects_unicode_and_punctuation() -> None:
+    for bad in ["Müller", "Anna, Marie", "Admin --expert"]:
+        with pytest.raises(GPGValidationError):
+            validate_user_name(bad)
+
+
+def test_user_name_accepts_strict_ascii() -> None:
+    assert validate_user_name("Anna-Marie 2.0") == "Anna-Marie 2.0"
 
 
 @pytest.mark.parametrize(
@@ -125,6 +140,11 @@ def test_reject_passphrase_in_argv_raises_when_present() -> None:
         reject_passphrase_in_argv(
             ["--batch", "--passphrase=top-secret"], b"top-secret"
         )
+
+
+def test_reject_passphrase_in_argv_accepts_mutable_secret() -> None:
+    with pytest.raises(GPGValidationError, match="passphrase"):
+        reject_passphrase_in_argv(["--passphrase=top-secret"], bytearray(b"top-secret"))
 
 
 def test_reject_passphrase_handles_empty_passphrase() -> None:

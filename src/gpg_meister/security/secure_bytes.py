@@ -169,8 +169,13 @@ def _zero_bytes_object(raw: bytes) -> None:
         _offset = _sys.getsizeof(b"") - 1
         _buf = (ctypes.c_char * len(raw)).from_address(id(raw) + _offset)
         ctypes.memset(_buf, 0, len(raw))
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: S110
         pass
+
+
+def zero_mutable_buffer(raw: bytearray | memoryview) -> None:
+    """Reliably zero a mutable Python-owned byte buffer in place."""
+    raw[:] = b"\x00" * len(raw)
 
 
 @contextmanager
