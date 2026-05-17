@@ -44,7 +44,7 @@ def _check_inputs(key: SecureBytes, nonce: bytes) -> None:
 
 
 def encrypt(
-    plaintext: bytes,
+    plaintext: bytes | bytearray | memoryview,
     key: SecureBytes,
     nonce: bytes,
     associated_data: bytes,

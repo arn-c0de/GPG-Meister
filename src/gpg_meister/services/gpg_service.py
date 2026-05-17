@@ -33,7 +33,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo, TrustLevel
 from gpg_meister.security.secure_bytes import SecureBytes, zero_mutable_buffer
@@ -243,7 +243,7 @@ class GPGService:
         self,
         args: Sequence[str],
         *,
-        input_data: bytes | None = None,
+        input_data: bytes | bytearray | memoryview | None = None,
         passphrase: SecureBytes | bytes | None = None,
         status_fd: bool = False,
     ) -> subprocess.CompletedProcess[bytes]:
@@ -302,7 +302,7 @@ class GPGService:
                 pass_writer.start()
             try:
                 stdout, stderr = proc.communicate(
-                    input=input_data,
+                    input=cast(bytes | None, input_data),
                     timeout=self._config.timeout_seconds,
                 )
             except subprocess.TimeoutExpired:
@@ -449,8 +449,9 @@ class GPGService:
 
     # --------------------------------------------------------------------- import
 
-    def import_key(self, armored: str) -> list[str]:
-        proc = self._run_gpg(["--import"], input_data=armored.encode("utf-8"), status_fd=True)
+    def import_key(self, armored: str | bytes | bytearray | memoryview) -> list[str]:
+        input_data = armored.encode("utf-8") if isinstance(armored, str) else armored
+        proc = self._run_gpg(["--import"], input_data=input_data, status_fd=True)
         fingerprints = [
             record[2]
             for record in _parse_status(proc.stderr)
