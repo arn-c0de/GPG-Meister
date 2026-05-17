@@ -28,6 +28,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -251,6 +252,7 @@ class GPGService:
         pass_read: int | None = None
         pass_write: int | None = None
         pass_bytes = bytearray()
+        pass_writer: threading.Thread | None = None
         cmd = self._base_cmd()
         if status_fd:
             cmd.extend(["--status-fd", "2"])
@@ -280,15 +282,24 @@ class GPGService:
                 os.close(pass_read)
                 pass_read = None
             if pass_write is not None:
-                with os.fdopen(pass_write, "wb", closefd=True) as pass_pipe:
-                    pass_write = None
-                    pass_pipe.write(pass_bytes)
-                    pass_pipe.write(b"\n")
-            # Zero pass_bytes as soon as the pipe is flushed; don't hold it
-            # on the heap through the full communicate() timeout window.
-            if pass_bytes:
-                zero_mutable_buffer(pass_bytes)
-                pass_bytes = bytearray()
+                fd = pass_write
+                pass_write = None
+
+                def _write_passphrase() -> None:
+                    nonlocal pass_bytes
+                    try:
+                        with os.fdopen(fd, "wb", closefd=True) as pass_pipe:
+                            pass_pipe.write(pass_bytes)
+                            pass_pipe.write(b"\n")
+                    except OSError:
+                        pass
+                    finally:
+                        if pass_bytes:
+                            zero_mutable_buffer(pass_bytes)
+                            pass_bytes = bytearray()
+
+                pass_writer = threading.Thread(target=_write_passphrase, daemon=True)
+                pass_writer.start()
             try:
                 stdout, stderr = proc.communicate(
                     input=input_data,
@@ -308,6 +319,8 @@ class GPGService:
             if pass_write is not None:
                 with contextlib.suppress(OSError):
                     os.close(pass_write)
+            if pass_writer is not None:
+                pass_writer.join(timeout=1.0)
             if pass_bytes:
                 zero_mutable_buffer(pass_bytes)
 

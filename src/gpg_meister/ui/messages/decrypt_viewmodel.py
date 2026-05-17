@@ -64,8 +64,8 @@ class DecryptViewModel(QObject):
                     return self._svc.decrypt(ciphertext_bytes, passphrase=pp_secure)
             return self._svc.decrypt(ciphertext_bytes, passphrase=None)
 
-        w = Worker(_do)
-        w.signals.result.connect(self._on_success)
+        w = Worker(_do, emit_result=False)
+        w.signals.result_ready.connect(lambda: self._on_success(w.take_result()))
         w.signals.error.connect(self._on_error)
         w.signals.finished.connect(self._on_finished)
         self._pool.start(w)
