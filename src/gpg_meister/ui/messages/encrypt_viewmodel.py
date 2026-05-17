@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from gpg_meister.models.message import EncryptResult
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.message_service import MessageService
 from gpg_meister.ui.worker import Worker
@@ -83,7 +83,12 @@ class EncryptViewModel(QObject):
         plaintext_bytes = self._plaintext.encode()
         fps = list(self._recipient_fps)
         sign_with = self._sign_with
-        pp_secure = SecureBytes.from_bytes(self._passphrase.encode()) if self._passphrase else None
+        if self._passphrase:
+            _pp_raw = self._passphrase.encode()
+            pp_secure = SecureBytes.from_bytes(_pp_raw)
+            _zero_bytes_object(_pp_raw)
+        else:
+            pp_secure = None
         self._passphrase = ""
         trust = self._trust_confirmed
         self._trust_confirmed = False

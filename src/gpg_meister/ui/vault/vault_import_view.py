@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.models.vault import VaultKeyEntry
 from gpg_meister.security.errors import DecryptionError, VaultFormatError
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.security.vault_format import MAGIC
 from gpg_meister.services.vault_service import VaultChecksumMismatchError, VaultPreview, VaultService
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
@@ -155,7 +155,7 @@ class _PassphrasePage(QWizardPage):
 
         pp_bytes = pp_text.encode()
         pp_secure = SecureBytes.from_bytes(pp_bytes)
-        del pp_bytes
+        _zero_bytes_object(pp_bytes)
 
         def _do() -> VaultPreview:
             with pp_secure as pp:
@@ -212,7 +212,7 @@ class _PassphrasePage(QWizardPage):
 
         pp_bytes = pp_text.encode()
         pp_secure = SecureBytes.from_bytes(pp_bytes)
-        del pp_bytes
+        _zero_bytes_object(pp_bytes)
 
         def _do() -> VaultPreview:
             with pp_secure as pp:
@@ -340,7 +340,7 @@ class _ResultPage(QWizardPage):
         pp_bytes = pp_text.encode()
         del pp_text
         pp_secure = SecureBytes.from_bytes(pp_bytes)
-        del pp_bytes
+        _zero_bytes_object(pp_bytes)
 
         self._log.setPlainText("Importing keys…")
         self._set_finish_enabled(False)
