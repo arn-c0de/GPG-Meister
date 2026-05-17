@@ -8,6 +8,7 @@
 [![UI](https://img.shields.io/badge/UI-Qt%206-0A7EA4)](#tech)
 [![Runtime](https://img.shields.io/badge/runtime-local--first-2ea043)](#security)
 [![Crypto](https://img.shields.io/badge/crypto-GnuPG-F0B400)](#tech)
+[![Changelog](https://img.shields.io/badge/changelog-CHANGELOG.md-6f42c1)](CHANGELOG.md)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/arn-c0de/GPG-Meister)
 
 Desktop app for working with GPG keys, encrypted messages, and backups.
@@ -45,6 +46,8 @@ Prebuilt releases for Linux, Windows, and macOS are available here:
 
 [GitHub Releases](https://github.com/arn-c0de/GPG-Meister/releases)
 
+For version history and release notes, see the [Changelog](CHANGELOG.md).
+
 ## Getting Started
 ### Requirements
 - GnuPG 2.2+
@@ -52,6 +55,7 @@ Prebuilt releases for Linux, Windows, and macOS are available here:
 - `uv` for the recommended development workflow
 
 ## Docs
+- [Changelog](CHANGELOG.md)
 - [Documentation Overview](docs/overview.md)
 - [Plan vs Code](docs/plan-vs-code.md)
 - [App and Startup Flow](docs/app-startup.md)
