@@ -29,7 +29,7 @@ MAX_PUBLIC_KEY_IMPORT_BYTES = 2 * 1024 * 1024
 MAX_PUBLIC_KEY_IMPORT_COUNT = 32
 PUBLIC_KEY_BLOCK = "-----BEGIN PGP PUBLIC KEY BLOCK-----"
 PRIVATE_KEY_BLOCK = "-----BEGIN PGP PRIVATE KEY BLOCK-----"
-SECRET_KEY_BLOCK = "-----BEGIN PGP SECRET KEY BLOCK-----"
+SECRET_KEY_BLOCK = "-----BEGIN PGP SECRET KEY BLOCK-----"  # noqa: S105
 
 
 class ImportConflict(StrEnum):
@@ -190,13 +190,8 @@ class KeyService:
         """Dry-run analysis of an armored block: which keys does it carry and how
         does each compare to the existing keyring?
 
-        python-gnupg does not expose a direct dry-run, so the production path is
-        to extract fingerprints by parsing via `gpg --show-keys` if needed. As a
-        first iteration we delegate to a real import and inspect the result, then
-        leave the keyring untouched if conflicts dominate — the safer alternative
-        is to require the caller to pass a single armored key per call. This
-        method is conservative: it inspects fingerprints already in the keyring
-        and computes the conflict label without touching anything.
+        The production path extracts fingerprints with `gpg --show-keys` and
+        computes the conflict label without touching the keyring.
         """
         armored = _validate_public_import_blob(armored)
         # Quick pre-check: count key block headers before letting GPG parse the blob.
@@ -205,7 +200,7 @@ class KeyService:
         header_count = armored.count(PUBLIC_KEY_BLOCK)
         if header_count > MAX_PUBLIC_KEY_IMPORT_COUNT:
             raise ValueError("too many keys in one import batch")
-        rows = self._gpg._gpg.scan_keys_mem(armored)
+        rows = self._gpg.scan_keys(armored)
         existing_pub = {k.fingerprint for k in self.list_keys()}
         existing_secret = {
             k.fingerprint

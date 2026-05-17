@@ -13,7 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QClipboard, QGuiApplication
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -24,6 +23,8 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+
+from gpg_meister.ui.clipboard import set_sensitive_text
 
 
 def _fmt_sha256(sha256: str) -> str:
@@ -144,5 +145,4 @@ class GpgTrustDialog(QDialog):
         return label
 
     def _copy_sha(self) -> None:
-        cb: QClipboard = QGuiApplication.clipboard()
-        cb.setText(self._new_sha)
+        set_sensitive_text(self._new_sha)
