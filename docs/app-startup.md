@@ -1,6 +1,6 @@
 # App and Startup Flow
 
-This document explains what happens when GPG Meister starts.
+This document describes the startup path for GPG Meister.
 
 ## Main entry point
 
@@ -24,7 +24,7 @@ The startup flow is:
 
 ## Dependency wiring
 
-`app.py` is the composition root. That means the objects are created here and then passed down.
+`app.py` is the composition root: it creates runtime dependencies and passes them into the layers that need them.
 
 Important runtime objects:
 
@@ -35,15 +35,15 @@ Important runtime objects:
 - ViewModels for each UI area.
 - Views that bind to those ViewModels.
 
-This is a good design choice because the lower layers do not need to know how the full app is assembled.
+This keeps lower layers independent from the full desktop application assembly.
 
 ## GPG trust flow
 
-The app does not blindly run the first `gpg` binary it finds.
+The app does not automatically run the first `gpg` binary on `PATH`.
 
 `_resolve_gpg()` in `app.py` calls `startup.gpg_detector.detect()`. If the configured binary is outside the whitelist or its hash changed, the user sees a trust dialog before the binary is accepted.
 
-This is stricter than many desktop wrappers and is one of the key security decisions in the project.
+This trust step is one of the key security controls in the project.
 
 ## What the app stores at startup
 
@@ -55,12 +55,12 @@ At startup the app opens:
 
 It does not load private keys into its own storage. Key material stays in the dedicated GPG home and, during vault work, only in memory.
 
-## Current behavior that matters
+## Runtime Behavior
 
 The current code already includes a context layer for keys:
 
 - `KeyService` merges GPG key data with metadata from SQLite.
-- `key_metadata` now stores `label`, `purpose`, `platform`, and `notes`.
-- the key detail dialog can edit this extra context.
+- `key_metadata` stores `label`, `purpose`, `platform`, and `notes`.
+- the key detail dialog can edit this context.
 
-So the running application is already more practical than the older plan text in this area.
+This makes the running application more complete than the original plan text in this area.

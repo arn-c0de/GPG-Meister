@@ -2,13 +2,13 @@
 
 The models live in `src/gpg_meister/models`.
 
-They define the trusted data shapes used across the app.
+They define the validated data shapes used across the app.
 
 ## Implementation style
 
 `planv2.md` talks about Pydantic dataclasses, but the current code uses immutable Pydantic `BaseModel` classes with `ConfigDict(frozen=True)` in the main models.
 
-This still gives the same core benefits:
+This provides the same practical benefits:
 
 - runtime validation
 - strict structure
@@ -33,7 +33,7 @@ It contains:
 - trust level
 - user context fields: `label`, `purpose`, `platform`, `notes`
 
-The new context fields are not part of GPG itself. They come from the local SQLite metadata store.
+The context fields are not part of GPG itself. They come from the local SQLite metadata store.
 
 ### `message.py`
 
@@ -83,7 +83,7 @@ The models also defend against unsafe input:
 
 Passphrases are not part of this model.
 
-## Why these models matter
+## Trust Boundary
 
 The project uses the models as a trust boundary.
 

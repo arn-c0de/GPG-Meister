@@ -2,11 +2,11 @@
 
 The service layer lives in `src/gpg_meister/services`.
 
-These modules hold application logic. They sit between the UI and the lower-level crypto, storage, and GPG integration code.
+These modules contain application logic. They sit between the UI and the lower-level crypto, storage, and GPG integration code.
 
 ## `gpg_service.py`
 
-This is the low-level adapter around `python-gnupg`.
+This module is the low-level adapter around `python-gnupg`.
 
 It is one of the most security-sensitive files in the project.
 
@@ -18,13 +18,13 @@ Main responsibilities:
 - convert raw GPG output into app models
 - keep passphrases out of command-line arguments
 
-Important real-world detail:
+Important implementation detail:
 
-the code does not trust the library completely. It adds its own checks so passphrases do not appear in argv by accident.
+The code does not rely only on library behavior. It adds explicit checks to prevent passphrases from appearing in process arguments.
 
 ## `key_service.py`
 
-This is the key lifecycle layer used by the UI.
+This module provides the key lifecycle API used by the UI.
 
 It adds:
 
@@ -39,7 +39,7 @@ Current behavior:
 - `find()` returns enriched `KeyInfo`
 - `update_context()` saves `label`, `purpose`, `platform`, and `notes`
 
-This means the UI works with one complete key object instead of manually joining data from two systems.
+The UI receives one enriched key object instead of manually joining GPG data with local metadata.
 
 ## `message_service.py`
 
@@ -52,13 +52,13 @@ This module wraps message operations:
 
 It mainly adds audit logging and a stable result model for the UI.
 
-Compared with the plan, the current implementation is direct and pragmatic. The service is thin because the sensitive subprocess handling is already concentrated inside `GPGService`.
+The service remains intentionally thin because sensitive subprocess handling is concentrated inside `GPGService`.
 
 ## `vault_service.py`
 
-This module orchestrates vault export and import.
+This module orchestrates vault export and import workflows.
 
-It is the highest-level security workflow in the app.
+It is the highest-level security workflow in the application.
 
 Create flow:
 

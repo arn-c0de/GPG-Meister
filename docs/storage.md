@@ -2,7 +2,7 @@
 
 The storage code lives in `src/gpg_meister/storage`.
 
-It handles the local filesystem safely and keeps non-secret application state.
+It handles local filesystem operations and stores non-secret application state.
 
 ## `metadata_store.py`
 
@@ -57,7 +57,7 @@ Key protections:
 - optional hash chaining is supported
 - records are flushed and synced on write
 
-This is stricter than a normal application log. That is intentional.
+This is intentionally stricter than a normal application log.
 
 ## `atomic_write.py`
 
@@ -73,7 +73,7 @@ This module provides advisory cross-platform file locking.
 
 It is used by the vault flow so two app instances do not write the same vault file at the same time.
 
-The design is practical:
+Implementation strategy:
 
 - POSIX uses `fcntl.flock`
 - Windows uses `msvcrt.locking`
@@ -89,9 +89,9 @@ It is mostly POSIX-focused:
 - sensitive files default to `0600`
 - Windows is treated differently because NTFS ACLs are the real control there
 
-## Real implementation note
+## Security Role
 
-The storage layer is not only about persistence. It also contains some of the app's security posture:
+The storage layer is not only persistence code. It also contributes to the app's security posture:
 
 - safe file permissions
 - crash-safe writes

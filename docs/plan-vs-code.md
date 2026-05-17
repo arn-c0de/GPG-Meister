@@ -1,8 +1,8 @@
 # Plan vs Current Code
 
-This document compares `planv2.md` with the real implementation in the repository today.
+This document compares `planv2.md` with the current implementation in the repository.
 
-It is meant as a quick reality check.
+Use it as a quick orientation guide when older plan text differs from the code.
 
 ## What matches the plan well
 
@@ -18,9 +18,9 @@ These parts are strongly aligned with the plan:
 - There is a separate audit log.
 - File writes for important artifacts are atomic.
 
-## Where the implementation is more concrete than the plan
+## Where the Implementation Is More Concrete
 
-The code adds a number of practical security details that are easy to miss in a pure design document:
+The code adds practical security details that are easy to miss in a pure design document:
 
 - `GPGService` verifies required GPG options like loopback pinentry.
 - the code checks that passphrases do not leak into subprocess argv
@@ -30,13 +30,13 @@ The code adds a number of practical security details that are easy to miss in a 
 - `SecureBytes` prevents pickling and zeroizes memory on close
 - GPG binary detection uses hash pinning for non-whitelisted binaries
 
-## Where the implementation differs a bit from the wording in the plan
+## Where the Implementation Differs From the Plan
 
 ### Models
 
 The plan says "Pydantic v2 dataclasses".
 
-The actual code mostly uses immutable Pydantic `BaseModel` classes. The result is similar in practice, but the implementation detail is different.
+The actual code mostly uses immutable Pydantic `BaseModel` classes. The practical result is similar, but the implementation detail is different.
 
 ### MVVM
 
@@ -54,9 +54,9 @@ This is simpler than a full reactive binding system, but it fits the project wel
 
 The plan discusses safe import analysis.
 
-The current `KeyService.plan_import()` uses `python-gnupg` scan support and current keyring state to classify import conflicts without changing the keyring. That is simpler and cleaner than a more complex manual subprocess parser.
+The current `KeyService.plan_import()` uses `python-gnupg` scan support and current keyring state to classify import conflicts without changing the keyring. That is simpler than a custom subprocess parser and keeps the import path easier to review.
 
-## Where the code has evolved after the original plan
+## Where the Code Has Evolved
 
 The codebase now includes a local key usage context layer:
 
@@ -66,13 +66,13 @@ The codebase now includes a local key usage context layer:
 - the key detail dialog can edit the context
 - the key list can show labels for easier identification
 
-This is a real feature addition beyond the earlier plan wording.
+This is a feature addition beyond the earlier plan wording.
 
-## What to keep in mind when reading old plan notes
+## How to Read Older Plan Notes
 
 `planv2.md` is still useful for direction and rationale.
 
-But for implementation truth, prefer the source code and these docs. Some details changed because:
+For implementation details, prefer the source code and these docs. Some details changed because:
 
 - security fixes made the boundary stricter
 - the real Qt workflow became clearer during implementation

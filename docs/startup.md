@@ -2,7 +2,7 @@
 
 The startup code lives in `src/gpg_meister/startup`.
 
-It protects the app before normal work begins.
+It validates the runtime environment before normal work begins.
 
 ## `gpg_detector.py`
 
@@ -21,7 +21,7 @@ Important behavior:
 - a hash mismatch is treated as a real event, not as a small warning
 - symlink behavior is checked carefully so a whitelisted path cannot silently point somewhere unsafe
 
-This is a stronger design than many local desktop tools use.
+This gives the application an explicit trust boundary for the GPG executable.
 
 ## `environment_check.py`
 
@@ -43,18 +43,18 @@ The result is split into:
 
 ## Why this matters
 
-These checks are not cosmetic.
+These checks are part of the security posture.
 
-They reduce the chance that the app runs in a weak or broken environment, for example:
+They reduce the chance that the app runs in a weak or broken environment, such as:
 
-- too old GPG
+- outdated GPG
 - unsafe file permissions
 - missing dependencies
 - unencrypted swap on Linux
 
-## Real implementation note
+## Platform Notes
 
-The code is conservative, but still pragmatic.
+The code is conservative without treating every platform limitation as fatal.
 
 Example:
 
