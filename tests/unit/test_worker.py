@@ -6,7 +6,7 @@ import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QEventLoop, QThreadPool, QTimer
+from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QApplication
 
 from gpg_meister.ui.worker import Worker
@@ -33,3 +33,21 @@ def test_worker_completes_without_caller_retaining_reference() -> None:
         time.sleep(0.01)
 
     assert seen == [("result", 123)]
+
+
+def test_worker_can_deliver_result_without_signal_argument() -> None:
+    app = QApplication.instance() or QApplication([])
+    seen: list[object] = []
+
+    worker = Worker(lambda: b"secret", emit_result=False)
+    worker.signals.result.connect(lambda value: seen.append(("unexpected", value)))
+    worker.signals.result_ready.connect(lambda: seen.append(worker.take_result()))
+    QThreadPool.globalInstance().start(worker)
+
+    deadline = time.monotonic() + 5.0
+    while not seen and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+
+    assert seen == [b"secret"]
+    assert worker.take_result() is None

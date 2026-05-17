@@ -20,6 +20,11 @@ from pathlib import Path
 from gpg_meister.storage.paths import AppPaths
 from gpg_meister.storage.permissions import PermissionStatus, is_safe_for_secrets
 
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows
+    resource = None  # type: ignore[assignment]
+
 
 class CheckSeverity(StrEnum):
     WARNING = "warning"
@@ -51,6 +56,7 @@ class CheckResult:
 
 _REQUIRED_VERSION = (2, 2, 0)
 _WARN_VERSION = (2, 4, 0)
+_MIN_MEMLOCK_BYTES = 16 * 1024 * 1024
 
 _REQUIRED_PACKAGES = [
     "cryptography",
@@ -166,13 +172,16 @@ def check_required_packages() -> list[CheckWarning]:
 
 
 def check_mlock() -> bool:
-    """Return True if mlock succeeds on this platform.
+    """Return True if mlock succeeds and the OS limit can cover real secrets.
 
     Uses ctypes.CDLL(None) (the current process's C library) first, which
     works on both glibc and musl libc. Falls back to explicit libc.so.6 for
     older glibc environments where CDLL(None) might not expose mlock.
     """
     if sys.platform == "win32":
+        return False
+    limit = _memlock_hard_limit()
+    if limit is not None and limit < _MIN_MEMLOCK_BYTES:
         return False
     try:
         buf = ctypes.create_string_buffer(64)
@@ -190,6 +199,35 @@ def check_mlock() -> bool:
         return ret == 0
     except (OSError, AttributeError):
         return False
+
+
+def check_memlock_limit() -> list[CheckWarning]:
+    if sys.platform == "win32":
+        return []
+    limit = _memlock_hard_limit()
+    if limit is None or limit >= _MIN_MEMLOCK_BYTES:
+        return []
+    mib = _MIN_MEMLOCK_BYTES // (1024 * 1024)
+    return [
+        CheckWarning(
+            code="memlock_limit_low",
+            message="The OS memlock limit is below "
+            f"{mib} MiB. Large decrypted messages or vault data may remain pageable "
+            "even though small mlock probes can succeed.",
+        )
+    ]
+
+
+def _memlock_hard_limit() -> int | None:
+    if resource is None:
+        return None
+    try:
+        _soft, hard = resource.getrlimit(resource.RLIMIT_MEMLOCK)
+    except (AttributeError, OSError, ValueError):
+        return None
+    if hard == resource.RLIM_INFINITY:
+        return None
+    return int(hard)
 
 
 def check_swap_encryption() -> tuple[bool | None, list[CheckWarning]]:
@@ -215,27 +253,47 @@ def check_swap_encryption() -> tuple[bool | None, list[CheckWarning]]:
     return encrypted, warnings
 
 
-def _is_dm_crypt_device(device: str) -> bool:
-    """Return True if `device` is a dm-crypt target (LUKS or plain).
-
-    Reads /sys/class/block/<dm-N>/dm/uuid without requiring privileges.
-    dm-crypt volumes have a UUID starting with 'CRYPT-'.
-    Also checks /dev/mapper/ prefix as a fallback for non-standard names.
-    """
-    if device.startswith("/dev/mapper/"):
-        return True
+def _is_dm_crypt_device(
+    device: str,
+    *,
+    sys_block_root: Path = Path("/sys/class/block"),
+) -> bool:
+    """Return True if `device` or any parent block device is a dm-crypt target."""
     try:
-        # Resolve /dev/dm-N to the dm block name
-        dev_path = Path(device)
-        # Try reading via sysfs for this device
-        dm_name = dev_path.name  # e.g. "dm-0"
-        uuid_path = Path("/sys/class/block") / dm_name / "dm" / "uuid"
+        block_name = Path(device).resolve().name
+    except OSError:
+        block_name = Path(device).name
+    return _block_chain_has_dm_crypt(block_name, sys_block_root=sys_block_root, seen=set())
+
+
+def _block_chain_has_dm_crypt(
+    block_name: str,
+    *,
+    sys_block_root: Path,
+    seen: set[str],
+) -> bool:
+    if block_name in seen:
+        return False
+    seen.add(block_name)
+    block_path = sys_block_root / block_name
+    uuid_path = block_path / "dm" / "uuid"
+    try:
         if uuid_path.exists():
             uuid = uuid_path.read_text(encoding="utf-8", errors="replace").strip()
-            return uuid.startswith("CRYPT-")
+            if uuid.startswith("CRYPT-"):
+                return True
     except OSError:
-        pass
-    return False
+        return False
+
+    slaves_path = block_path / "slaves"
+    try:
+        slaves = list(slaves_path.iterdir()) if slaves_path.exists() else []
+    except OSError:
+        return False
+    return any(
+        _block_chain_has_dm_crypt(slave.name, sys_block_root=sys_block_root, seen=seen)
+        for slave in slaves
+    )
 
 
 def _check_swap_linux() -> tuple[bool | None, list[CheckWarning]]:
@@ -257,13 +315,12 @@ def _check_swap_linux() -> tuple[bool | None, list[CheckWarning]]:
             continue
         if _is_dm_crypt_device(device):
             continue  # device-mapper crypto target — treat as encrypted
-        
+
         # Whitelist zram devices (swap-in-RAM, no disk persistence).
         if device.startswith("/dev/zram") or "/dev/zram" in device:
             continue
 
-        if not device.startswith("/dev/mapper/"):
-            unencrypted.append(device)
+        unencrypted.append(device)
 
     warnings: list[CheckWarning] = []
     if unencrypted:
@@ -346,6 +403,7 @@ def run_all_checks(
 
     # mlock
     result.mlock_available = check_mlock()
+    result.warnings.extend(check_memlock_limit())
 
     # Swap
     result.swap_encrypted, swap_warnings = check_swap_encryption()
