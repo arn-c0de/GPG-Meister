@@ -273,6 +273,7 @@ class VaultService:
                     associated_data=header_bytes,
                     cipher=cipher,
                 )
+                _zero_bytes_object(manifest_bytes)
                 # Repack with the real ciphertext now that we have it. The header
                 # bytes are deterministic, so the second pack yields the same
                 # AAD bytes used during encryption.
