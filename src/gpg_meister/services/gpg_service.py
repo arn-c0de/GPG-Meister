@@ -165,6 +165,19 @@ def _parse_status(stderr: bytes) -> list[list[str]]:
     return records
 
 
+def _write_all(fd: int, data: bytes | bytearray | memoryview) -> None:
+    view = memoryview(data)
+    try:
+        offset = 0
+        while offset < len(view):
+            written = os.write(fd, view[offset:])
+            if written <= 0:
+                raise OSError("short write to passphrase pipe")
+            offset += written
+    finally:
+        view.release()
+
+
 class GPGService:
     """Encapsulates a configured GnuPG home and binary.
 
@@ -288,12 +301,13 @@ class GPGService:
                 def _write_passphrase() -> None:
                     nonlocal pass_bytes
                     try:
-                        with os.fdopen(fd, "wb", closefd=True) as pass_pipe:
-                            pass_pipe.write(pass_bytes)
-                            pass_pipe.write(b"\n")
+                        _write_all(fd, memoryview(pass_bytes))
+                        _write_all(fd, b"\n")
                     except OSError:
                         pass
                     finally:
+                        with contextlib.suppress(OSError):
+                            os.close(fd)
                         if pass_bytes:
                             zero_mutable_buffer(pass_bytes)
                             pass_bytes = bytearray()
