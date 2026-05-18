@@ -62,7 +62,6 @@ _MIN_MEMLOCK_BYTES = 16 * 1024 * 1024
 _REQUIRED_PACKAGES = [
     "cryptography",
     "argon2",
-    "gnupg",
     "pydantic",
     "msgpack",
     "structlog",

@@ -66,7 +66,7 @@ class PasswordAssessment:
     reason: str | None = None  # set when strength == REJECTED
 
 
-def _normalise(value: str) -> str:
+def normalise_passphrase(value: str) -> str:
     return unicodedata.normalize("NFKC", value)
 
 
@@ -93,7 +93,7 @@ def assess(passphrase: str) -> PasswordAssessment:
     The input is normalised (NFKC) but is otherwise treated opaquely. The function
     never logs or stores the value.
     """
-    normalised = _normalise(passphrase)
+    normalised = normalise_passphrase(passphrase)
 
     if len(normalised) == 0:
         return PasswordAssessment(
