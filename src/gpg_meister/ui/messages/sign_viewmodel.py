@@ -78,7 +78,7 @@ class SignViewModel(QObject):
         self.loading_changed.emit(True)
         data_bytes = self._data.encode()
         fp = self._fingerprint
-        pp_str = get_passphrase()
+        pp_str = get_passphrase().strip()
         from gpg_meister.security.password_policy import normalise_passphrase
         pp_bytes = normalise_passphrase(pp_str).encode()
         del pp_str
