@@ -47,7 +47,7 @@ class DecryptViewModel(QObject):
             return
         self.loading_changed.emit(True)
         ciphertext_bytes = self._ciphertext.encode()
-        pp_str = get_passphrase()
+        pp_str = get_passphrase().strip()
         # Convert to SecureBytes on the UI thread and drop the plain-string
         # reference immediately so it is not captured by the closure below.
         if pp_str:

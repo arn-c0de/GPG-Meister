@@ -85,7 +85,7 @@ class EncryptViewModel(QObject):
         sign_with = self._sign_with
         if self._passphrase:
             from gpg_meister.security.password_policy import normalise_passphrase
-            _pp_raw = normalise_passphrase(self._passphrase).encode()
+            _pp_raw = normalise_passphrase(self._passphrase.strip()).encode()
             pp_secure = SecureBytes.from_bytes(_pp_raw)
             _zero_bytes_object(_pp_raw)
         else:

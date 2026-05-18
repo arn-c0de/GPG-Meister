@@ -154,7 +154,7 @@ class _PassphrasePage(QWizardPage):
         if self._working:
             return False
         vault_path = Path(self.field("vault_path"))
-        pp_raw_text = self._pp_field.text()
+        pp_raw_text = self._pp_field.text().strip()
         if not pp_raw_text:
             self._status_label.setText("Passphrase is required.")
             self._status_label.setStyleSheet("color: #cc0000;")
@@ -367,7 +367,7 @@ class _ResultPage(QWizardPage):
 
         vault_path = Path(self.field("vault_path"))
 
-        pp_raw_text = pp_page.passphrase()
+        pp_raw_text = pp_page.passphrase().strip()
         from gpg_meister.security.password_policy import normalise_passphrase
         pp_norm_text = normalise_passphrase(pp_raw_text)
 
