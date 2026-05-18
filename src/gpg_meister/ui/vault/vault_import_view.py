@@ -142,7 +142,8 @@ class _PassphrasePage(QWizardPage):
         if self._working:
             return False
         vault_path = Path(self.field("vault_path"))
-        pp_text = self._pp_field.text()
+        from gpg_meister.security.password_policy import normalise_passphrase
+        pp_text = normalise_passphrase(self._pp_field.text())
         if not pp_text:
             self._status_label.setText("Passphrase is required.")
             self._status_label.setStyleSheet("color: #cc0000;")
@@ -335,8 +336,9 @@ class _ResultPage(QWizardPage):
 
         vault_path = Path(self.field("vault_path"))
 
-        # Read passphrase, wrap in SecureBytes, and clear str reference immediately.
-        pp_text = pp_page.passphrase()
+        # Read passphrase, normalise, wrap in SecureBytes, and clear str reference.
+        from gpg_meister.security.password_policy import normalise_passphrase
+        pp_text = normalise_passphrase(pp_page.passphrase())
         pp_bytes = pp_text.encode()
         del pp_text
         pp_secure = SecureBytes.from_bytes(pp_bytes)

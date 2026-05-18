@@ -147,7 +147,8 @@ class VaultExportViewModel(QObject):
         target = self._target_path
         desc = self._description
 
-        _master_raw = self._master_passphrase.encode()
+        from gpg_meister.security.password_policy import normalise_passphrase
+        _master_raw = normalise_passphrase(self._master_passphrase).encode()
         master_secure = SecureBytes.from_bytes(_master_raw)
         _zero_bytes_object(_master_raw)
         self._master_passphrase = ""
@@ -157,7 +158,7 @@ class VaultExportViewModel(QObject):
         gpg_secure: dict[str, SecureBytes] = {}
         for fp in fps:
             if fp in self._key_passphrases:
-                _raw = self._key_passphrases[fp].encode()
+                _raw = normalise_passphrase(self._key_passphrases[fp]).encode()
                 gpg_secure[fp] = SecureBytes.from_bytes(_raw)
                 _zero_bytes_object(_raw)
         for fp in fps:

@@ -51,7 +51,8 @@ class DecryptViewModel(QObject):
         # Convert to SecureBytes on the UI thread and drop the plain-string
         # reference immediately so it is not captured by the closure below.
         if pp_str:
-            _pp_raw = pp_str.encode()
+            from gpg_meister.security.password_policy import normalise_passphrase
+            _pp_raw = normalise_passphrase(pp_str).encode()
             pp_secure = SecureBytes.from_bytes(_pp_raw)
             _zero_bytes_object(_pp_raw)
         else:

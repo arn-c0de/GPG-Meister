@@ -104,7 +104,8 @@ class KeyCreateViewModel(QObject):
         self.loading_changed.emit(True)
         # Convert to SecureBytes and drop plain-string references immediately so
         # neither the str nor the intermediate bytes object is captured by the closure.
-        pp_raw = self._passphrase.encode()
+        from gpg_meister.security.password_policy import normalise_passphrase
+        pp_raw = normalise_passphrase(self._passphrase).encode()
         self._passphrase = ""
         self._confirm = ""
         pp_secure = SecureBytes.from_bytes(pp_raw)
