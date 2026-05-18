@@ -41,6 +41,7 @@ class _FilePage(QWizardPage):
         super().__init__()
         self.setTitle("Select vault file")
         self.setSubTitle("Choose the .gpgm vault file to import from.")
+        self._valid_vault = False
         layout = QVBoxLayout(self)
 
         path_row = QHBoxLayout()
@@ -73,32 +74,43 @@ class _FilePage(QWizardPage):
             self._path_field.setText(path)
 
     def _on_path_changed(self, text: str) -> None:
+        self._valid_vault = False
         p = Path(text)
         if not p.exists():
             self._info_label.setText("")
             self._info_label.setStyleSheet("")
+            self.completeChanged.emit()
             return
+            
+        if p.is_dir():
+            self._info_label.setText("Please select a vault file, not a directory.")
+            self._info_label.setStyleSheet("color: #cc0000;")
+            self.completeChanged.emit()
+            return
+
         try:
             with p.open("rb") as fh:
                 data = fh.read(len(MAGIC))
             if data != MAGIC:
-                self._info_label.setText("This does not appear to be a valid GPG Meister vault file.")
+                if p.suffix.lower() == ".sha256":
+                    self._info_label.setText(
+                        "This is a checksum file (.sha256). Please select the main vault file (.gpgm)."
+                    )
+                else:
+                    self._info_label.setText("This does not appear to be a valid GPG Meister vault file.")
                 self._info_label.setStyleSheet("color: #cc0000;")
             else:
                 size_kb = p.stat().st_size // 1024
                 self._info_label.setText(f"Valid vault format detected.  Size: {size_kb} KB")
                 self._info_label.setStyleSheet("color: #006600;")
+                self._valid_vault = True
         except OSError as exc:
             self._info_label.setText(f"Cannot read file: {exc}")
             self._info_label.setStyleSheet("color: #cc0000;")
         self.completeChanged.emit()
 
     def isComplete(self) -> bool:
-        text = self._path_field.text()
-        if not text:
-            return False
-        p = Path(text)
-        return p.exists() and p.is_file()
+        return self._valid_vault
 
 
 class _PassphrasePage(QWizardPage):
@@ -142,25 +154,44 @@ class _PassphrasePage(QWizardPage):
         if self._working:
             return False
         vault_path = Path(self.field("vault_path"))
-        from gpg_meister.security.password_policy import normalise_passphrase
-        pp_text = normalise_passphrase(self._pp_field.text())
-        if not pp_text:
+        pp_raw_text = self._pp_field.text()
+        if not pp_raw_text:
             self._status_label.setText("Passphrase is required.")
             self._status_label.setStyleSheet("color: #cc0000;")
             return False
+
+        from gpg_meister.security.password_policy import normalise_passphrase
+        pp_norm_text = normalise_passphrase(pp_raw_text)
 
         self._status_label.setText("Decrypting vault… (this may take a moment)")
         self._status_label.setStyleSheet("color: #666666;")
         self._set_next_enabled(False)
         self._working = True
 
-        pp_bytes = pp_text.encode()
-        pp_secure = SecureBytes.from_bytes(pp_bytes)
-        _zero_bytes_object(pp_bytes)
+        # Capture both forms if they differ, to support vaults created without normalization.
+        pp_norm_bytes = pp_norm_text.encode("utf-8")
+        pp_norm_secure = SecureBytes.from_bytes(pp_norm_bytes)
+        _zero_bytes_object(pp_norm_bytes)
+
+        pp_raw_secure = None
+        if pp_norm_text != pp_raw_text:
+            pp_raw_bytes = pp_raw_text.encode("utf-8")
+            pp_raw_secure = SecureBytes.from_bytes(pp_raw_bytes)
+            _zero_bytes_object(pp_raw_bytes)
 
         def _do() -> VaultPreview:
-            with pp_secure as pp:
-                return self._vault_svc.preview(source_path=vault_path, master_passphrase=pp)
+            try:
+                with pp_norm_secure as pp:
+                    return self._vault_svc.preview(source_path=vault_path, master_passphrase=pp)
+            except DecryptionError:
+                # If normalized failed, and we have a different raw form, try that.
+                if pp_raw_secure is not None:
+                    with pp_raw_secure as pp:
+                        return self._vault_svc.preview(source_path=vault_path, master_passphrase=pp)
+                raise
+            finally:
+                if pp_raw_secure is not None:
+                    pp_raw_secure.close()
 
         w = Worker(_do)
         w.signals.result.connect(self._on_preview_result)
@@ -336,24 +367,44 @@ class _ResultPage(QWizardPage):
 
         vault_path = Path(self.field("vault_path"))
 
-        # Read passphrase, normalise, wrap in SecureBytes, and clear str reference.
+        pp_raw_text = pp_page.passphrase()
         from gpg_meister.security.password_policy import normalise_passphrase
-        pp_text = normalise_passphrase(pp_page.passphrase())
-        pp_bytes = pp_text.encode()
-        del pp_text
-        pp_secure = SecureBytes.from_bytes(pp_bytes)
-        _zero_bytes_object(pp_bytes)
+        pp_norm_text = normalise_passphrase(pp_raw_text)
+
+        # Capture both forms if they differ.
+        pp_norm_bytes = pp_norm_text.encode("utf-8")
+        pp_norm_secure = SecureBytes.from_bytes(pp_norm_bytes)
+        _zero_bytes_object(pp_norm_bytes)
+
+        pp_raw_secure = None
+        if pp_norm_text != pp_raw_text:
+            pp_raw_bytes = pp_raw_text.encode("utf-8")
+            pp_raw_secure = SecureBytes.from_bytes(pp_raw_bytes)
+            _zero_bytes_object(pp_raw_bytes)
 
         self._log.setPlainText("Importing keys…")
         self._set_finish_enabled(False)
 
         def _do() -> list[str]:
-            with pp_secure as pp:
-                return self._vault_svc.import_keys(
-                    source_path=vault_path,
-                    master_passphrase=pp,
-                    fingerprints=fps,
-                )
+            try:
+                with pp_norm_secure as pp:
+                    return self._vault_svc.import_keys(
+                        source_path=vault_path,
+                        master_passphrase=pp,
+                        fingerprints=fps,
+                    )
+            except DecryptionError:
+                if pp_raw_secure is not None:
+                    with pp_raw_secure as pp:
+                        return self._vault_svc.import_keys(
+                            source_path=vault_path,
+                            master_passphrase=pp,
+                            fingerprints=fps,
+                        )
+                raise
+            finally:
+                if pp_raw_secure is not None:
+                    pp_raw_secure.close()
 
         w = Worker(_do)
         w.signals.result.connect(self._on_import_done)
