@@ -7,6 +7,9 @@ echo "==> Installing system dependencies..."
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
     gpg \
+    python3-pip \
+    python3-venv \
+    pipx \
     libxcb-cursor0 \
     libxcb-icccm4 \
     libxcb-image0 \
@@ -20,13 +23,13 @@ sudo apt-get install -y --no-install-recommends \
 
 # ---------- uv ----------
 if ! command -v uv &>/dev/null; then
-    echo "==> Installing uv via pip (no remote shell script)..."
-    # pip verifies PyPI package hashes; no piped-shell attack surface.
-    python3 -m pip install --user --quiet uv
+    echo "==> Installing uv via pipx (no remote shell script)..."
+    # pipx handles isolated environment for the tool.
+    pipx install uv
     export PATH="$HOME/.local/bin:$PATH"
     if ! command -v uv &>/dev/null; then
-        echo "ERROR: uv still not found after pip install." >&2
-        echo "       Try: python3 -m pip install --user uv  then re-run." >&2
+        echo "ERROR: uv still not found after pipx install." >&2
+        echo "       Try: pipx install uv  then re-run." >&2
         exit 1
     fi
 fi
