@@ -258,13 +258,63 @@ def _read_u32(view: memoryview, offset: int) -> tuple[int, int]:
 def _deserialise_segmented_payload(
     payload: bytearray,
 ) -> tuple[VaultManifest, dict[str, _KeySlice]]:
+    # Heuristic: if the first byte is a msgpack map (0x80-0x8f), this is a legacy
+    # vault without the 4-byte length prefix.
+    first_byte = payload[0]
+    if 0x80 <= first_byte <= 0x8F:
+        # Legacy non-prefixed format.
+        import io
+        try:
+            stream = io.BytesIO(payload)
+            manifest_obj = msgpack.unpack(stream, raw=False)
+            
+            # Extract key material from the manifest dict if present (all-in-manifest format).
+            collected_material: list[tuple[str, bytes, bytes | None]] = []
+            for key_entry in manifest_obj.get("keys", []):
+                if "public_key_armored" in key_entry:
+                    pub = key_entry.pop("public_key_armored").encode("utf-8")
+                    priv_str = key_entry.pop("private_key_armored", None)
+                    priv = priv_str.encode("utf-8") if priv_str else None
+                    collected_material.append((key_entry["fingerprint"], pub, priv))
+
+            manifest = VaultManifest.model_validate(manifest_obj)
+            
+            if collected_material:
+                # Reconstruct segmented payload in-memory so the rest of the 
+                # logic (which expects slices into plaintext) works unchanged.
+                manifest_bytes = _serialise_manifest(manifest)
+                try:
+                    new_payload = bytearray(_U32.pack(len(manifest_bytes)))
+                    new_payload.extend(manifest_bytes)
+                finally:
+                    _zero_bytes_object(manifest_bytes)
+                
+                for fp, pub, priv in collected_material:
+                    _append_key_material(new_payload, fingerprint=fp, public_key=pub, private_key=priv)
+                
+                # Update the original payload bytearray in-place.
+                zero_mutable_buffer(payload)
+                payload.clear()
+                payload.extend(new_payload)
+                zero_mutable_buffer(new_payload)
+                # Fall through to the normal offset-based slice logic below.
+                offset = _U32.size + len(_serialise_manifest(manifest))
+            else:
+                # Segmented-but-no-prefix (if it ever existed).
+                offset = stream.tell()
+
+        except Exception as exc:
+            raise VaultFormatError(f"legacy manifest decoding failed: {exc}") from exc
+    else:
+        view = memoryview(payload)
+        manifest_len, offset = _read_u32(view, 0)
+        manifest_end = offset + manifest_len
+        if manifest_end > len(view):
+            raise VaultFormatError("vault manifest segment is truncated")
+        manifest = _deserialise_manifest(view[offset:manifest_end])
+        offset = manifest_end
+
     view = memoryview(payload)
-    manifest_len, offset = _read_u32(view, 0)
-    manifest_end = offset + manifest_len
-    if manifest_end > len(view):
-        raise VaultFormatError("vault manifest segment is truncated")
-    manifest = _deserialise_manifest(view[offset:manifest_end])
-    offset = manifest_end
     key_slices: dict[str, _KeySlice] = {}
     for _entry in manifest.keys:
         if offset + _FINGERPRINT_BYTES > len(view):
