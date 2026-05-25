@@ -60,6 +60,60 @@ _REQUIRED_GPG_ARGS: tuple[str, ...] = (
     "loopback",
 )
 
+# Minimal environment allow-list for spawned GPG subprocesses. Anything not
+# listed here (notably LD_PRELOAD / LD_LIBRARY_PATH / DYLD_INSERT_LIBRARIES /
+# GNUPGHOME / GPG_AGENT_INFO / PINENTRY_USER_DATA) is dropped so that an
+# attacker who can influence the parent environment cannot inject a dynamic
+# library or alter GPG's behaviour out-of-band. `--homedir` is set explicitly
+# elsewhere; GPG falls back to compiled defaults for anything else.
+_GPG_ENV_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LC_MESSAGES",
+        "LC_NUMERIC",
+        "TZ",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        # Display vars are kept off-list: with --batch --pinentry-mode loopback
+        # GPG never spawns pinentry, so DISPLAY/WAYLAND_DISPLAY/XAUTHORITY are
+        # not needed. Keeping them out also prevents a hijacked DISPLAY from
+        # influencing any GPG helper that might consult it.
+    }
+)
+
+
+def _clean_env() -> dict[str, str]:
+    """Return a minimal environment for GPG subprocesses.
+
+    Drops dynamic-linker variables (`LD_PRELOAD`, `LD_LIBRARY_PATH`,
+    `DYLD_INSERT_LIBRARIES`) and GPG-specific overrides that could subvert
+    `--homedir` or the loopback pinentry policy.
+    """
+    return {k: v for k, v in os.environ.items() if k in _GPG_ENV_ALLOWLIST}
+
+
+@dataclass(frozen=True)
+class _GPGRun:
+    """Result of a single GPG subprocess invocation.
+
+    `status` carries only `[GNUPG:]` lines read from a dedicated status pipe;
+    `stderr` carries only diagnostic text. They are never multiplexed.
+    """
+
+    args: tuple[str, ...]
+    returncode: int
+    stdout: bytes
+    stderr: bytes
+    status: bytes
+
 
 @dataclass(frozen=True)
 class GPGServiceConfig:
@@ -259,41 +313,90 @@ class GPGService:
         input_data: bytes | bytearray | memoryview | None = None,
         passphrase: SecureBytes | bytes | None = None,
         status_fd: bool = False,
-    ) -> subprocess.CompletedProcess[bytes]:
-        """Run GPG with optional byte-only passphrase pipe handling."""
+    ) -> _GPGRun:
+        """Run GPG with optional byte-only passphrase pipe handling.
+
+        When `status_fd=True`, GPG's `[GNUPG:]` status lines are routed to a
+        dedicated, app-owned pipe rather than multiplexed onto stderr. This
+        prevents an attacker-controlled diagnostic line on stderr from being
+        mistaken for a real status record by `_parse_status`.
+        """
         self._assert_binary_not_swapped()
         pass_read: int | None = None
         pass_write: int | None = None
+        status_read: int | None = None
+        status_write: int | None = None
         pass_bytes = bytearray()
         pass_writer: threading.Thread | None = None
+        status_reader: threading.Thread | None = None
+        status_buf = bytearray()
         cmd = self._base_cmd()
         if status_fd:
-            cmd.extend(["--status-fd", "2"])
+            status_read, status_write = os.pipe()
+            os.set_inheritable(status_write, True)
+            cmd.extend(["--status-fd", str(status_write)])
         if passphrase is not None:
             pass_bytes = (
                 bytearray(passphrase.view())
                 if isinstance(passphrase, SecureBytes)
                 else bytearray(passphrase)
             )
-            if 0x0A in pass_bytes or 0x0D in pass_bytes:
-                raise GPGValidationError("passphrase must not contain newline characters")
+            # Reject framing bytes (NUL terminates many C string paths inside
+            # pinentry helpers; CR/LF would prematurely close the
+            # `--passphrase-fd` line) plus other ASCII control characters that
+            # have no legitimate place in a passphrase.
+            for _b in (0x00, 0x0A, 0x0D):
+                if _b in pass_bytes:
+                    raise GPGValidationError(
+                        "passphrase must not contain NUL or newline characters"
+                    )
             reject_passphrase_in_argv(cmd, pass_bytes)
             pass_read, pass_write = os.pipe()
             os.set_inheritable(pass_read, True)
             cmd.extend(["--passphrase-fd", str(pass_read)])
         cmd.extend(args)
         reject_passphrase_in_argv(cmd, pass_bytes)
+        inherited_fds: tuple[int, ...] = tuple(
+            fd for fd in (pass_read, status_write) if fd is not None
+        )
         try:
             proc = subprocess.Popen(  # noqa: S603
                 cmd,
                 stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                pass_fds=(pass_read,) if pass_read is not None else (),
+                pass_fds=inherited_fds,
+                env=_clean_env(),
+                close_fds=True,
             )
             if pass_read is not None:
                 os.close(pass_read)
                 pass_read = None
+            if status_write is not None:
+                os.close(status_write)
+                status_write = None
+            if status_read is not None:
+                sfd = status_read
+                status_read = None
+
+                def _drain_status() -> None:
+                    try:
+                        while True:
+                            chunk = os.read(sfd, 4096)
+                            if not chunk:
+                                return
+                            # Bound the buffer so a runaway GPG can't OOM us.
+                            if len(status_buf) + len(chunk) > 1 * 1024 * 1024:
+                                return
+                            status_buf.extend(chunk)
+                    except OSError:
+                        return
+                    finally:
+                        with contextlib.suppress(OSError):
+                            os.close(sfd)
+
+                status_reader = threading.Thread(target=_drain_status, daemon=True)
+                status_reader.start()
             if pass_write is not None:
                 fd = pass_write
                 pass_write = None
@@ -325,7 +428,15 @@ class GPGService:
                 raise GPGProcessError(
                     f"GPG operation timed out after {self._config.timeout_seconds}s"
                 ) from None
-            return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+            if status_reader is not None:
+                status_reader.join(timeout=1.0)
+            return _GPGRun(
+                args=tuple(cmd),
+                returncode=proc.returncode,
+                stdout=stdout or b"",
+                stderr=stderr or b"",
+                status=bytes(status_buf),
+            )
         finally:
             if pass_read is not None:
                 with contextlib.suppress(OSError):
@@ -333,8 +444,16 @@ class GPGService:
             if pass_write is not None:
                 with contextlib.suppress(OSError):
                     os.close(pass_write)
+            if status_read is not None:
+                with contextlib.suppress(OSError):
+                    os.close(status_read)
+            if status_write is not None:
+                with contextlib.suppress(OSError):
+                    os.close(status_write)
             if pass_writer is not None:
                 pass_writer.join(timeout=1.0)
+            if status_reader is not None and status_reader.is_alive():
+                status_reader.join(timeout=1.0)
             if pass_bytes:
                 zero_mutable_buffer(pass_bytes)
 
@@ -413,7 +532,7 @@ class GPGService:
         if proc.returncode != 0:
             raise GPGProcessError(f"GPG key generation failed: {_decode_output(proc.stderr)[:200]}")
         fp = ""
-        for record in _parse_status(proc.stderr):
+        for record in _parse_status(proc.status):
             if record and record[0] == "KEY_CREATED" and len(record) >= 3:
                 fp = record[2]
         if not fp:
@@ -468,7 +587,7 @@ class GPGService:
         proc = self._run_gpg(["--import"], input_data=input_data, status_fd=True)
         fingerprints = [
             record[2]
-            for record in _parse_status(proc.stderr)
+            for record in _parse_status(proc.status)
             if record and record[0] == "IMPORT_OK" and len(record) > 2
         ]
         if not fingerprints:
@@ -566,15 +685,17 @@ class GPGService:
             passphrase=passphrase,
             status_fd=True,
         )
-        status_text = _decode_output(proc.stderr)
+        status_text = _decode_output(proc.status)
+        stderr_text = _decode_output(proc.stderr)
         if proc.returncode != 0:
-            lowered = status_text.lower()
-            if "bad_passphrase" in lowered or "bad passphrase" in lowered or "no secret key" in lowered:
-                raise GPGPassphraseError(f"decryption failed: {status_text[:200]}")
-            raise GPGProcessError(f"decryption failed: {status_text[:200]}")
+            combined = (status_text + "\n" + stderr_text).lower()
+            detail = (stderr_text or status_text)[:200]
+            if "bad_passphrase" in combined or "bad passphrase" in combined or "no secret key" in combined:
+                raise GPGPassphraseError(f"decryption failed: {detail}")
+            raise GPGProcessError(f"decryption failed: {detail}")
         signer: str | None = None
         valid = False
-        for record in _parse_status(proc.stderr):
+        for record in _parse_status(proc.status):
             if record and record[0] == "VALIDSIG" and len(record) > 1:
                 signer = record[1]
                 valid = True
@@ -639,7 +760,7 @@ class GPGService:
         valid = proc.returncode == 0
         fp: str | None = None
         signed_at: datetime | None = None
-        for record in _parse_status(proc.stderr):
+        for record in _parse_status(proc.status):
             if record and record[0] == "VALIDSIG" and len(record) > 1:
                 fp = record[1]
                 for token in record[2:]:
@@ -661,6 +782,7 @@ class GPGService:
             capture_output=True,
             text=True,
             timeout=self._config.timeout_seconds,
+            env=_clean_env(),
         )
         first_line = (proc.stdout or "").splitlines()[0] if proc.stdout else ""
         parts = first_line.strip().split(" ")
