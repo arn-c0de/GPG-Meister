@@ -42,11 +42,7 @@ from typing import Any, Final
 
 from gpg_meister.storage.file_lock import FileLock
 from gpg_meister.storage.permissions import ensure_dir, reject_symlink
-from gpg_meister.storage.secret_keys import (
-    FORBIDDEN_KEYS,
-    contains_secret_marker,
-    is_forbidden_key,
-)
+from gpg_meister.storage.secret_keys import FORBIDDEN_KEYS, find_secret_violation
 
 _log = logging.getLogger(__name__)
 
@@ -109,28 +105,17 @@ def _actor() -> str:
     return os.environ.get("USERNAME") or "unknown"
 
 
+_RESERVED_ENVELOPE_KEYS: Final[frozenset[str]] = frozenset(
+    {"event", "ts", "actor", "outcome", "prev_hash"}
+)
+
+
 def _check_payload(event: str, payload: Mapping[str, Any]) -> None:
     if event not in ALLOWED_EVENTS:
         raise AuditLogError(f"event {event!r} is not in the audit whitelist")
-    _check_payload_keys(payload, reserved=frozenset({"event", "ts", "actor", "outcome", "prev_hash"}))
-
-
-def _check_payload_keys(obj: Mapping[str, Any], *, reserved: frozenset[str] = frozenset()) -> None:
-    for key, value in obj.items():
-        if is_forbidden_key(key):
-            raise AuditLogError(f"forbidden key {key!r} in audit payload")
-        if reserved and key in reserved:
-            raise AuditLogError(f"key {key!r} is reserved for the audit envelope")
-        if contains_secret_marker(value):
-            raise AuditLogError(f"value of key {key!r} looks like secret key material")
-        if isinstance(value, dict):
-            _check_payload_keys(value)
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                if isinstance(item, dict):
-                    _check_payload_keys(item)
-                elif contains_secret_marker(item):
-                    raise AuditLogError(f"list under key {key!r} contains secret key material")
+    violation = find_secret_violation(dict(payload), reserved=_RESERVED_ENVELOPE_KEYS)
+    if violation is not None:
+        raise AuditLogError(violation)
 
 
 def _serialise(record: Mapping[str, Any]) -> str:

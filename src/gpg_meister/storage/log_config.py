@@ -22,7 +22,7 @@ import structlog
 from structlog.types import EventDict, WrappedLogger
 
 from gpg_meister.storage.audit_log import ALLOWED_EVENTS as _AUDIT_EVENT_NAMES
-from gpg_meister.storage.secret_keys import contains_secret_marker, is_forbidden_key
+from gpg_meister.storage.secret_keys import redact_secrets
 
 _REDACTED = "[REDACTED]"
 
@@ -30,22 +30,6 @@ _REDACTED = "[REDACTED]"
 # them. The set itself lives in `audit_log` (its single source of truth, used
 # there to *accept* events); imported here so the diagnostic guard that
 # *rejects* them can never drift out of sync.
-
-
-def _redact(value: Any) -> Any:
-    """Recursively redact deny-listed keys and secret-looking string values."""
-    if isinstance(value, dict):
-        out: dict[Any, Any] = {}
-        for key, val in value.items():
-            if (isinstance(key, str) and is_forbidden_key(key)) or contains_secret_marker(val):
-                out[key] = _REDACTED
-            else:
-                out[key] = _redact(val)
-        return out
-    if isinstance(value, (list, tuple)):
-        redacted = [_REDACTED if contains_secret_marker(item) else _redact(item) for item in value]
-        return type(value)(redacted) if isinstance(value, tuple) else redacted
-    return value
 
 
 def sensitive_data_filter(
@@ -56,11 +40,13 @@ def sensitive_data_filter(
     A deny-listed key (matched case-insensitively by exact name) is redacted
     regardless of value, and any string value carrying a PGP armor header is
     redacted regardless of its key — recursively through nested dicts and lists
-    so a secret one level deep cannot slip through (L9).
+    so a secret one level deep cannot slip through (L9). The traversal lives in
+    :func:`gpg_meister.storage.secret_keys.redact_secrets`.
     """
-    redacted = _redact(dict(event_dict))
-    event_dict.clear()
-    event_dict.update(redacted)
+    redacted = redact_secrets(dict(event_dict), placeholder=_REDACTED)
+    if isinstance(redacted, dict):
+        event_dict.clear()
+        event_dict.update(redacted)
     return event_dict
 
 

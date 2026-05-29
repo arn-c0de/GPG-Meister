@@ -83,6 +83,12 @@ def test_nested_pgp_block_in_list_redacted() -> None:
     assert result["items"][0]["body"] == _REDACTED  # type: ignore[index]
 
 
+def test_pgp_block_in_nested_list_redacted() -> None:
+    block = "-----BEGIN PGP MESSAGE-----\nx\n-----END PGP MESSAGE-----"
+    result = _apply({"event": "test", "rows": [[block]]})
+    assert result["rows"][0][0] == _REDACTED  # type: ignore[index]
+
+
 def test_pgp_message_block_redacted() -> None:
     payload = "-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----"
     result = _apply({"event": "test", "content": payload})
