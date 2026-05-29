@@ -61,9 +61,15 @@ def test_pgp_private_key_block_redacted() -> None:
 
 
 @pytest.mark.parametrize("key", ["Passphrase", "master_passphrase", "privKey"])
-def test_deny_list_is_case_insensitive_and_substring(key: str) -> None:
+def test_deny_list_is_case_insensitive(key: str) -> None:
     result = _apply({"event": "test", key: "supersecret"})
     assert result[key] == _REDACTED
+
+
+@pytest.mark.parametrize("key", ["including_secret", "has_private_key", "passphrase_strength"])
+def test_metadata_flags_mentioning_secrets_not_redacted(key: str) -> None:
+    result = _apply({"event": "test", key: 3})
+    assert result[key] == 3
 
 
 def test_nested_sensitive_key_redacted() -> None:

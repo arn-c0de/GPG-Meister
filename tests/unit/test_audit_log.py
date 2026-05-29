@@ -303,8 +303,15 @@ def test_dropped_records_counter_surfaces_write_failures(tmp_path: Path) -> None
     log.close()
 
 
-def test_forbidden_key_matching_is_case_insensitive_and_substring(tmp_path: Path) -> None:
+def test_forbidden_key_matching_is_case_insensitive(tmp_path: Path) -> None:
     with AuditLog(tmp_path / "audit.log") as log:
         for bad_key in ("Passphrase", "master_passphrase", "priv_key"):
             with pytest.raises(AuditLogError, match="forbidden"):
                 log.emit("key_generated", **{bad_key: "x"})
+
+
+def test_metadata_flags_mentioning_secrets_are_allowed(tmp_path: Path) -> None:
+    # Boolean/metadata keys that merely *mention* a secret stem must not be
+    # redacted as if they held the secret itself.
+    with AuditLog(tmp_path / "audit.log") as log:
+        log.emit("key_deleted", fingerprint="A", including_secret=True, has_private_key=False)
