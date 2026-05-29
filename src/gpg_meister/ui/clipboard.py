@@ -2,10 +2,33 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PySide6.QtCore import QByteArray, QMimeData, QTimer
 from PySide6.QtWidgets import QApplication
 
-_ACTIVE_TIMERS: list[QTimer] = []
+
+@dataclass
+class _PendingClear:
+    timer: QTimer
+    snapshot: str
+
+
+# Pending auto-clear entries keyed nothing — a flat list is enough. Each entry
+# remembers the copied text so a flush only clears the clipboard if it still
+# holds *our* secret (we never wipe whatever the user copied afterwards).
+_PENDING: list[_PendingClear] = []
+_quit_handler_installed = False
+
+# Application-wide default auto-clear delay, set once at startup from the user's
+# config so call sites that do not thread the setting still honour it.
+_default_clear_seconds = 60
+
+
+def set_default_clear_seconds(seconds: int) -> None:
+    """Set the clipboard auto-clear delay used when a caller passes none."""
+    global _default_clear_seconds
+    _default_clear_seconds = max(0, seconds)
 
 _SENSITIVE_MIME_FLAGS: tuple[tuple[str, bytes], ...] = (
     ("x-kde-passwordManagerHint", b"secret"),
@@ -37,26 +60,68 @@ def set_sensitive_text(text: str) -> bool:
     return True
 
 
-def copy_text(text: str, *, clear_after_seconds: int = 60) -> None:
-    """Copy text and schedule an independent per-copy clear timer."""
+def _clear_if_matches(snapshot: str) -> None:
+    """Clear the clipboard only if it still holds the given snapshot."""
+    cb = QApplication.clipboard()
+    if cb is not None and cb.text() == snapshot:
+        cb.clear()
+
+
+def copy_text(text: str, *, clear_after_seconds: int | None = None) -> None:
+    """Copy text and schedule an independent per-copy clear timer.
+
+    When ``clear_after_seconds`` is None the application-wide default (set from
+    the user's config via :func:`set_default_clear_seconds`) is used, so call
+    sites that do not thread the config still honour it.
+    """
     if not set_sensitive_text(text):
         return
+    install_quit_handler()
+    if clear_after_seconds is None:
+        clear_after_seconds = _default_clear_seconds
     if clear_after_seconds <= 0:
         return
     snapshot = text
     timer = QTimer()
     timer.setSingleShot(True)
-    _ACTIVE_TIMERS.append(timer)
+    entry = _PendingClear(timer=timer, snapshot=snapshot)
+    _PENDING.append(entry)
 
     def _clear() -> None:
         try:
-            cb = QApplication.clipboard()
-            if cb is not None and cb.text() == snapshot:
-                cb.clear()
+            _clear_if_matches(snapshot)
         finally:
-            if timer in _ACTIVE_TIMERS:
-                _ACTIVE_TIMERS.remove(timer)
+            if entry in _PENDING:
+                _PENDING.remove(entry)
             timer.deleteLater()
 
     timer.timeout.connect(_clear)
     timer.start(clear_after_seconds * 1000)
+
+
+def flush_pending_clears() -> None:
+    """Immediately clear any clipboard secret we still own and cancel timers.
+
+    Wired to ``QApplication.aboutToQuit`` so a quit (or crash-free shutdown)
+    before a timer fires does not leave decrypted plaintext or key material on
+    the system clipboard (M3). Safe to call repeatedly.
+    """
+    while _PENDING:
+        entry = _PENDING.pop()
+        entry.timer.stop()
+        try:
+            _clear_if_matches(entry.snapshot)
+        finally:
+            entry.timer.deleteLater()
+
+
+def install_quit_handler() -> None:
+    """Connect :func:`flush_pending_clears` to ``QApplication.aboutToQuit`` once."""
+    global _quit_handler_installed
+    if _quit_handler_installed:
+        return
+    app = QApplication.instance()
+    if app is None:
+        return
+    app.aboutToQuit.connect(flush_pending_clears)
+    _quit_handler_installed = True
