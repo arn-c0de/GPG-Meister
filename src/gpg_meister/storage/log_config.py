@@ -21,29 +21,7 @@ from typing import Any
 import structlog
 from structlog.types import EventDict, WrappedLogger
 
-_DENY_LIST: frozenset[str] = frozenset(
-    {
-        "passphrase",
-        "password",
-        "secret",
-        "private_key",
-        "private_key_armored",
-        "armored_private",
-        "plaintext",
-        "decrypted",
-        "vault_key",
-        "derived_key",
-        "salt",
-        "pin",
-        "token",
-    }
-)
-
-_CONTENT_TRIGGERS: tuple[str, ...] = (
-    "-----BEGIN PGP PRIVATE KEY BLOCK-----",
-    "-----BEGIN PGP SECRET KEY BLOCK-----",
-    "-----BEGIN PGP MESSAGE-----",
-)
+from gpg_meister.storage.secret_keys import contains_secret_marker, is_forbidden_key
 
 _REDACTED = "[REDACTED]"
 
@@ -71,17 +49,35 @@ _AUDIT_EVENT_NAMES: frozenset[str] = frozenset(
 )
 
 
+def _redact(value: Any) -> Any:
+    """Recursively redact deny-listed keys and secret-looking string values."""
+    if isinstance(value, dict):
+        out: dict[Any, Any] = {}
+        for key, val in value.items():
+            if (isinstance(key, str) and is_forbidden_key(key)) or contains_secret_marker(val):
+                out[key] = _REDACTED
+            else:
+                out[key] = _redact(val)
+        return out
+    if isinstance(value, (list, tuple)):
+        redacted = [_REDACTED if contains_secret_marker(item) else _redact(item) for item in value]
+        return type(value)(redacted) if isinstance(value, tuple) else redacted
+    return value
+
+
 def sensitive_data_filter(
     _logger: WrappedLogger, _method: str, event_dict: EventDict
 ) -> EventDict:
-    """Redact sensitive fields from the event dictionary."""
-    for key in list(event_dict.keys()):
-        if key in _DENY_LIST:
-            event_dict[key] = _REDACTED
-            continue
-        value = event_dict.get(key)
-        if isinstance(value, str) and any(t in value for t in _CONTENT_TRIGGERS):
-            event_dict[key] = _REDACTED
+    """Redact sensitive fields from the event dictionary, at every nesting depth.
+
+    A deny-listed key (matched case-insensitively, substring-aware) is redacted
+    regardless of value, and any string value carrying a PGP armor header is
+    redacted regardless of its key — recursively through nested dicts and lists
+    so a secret one level deep cannot slip through (L9).
+    """
+    redacted = _redact(dict(event_dict))
+    event_dict.clear()
+    event_dict.update(redacted)
     return event_dict
 
 

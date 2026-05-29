@@ -60,6 +60,23 @@ def test_pgp_private_key_block_redacted() -> None:
     assert result["data"] == _REDACTED
 
 
+@pytest.mark.parametrize("key", ["Passphrase", "master_passphrase", "privKey"])
+def test_deny_list_is_case_insensitive_and_substring(key: str) -> None:
+    result = _apply({"event": "test", key: "supersecret"})
+    assert result[key] == _REDACTED
+
+
+def test_nested_sensitive_key_redacted() -> None:
+    result = _apply({"event": "test", "ctx": {"inner": {"passphrase": "hunter2"}}})
+    assert result["ctx"]["inner"]["passphrase"] == _REDACTED  # type: ignore[index]
+
+
+def test_nested_pgp_block_in_list_redacted() -> None:
+    block = "-----BEGIN PGP MESSAGE-----\nx\n-----END PGP MESSAGE-----"
+    result = _apply({"event": "test", "items": [{"body": block}]})
+    assert result["items"][0]["body"] == _REDACTED  # type: ignore[index]
+
+
 def test_pgp_message_block_redacted() -> None:
     payload = "-----BEGIN PGP MESSAGE-----\nencrypted\n-----END PGP MESSAGE-----"
     result = _apply({"event": "test", "content": payload})
