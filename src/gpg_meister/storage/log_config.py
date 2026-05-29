@@ -70,7 +70,7 @@ def sensitive_data_filter(
 ) -> EventDict:
     """Redact sensitive fields from the event dictionary, at every nesting depth.
 
-    A deny-listed key (matched case-insensitively, substring-aware) is redacted
+    A deny-listed key (matched case-insensitively by exact name) is redacted
     regardless of value, and any string value carrying a PGP armor header is
     redacted regardless of its key — recursively through nested dicts and lists
     so a secret one level deep cannot slip through (L9).

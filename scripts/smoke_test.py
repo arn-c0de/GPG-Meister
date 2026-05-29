@@ -13,7 +13,6 @@ Run with:    uv run python scripts/smoke_test.py
 from __future__ import annotations
 
 import hashlib
-import os
 import shutil
 import subprocess
 import sys
@@ -175,7 +174,7 @@ def run() -> int:
         # encryption subkey so encrypt() has something usable.
         rep.step("add encryption subkey to RSA primary")
         try:
-            subprocess.run(
+            subprocess.run(  # noqa: S603 — fixed argv, gpg_bin is the resolved trusted binary
                 [
                     gpg_bin,
                     "--homedir",

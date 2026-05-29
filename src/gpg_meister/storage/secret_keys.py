@@ -2,9 +2,11 @@
 
 Both the audit log and the diagnostic log must refuse to persist secret
 material. Keeping the deny-list in one place means a key name added here is
-honoured by every sink at once, and the matching is case-insensitive and
-substring-aware so near-miss names (``master_passphrase``, ``Passphrase``,
-``priv_key``) cannot slip past redaction.
+honoured by every sink at once. Matching is case-insensitive and uses an
+*exact* match against a curated set that enumerates the real compound names
+(``master_passphrase``, ``priv_key``, …). Exact — not substring — matching is
+deliberate: see the comment on ``FORBIDDEN_KEYS`` below for why substring
+matching over-redacts legitimate metadata flags.
 """
 
 from __future__ import annotations
