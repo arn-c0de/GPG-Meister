@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from gpg_meister.models.message import EncryptResult
@@ -41,7 +43,6 @@ class EncryptViewModel(QObject):
         self._plaintext = ""
         self._recipient_fps: list[str] = []
         self._sign_with: str | None = None
-        self._passphrase = ""
         self._trust_confirmed: bool = False
 
     def load_keys(self) -> None:
@@ -63,9 +64,6 @@ class EncryptViewModel(QObject):
     def set_sign_with(self, fingerprint: str | None) -> None:
         self._sign_with = fingerprint
 
-    def set_passphrase(self, value: str) -> None:
-        self._passphrase = value
-
     def set_trust_confirmed(self, confirmed: bool) -> None:
         self._trust_confirmed = confirmed
 
@@ -76,21 +74,25 @@ class EncryptViewModel(QObject):
             and self._trust_confirmed
         )
 
-    def submit(self) -> None:
+    def submit(self, get_passphrase: Callable[[], str] | None = None) -> None:
         if not self.can_submit():
             return
         self.loading_changed.emit(True)
         plaintext_bytes = self._plaintext.encode()
         fps = list(self._recipient_fps)
         sign_with = self._sign_with
-        if self._passphrase:
+        # Read the signing passphrase once, here on the UI thread, and convert
+        # it to SecureBytes immediately — it is never stored on the ViewModel,
+        # mirroring DecryptViewModel so a plaintext copy does not linger (L7).
+        pp_str = get_passphrase().strip() if get_passphrase is not None else ""
+        if pp_str:
             from gpg_meister.security.password_policy import normalise_passphrase
-            _pp_raw = normalise_passphrase(self._passphrase.strip()).encode()
+            _pp_raw = normalise_passphrase(pp_str).encode()
             pp_secure = SecureBytes.from_bytes(_pp_raw)
             _zero_bytes_object(_pp_raw)
         else:
             pp_secure = None
-        self._passphrase = ""
+        del pp_str
         trust = self._trust_confirmed
         self._trust_confirmed = False
 

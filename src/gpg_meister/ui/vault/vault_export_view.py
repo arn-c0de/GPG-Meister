@@ -162,23 +162,14 @@ class VaultExportView(QWidget):
 
     # ------------------------------------------------------------------ keys
 
-    def _on_keys_loaded(self, keys: list[KeyInfo]) -> None:
-        self._key_list.clear()
-        for key in keys:
-            item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, key.fingerprint)
-            item.setData(Qt.ItemDataRole.UserRole + 1, key.is_stub)
-            self._refresh_item_text(item, key.fingerprint, unlocked=False, is_stub=key.is_stub)
-            self._key_list.addItem(item)
+    # The display name is stored in this data role so prefix changes never
+    # corrupt it (the previous approach sliced it back out of the item text).
+    _NAME_ROLE = Qt.ItemDataRole.UserRole + 2
 
     def _refresh_item_text(
         self, item: QListWidgetItem, fp: str, *, unlocked: bool, is_stub: bool
     ) -> None:
-        # Look up display name from the list itself (stored in UserRole data context).
-        # Fall back to a safe short fingerprint label.
-        raw = item.text()
-        # Strip any previous prefix (first 2 chars are prefix + space).
-        name_part = raw[2:] if len(raw) > 2 and raw[1] == " " else raw
+        name_part = item.data(self._NAME_ROLE) or fp[-16:]
 
         if is_stub:
             prefix = "☁ "  # ☁
@@ -216,10 +207,11 @@ class VaultExportView(QWidget):
         is_stub = key.is_stub
         prefix = "☁ " if is_stub else "\U0001f512 "
         color = _COLOR_STUB if is_stub else _COLOR_LOCKED
+        item.setData(self._NAME_ROLE, name_part)
         item.setText(prefix + name_part)
         item.setForeground(color)
 
-    def _on_keys_loaded(self, keys: list[KeyInfo]) -> None:  # type: ignore[override]
+    def _on_keys_loaded(self, keys: list[KeyInfo]) -> None:
         self._key_list.clear()
         for key in keys:
             item = QListWidgetItem()

@@ -23,10 +23,10 @@ from PySide6.QtWidgets import (
 )
 
 from gpg_meister.models.vault import VaultKeyEntry
-from gpg_meister.security.errors import DecryptionError, VaultFormatError
+from gpg_meister.security.errors import DecryptionError
 from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.security.vault_format import MAGIC
-from gpg_meister.services.vault_service import VaultChecksumMismatchError, VaultPreview, VaultService
+from gpg_meister.services.vault_service import VaultPreview, VaultService
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 from gpg_meister.ui.worker import Worker
 
@@ -81,7 +81,7 @@ class _FilePage(QWizardPage):
             self._info_label.setStyleSheet("")
             self.completeChanged.emit()
             return
-            
+
         if p.is_dir():
             self._info_label.setText("Please select a vault file, not a directory.")
             self._info_label.setStyleSheet("color: #cc0000;")
@@ -104,8 +104,9 @@ class _FilePage(QWizardPage):
                 self._info_label.setText(f"Valid vault format detected.  Size: {size_kb} KB")
                 self._info_label.setStyleSheet("color: #006600;")
                 self._valid_vault = True
-        except OSError as exc:
-            self._info_label.setText(f"Cannot read file: {exc}")
+        except OSError:
+            # Do not echo the raw OSError (it embeds the full path) into the UI.
+            self._info_label.setText("Cannot read the selected file. Check that it exists and is readable.")
             self._info_label.setStyleSheet("color: #cc0000;")
         self.completeChanged.emit()
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QHideEvent
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -34,6 +36,12 @@ class DecryptView(QWidget):
         self._clipboard_clear_seconds = clipboard_clear_seconds
         self._build_ui()
         self._connect_signals()
+        # Auto-clear the revealed plaintext after the same delay used for the
+        # clipboard, so decrypted text does not linger on screen / in the widget
+        # buffer for the whole session (L8). 0 disables, matching clipboard UX.
+        self._output_clear_timer = QTimer(self)
+        self._output_clear_timer.setSingleShot(True)
+        self._output_clear_timer.timeout.connect(self._clear_output)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -135,6 +143,8 @@ class DecryptView(QWidget):
             text = repr(result.plaintext)
         self._output.setPlainText(text)
         self._btn_copy_output.setEnabled(True)
+        if self._clipboard_clear_seconds > 0:
+            self._output_clear_timer.start(self._clipboard_clear_seconds * 1000)
 
         if result.signature_status.is_present:
             from gpg_meister.models.key_info import TrustLevel
@@ -166,10 +176,20 @@ class DecryptView(QWidget):
     def _clear(self) -> None:
         self._ciphertext.clear()
         self._passphrase.clear()
+        self._clear_output()
+        self._error_label.hide()
+
+    def _clear_output(self) -> None:
+        """Wipe the revealed plaintext (auto-clear timer, hide, or Clear button)."""
+        self._output_clear_timer.stop()
         self._output.clear()
         self._signer_label.hide()
-        self._error_label.hide()
         self._btn_copy_output.setEnabled(False)
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        # Scrub the decrypted plaintext when the tab/window is hidden or closed.
+        self._clear_output()
+        super().hideEvent(event)
 
     def _copy_output(self) -> None:
         text = self._output.toPlainText()

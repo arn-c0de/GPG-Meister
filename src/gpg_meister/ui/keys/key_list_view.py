@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QInputDialog,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -23,7 +22,6 @@ from PySide6.QtWidgets import (
 )
 
 from gpg_meister.models.key_info import KeyInfo
-from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.ui.keys.key_create_view import KeyCreateDialog
 from gpg_meister.ui.keys.key_detail_view import KeyDetailView
 from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel

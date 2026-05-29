@@ -26,10 +26,18 @@ class PassphraseField(QWidget):
 
     passphrase_changed: Signal = Signal()
 
+    # Seconds the passphrase stays visible after pressing "Show" before it is
+    # automatically re-masked, limiting shoulder-surfing exposure.
+    _REVEAL_TIMEOUT_MS = 10_000
+
     def __init__(self, parent: QWidget | None = None, *, show_strength: bool = True) -> None:
         super().__init__(parent)
         self._show_strength = show_strength
         self._build_ui()
+        self._reveal_timer = QTimer(self)
+        self._reveal_timer.setSingleShot(True)
+        self._reveal_timer.setInterval(self._REVEAL_TIMEOUT_MS)
+        self._reveal_timer.timeout.connect(lambda: self._toggle_btn.setChecked(False))
 
     def _build_ui(self) -> None:
         # Debounce timer: delay strength assessment by 300 ms so assess() is not
@@ -81,9 +89,12 @@ class PassphraseField(QWidget):
         if checked:
             self._field.setEchoMode(QLineEdit.EchoMode.Normal)
             self._toggle_btn.setText("Hide")
+            # Auto-revert to masked so a revealed passphrase is not left on screen.
+            self._reveal_timer.start()
         else:
             self._field.setEchoMode(QLineEdit.EchoMode.Password)
             self._toggle_btn.setText("Show")
+            self._reveal_timer.stop()
 
     def _on_text_changed(self, text: str) -> None:
         self.passphrase_changed.emit()
@@ -123,7 +134,18 @@ class PassphraseField(QWidget):
         return self._field.text()
 
     def clear(self) -> None:
+        # Best-effort overwrite of the visible buffer before clearing, then
+        # re-mask. Qt's QString backing store cannot be truly zeroed (documented
+        # SecureBytes limitation), so this only narrows the residency window.
+        current = self._field.text()
+        if current:
+            self._field.setText("•" * len(current))
         self._field.clear()
+        self._reveal_timer.stop()
+        if self._toggle_btn.isChecked():
+            self._toggle_btn.setChecked(False)
+        else:
+            self._field.setEchoMode(QLineEdit.EchoMode.Password)
 
     def setPlaceholderText(self, text: str) -> None:
         self._field.setPlaceholderText(text)
