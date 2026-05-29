@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, QThreadPool, Signal
+from PySide6.QtCore import QObject, Signal
 
 from gpg_meister.models.message import SignResult
 from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.message_service import MessageService
+from gpg_meister.ui.operation_viewmodel import OperationViewModel
 from gpg_meister.ui.worker import Worker
 
 
-class SignViewModel(QObject):
+class SignViewModel(OperationViewModel):
     """Manages sign-tab state.
 
     Signals
@@ -24,9 +25,6 @@ class SignViewModel(QObject):
     keys_loaded           Available private keys for signer selection.
     """
 
-    operation_succeeded: Signal = Signal(object)
-    operation_failed: Signal = Signal(str)
-    loading_changed: Signal = Signal(bool)
     keys_loaded: Signal = Signal(list)
 
     def __init__(
@@ -38,7 +36,6 @@ class SignViewModel(QObject):
         super().__init__(parent)
         self._svc = message_service
         self._key_svc = key_service
-        self._pool = QThreadPool.globalInstance()
         self._data = ""
         self._fingerprint = ""
         self._passphrase_non_empty: bool = False
@@ -90,18 +87,4 @@ class SignViewModel(QObject):
             with pp_secure as pp:
                 return self._svc.sign(data_bytes, fingerprint=fp, passphrase=pp, detached=detached)
 
-        w = Worker(_do)
-        w.signals.result.connect(self._on_success)
-        w.signals.error.connect(self._on_error)
-        w.signals.finished.connect(self._on_finished)
-        self._pool.start(w)
-
-    def _on_success(self, result: object) -> None:
-        if isinstance(result, SignResult):
-            self.operation_succeeded.emit(result)
-
-    def _on_error(self, msg: str) -> None:
-        self.operation_failed.emit(msg)
-
-    def _on_finished(self) -> None:
-        self.loading_changed.emit(False)
+        self._run(_do, expect=SignResult)
