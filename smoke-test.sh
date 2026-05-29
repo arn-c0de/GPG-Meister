@@ -7,13 +7,12 @@
 # ~/.gnupg or the app's user-space directories, and asserts a zero diff over
 # them before/after. Safe to run on a machine with real keys.
 #
-# Usage:   ./scripts/smoke-test.sh
+# Usage:   ./smoke-test.sh
 # Exit:    0 = all steps passed, 1 = a step failed, 2 = no gpg on PATH.
 set -euo pipefail
 
 # Resolve the repo root from this script's location, regardless of cwd.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 if ! command -v gpg &>/dev/null; then
