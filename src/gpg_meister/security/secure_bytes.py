@@ -12,11 +12,14 @@ Limitations (documented in planv2.md §4.4):
 from __future__ import annotations
 
 import ctypes
+import logging
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from types import TracebackType
 from typing import Self
+
+_log = logging.getLogger(__name__)
 
 _libc = None
 _kernel32 = None
@@ -79,6 +82,10 @@ class SecureBytes:
         self._buffer: ctypes.Array[ctypes.c_char] = (ctypes.c_char * (size + 1))()
         self._locked = _try_mlock(self._buffer) if size > 0 else False
         self._closed = False
+        if size > 0 and not self._locked:
+            # Surface the failed pin instead of only storing the boolean: the
+            # buffer may now be swapped to disk. Never logs the contents.
+            _log.debug("SecureBytes(%d bytes) could not be mlock-pinned", size)
 
     @classmethod
     def from_bytes(cls, source: bytes) -> Self:
@@ -134,6 +141,15 @@ class SecureBytes:
                 self._locked = False
             self._closed = True
 
+    def __del__(self) -> None:
+        # Backstop: if a caller forgot the `with` block, still zero on GC.
+        # Must tolerate partially-constructed instances (e.g. if __init__ raised).
+        try:
+            if not getattr(self, "_closed", True):
+                self.close()
+        except Exception:  # noqa: S110 - never raise from a finaliser
+            pass
+
     def __repr__(self) -> str:
         state = "closed" if self._closed else f"size={self._size}"
         return f"<SecureBytes {state}>"
@@ -157,20 +173,40 @@ class SecureBytes:
         return self._closed
 
 
-def _zero_bytes_object(raw: bytes) -> None:
+def _zero_bytes_object(raw: bytes) -> bool:
     """Best-effort in-place zero of a CPython bytes object's internal buffer.
 
-    Shares the same CPython-internal hack used in kdf.py: the data array of a
-    PyBytesObject starts exactly (sys.getsizeof(b"") - 1) bytes past id(raw).
-    Silently a no-op on non-CPython runtimes or future CPython internals changes.
+    Returns True if the buffer was zeroed, False otherwise. Prefer keeping
+    secrets in :class:`SecureBytes` or a ``bytearray`` (see
+    :func:`zero_mutable_buffer`) — this is a fragile last resort for immutable
+    ``bytes`` that a third-party API forced us to create.
+
+    Invariants and why they matter:
+    - Objects of length <= 1 are skipped. CPython caches the empty bytes and
+      every single-byte bytes object (``b'a'`` etc.) as shared singletons;
+      memset-ing one corrupts the interpreter so all later uses of that literal
+      read zero. The wipe is therefore only safe for the freshly-constructed,
+      multi-byte buffers our passphrase paths produce.
+    - On non-CPython runtimes or a future CPython whose object layout differs,
+      the offset assumption is wrong; we must NOT memset a mis-computed address.
+      A failure is logged (without the contents) and reported via the return
+      value rather than silently failing open.
     """
+    if len(raw) <= 1:
+        # Nothing safe to do; an empty/one-byte secret is not worth corrupting
+        # an interned singleton over.
+        return False
+    if sys.implementation.name != "cpython":
+        _log.warning("secret wipe skipped: unsupported runtime %r", sys.implementation.name)
+        return False
     try:
-        import sys as _sys
-        _offset = _sys.getsizeof(b"") - 1
-        _buf = (ctypes.c_char * len(raw)).from_address(id(raw) + _offset)
-        ctypes.memset(_buf, 0, len(raw))
-    except Exception:  # noqa: S110
-        pass
+        offset = sys.getsizeof(b"") - 1
+        buf = (ctypes.c_char * len(raw)).from_address(id(raw) + offset)
+        ctypes.memset(buf, 0, len(raw))
+    except Exception as exc:  # pragma: no cover - layout-dependent failure path
+        _log.warning("secret wipe failed (%s); secret may remain in memory", type(exc).__name__)
+        return False
+    return True
 
 
 def zero_mutable_buffer(raw: bytearray | memoryview) -> None:

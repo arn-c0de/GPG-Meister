@@ -80,30 +80,43 @@ def derive_key(passphrase: SecureBytes, salt: bytes, params: KDFParams) -> Secur
     if passphrase.is_closed:
         raise KDFError("passphrase SecureBytes is closed")
 
-    # Use bytearray for both the passphrase copy and the derived key — bytearray is
-    # mutable so we can zero it in-place, unlike immutable bytes objects.
+    # Copy into a mutable bytearray we can reliably zero in place, and feed that
+    # directly to argon2 so we avoid creating an immutable, hard-to-wipe bytes
+    # copy in the common case. Only if a given argon2-cffi build rejects a
+    # bytearray (a TypeError, seen with cffi >= 1.17 on Python 3.14+) do we fall
+    # back to a bytes copy, which is then wiped best-effort.
     passphrase_buf = bytearray(passphrase.view())
-    # argon2-cffi >= 25.1.0 (with cffi >= 1.17 on Python 3.14+) may reject
-    # bytearray in hash_secret_raw. Keep an explicit reference so the finally
-    # block can zero it with _zero_bytes_object before CPython frees it.
-    _secret = bytes(passphrase_buf)
+    secret_copy: bytes | None = None
     try:
-        raw = hash_secret_raw(
-            secret=_secret,
-            salt=salt,
-            time_cost=params.time_cost,
-            memory_cost=params.memory_cost,
-            parallelism=params.parallelism,
-            hash_len=params.hash_len,
-            type=Type.ID,
-        )
+        try:
+            raw = hash_secret_raw(
+                secret=passphrase_buf,  # type: ignore[arg-type]  # bytearray accepted at runtime
+                salt=salt,
+                time_cost=params.time_cost,
+                memory_cost=params.memory_cost,
+                parallelism=params.parallelism,
+                hash_len=params.hash_len,
+                type=Type.ID,
+            )
+        except TypeError:
+            secret_copy = bytes(passphrase_buf)
+            raw = hash_secret_raw(
+                secret=secret_copy,
+                salt=salt,
+                time_cost=params.time_cost,
+                memory_cost=params.memory_cost,
+                parallelism=params.parallelism,
+                hash_len=params.hash_len,
+                type=Type.ID,
+            )
     except argon2_exceptions.Argon2Error as exc:
         raise KDFError(f"argon2id failed: {exc}") from exc
     finally:
-        _zero_bytes_object(_secret)
         # Zero via ctypes.memset so no runtime can optimise the wipe away.
         _pbuf = (ctypes.c_char * len(passphrase_buf)).from_buffer(passphrase_buf)
         ctypes.memset(_pbuf, 0, len(passphrase_buf))
+        if secret_copy is not None:
+            _zero_bytes_object(secret_copy)
 
     # raw is a bytes object from argon2-cffi; copy to SecureBytes, then
     # best-effort zero the intermediate via the shared CPython hack.

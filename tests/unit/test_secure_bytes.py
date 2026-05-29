@@ -4,7 +4,11 @@ import pickle
 
 import pytest
 
-from gpg_meister.security.secure_bytes import SecureBytes, secure_bytes_from
+from gpg_meister.security.secure_bytes import (
+    SecureBytes,
+    _zero_bytes_object,
+    secure_bytes_from,
+)
 
 
 def test_view_exposes_initial_contents() -> None:
@@ -97,3 +101,29 @@ def test_cannot_reenter_closed_buffer() -> None:
     sb.close()
     with pytest.raises(RuntimeError), sb:
         pass
+
+
+def test_zero_bytes_object_skips_single_byte_to_avoid_interned_corruption() -> None:
+    # Zeroing a 1-byte interned bytes object would corrupt the interpreter-wide
+    # singleton; the guard must refuse and report it did nothing.
+    assert _zero_bytes_object(b"a") is False
+    assert _zero_bytes_object(b"") is False
+    # The interned singleton must be untouched.
+    assert b"a" == b"a"
+    assert b"a"[0] == 97
+
+
+def test_zero_bytes_object_zeros_multibyte_buffer() -> None:
+    # bytes(bytearray(...)) yields a fresh, non-cached bytes object (a plain
+    # b"..." literal would be a shared code constant we must not corrupt).
+    raw = bytes(bytearray(b"S" * 16))
+    assert _zero_bytes_object(raw) is True
+    assert raw == b"\x00" * 16
+
+
+def test_del_backstop_zeros_when_close_forgotten() -> None:
+    sb = SecureBytes.from_bytes(b"forgotten-secret-value")
+    view = sb.view()
+    sb.__del__()  # simulate finalisation without an explicit close()
+    assert sb.is_closed
+    assert bytes(view) == b"\x00" * len(view)
