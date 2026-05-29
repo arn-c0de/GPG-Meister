@@ -34,7 +34,9 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Sync dependencies
-        run: uv sync --frozen
+        # `--extra dev` is required: ruff/mypy/pytest live in
+        # [project.optional-dependencies].dev, which a plain sync does not install.
+        run: uv sync --frozen --extra dev
 
       - name: Ruff (lint)
         run: uv run ruff check .
