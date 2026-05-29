@@ -157,6 +157,13 @@ def main() -> None:
         sys.exit(1)
     _apply_appearance(app, config)
 
+    # Make the configured auto-clear delay the application-wide default and
+    # ensure any copied secret is wiped from the clipboard on quit (M3).
+    from gpg_meister.ui.clipboard import install_quit_handler, set_default_clear_seconds
+
+    set_default_clear_seconds(config.clipboard_clear_seconds)
+    install_quit_handler()
+
     locale_code = resolve_locale(config.locale)
     install_translator(locale_code)
 
@@ -275,6 +282,9 @@ def main() -> None:
         lambda: key_vm.set_require_delete_text_confirmation(
             settings_vm.config.require_delete_text_confirmation
         )
+    )
+    settings_vm.config_saved.connect(
+        lambda: set_default_clear_seconds(settings_vm.config.clipboard_clear_seconds)
     )
     window.install_settings_tab(settings_view)
     window.install_help_tab(HelpView())
