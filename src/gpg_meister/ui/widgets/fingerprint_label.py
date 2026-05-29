@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from gpg_meister.ui.clipboard import set_sensitive_text
+from gpg_meister.ui.qt_helpers import monospace_font
 
 
 def _format_fingerprint(fp: str) -> str:
@@ -34,7 +34,7 @@ class FingerprintLabel(QWidget):
             Qt.TextInteractionFlag.TextSelectableByMouse
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
-        self._label.setFont(self._monospace_font())
+        self._label.setFont(monospace_font(10))
         self._label.setAccessibleName("Key fingerprint")
         layout.addWidget(self._label, stretch=1)
 
@@ -44,20 +44,6 @@ class FingerprintLabel(QWidget):
         self._copy_btn.clicked.connect(self._copy)
         layout.addWidget(self._copy_btn)
 
-    @staticmethod
-    def _monospace_font() -> QFont:
-        from PySide6.QtGui import QFont, QFontDatabase
-
-        families = QFontDatabase.families()
-        for candidate in ("Cascadia Code", "Fira Code", "Consolas", "Courier New", "Monospace"):
-            if candidate in families:
-                font = QFont(candidate)
-                font.setPointSize(10)
-                return font
-        font = QFont()
-        font.setFixedPitch(True)
-        font.setPointSize(10)
-        return font
 
     def set_fingerprint(self, fingerprint: str) -> None:
         self._raw = fingerprint

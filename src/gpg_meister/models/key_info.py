@@ -70,3 +70,22 @@ class KeyInfo(BaseModel):
         if self.expires_at is None:
             return False
         return datetime.now(tz=self.expires_at.tzinfo) >= self.expires_at
+
+    @property
+    def short_fingerprint(self) -> str:
+        """The conventional short key id — the last 16 hex characters."""
+        return self.fingerprint[-16:]
+
+    @property
+    def primary_user_id(self) -> str:
+        """First user ID, falling back to the short fingerprint when there is none."""
+        return self.user_ids[0] if self.user_ids else self.short_fingerprint
+
+    @property
+    def display_label(self) -> str:
+        """Combo/list label, e.g. ``Alice <a@example.com>  [0123ABCD4567EF89]``.
+
+        Decorations like a private-key star or a stub prefix are left to the
+        call site; this is just the shared base text.
+        """
+        return f"{self.primary_user_id}  [{self.short_fingerprint}]"

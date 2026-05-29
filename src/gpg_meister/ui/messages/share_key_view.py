@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QThreadPool
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -20,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.services.key_service import KeyService
+from gpg_meister.ui.qt_helpers import monospace_font
 from gpg_meister.ui.worker import Worker
 
 
@@ -59,7 +59,7 @@ class ShareKeyView(QWidget):
         root.addWidget(QLabel("Armored public key (share this with others):"))
         self._armor_output = QTextEdit()
         self._armor_output.setReadOnly(True)
-        self._armor_output.setFont(_monospace_font())
+        self._armor_output.setFont(monospace_font())
         self._armor_output.setPlaceholderText("Select a key above to show its public key…")
         root.addWidget(self._armor_output, stretch=1)
 
@@ -102,8 +102,7 @@ class ShareKeyView(QWidget):
             self._key_combo.blockSignals(True)
             self._key_combo.clear()
             for key in self._keys:
-                uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
-                label = f"{uid}  [{key.fingerprint[-16:]}]"
+                label = key.display_label
                 if key.has_private_key:
                     label += "  ★"
                 self._key_combo.addItem(label, key)
@@ -184,18 +183,6 @@ class ShareKeyView(QWidget):
         self._error_label.show()
 
 
-def _monospace_font() -> QFont:
-    from PySide6.QtGui import QFontDatabase
-    families = QFontDatabase.families()
-    for candidate in ("Cascadia Code", "Fira Code", "Consolas", "Courier New", "Monospace"):
-        if candidate in families:
-            f = QFont(candidate)
-            f.setPointSize(9)
-            return f
-    f = QFont()
-    f.setFixedPitch(True)
-    f.setPointSize(9)
-    return f
 
 
 def _safe_filename_part(value: str) -> str:

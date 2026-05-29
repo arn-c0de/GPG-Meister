@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -26,6 +25,7 @@ from gpg_meister.services.key_service import (
     ImportPlanEntry,
     KeyService,
 )
+from gpg_meister.ui.qt_helpers import read_only_cell
 
 _CONFLICT_LABELS: dict[ImportConflict, str] = {
     ImportConflict.NEW: "New — will be imported",
@@ -128,10 +128,10 @@ class PublicKeyImportDialog(QDialog):
         self._plan_table.setRowCount(len(self._plan))
         has_new = False
         for row, entry in enumerate(self._plan):
-            self._plan_table.setItem(row, 0, _cell(entry.fingerprint[-16:]))
-            self._plan_table.setItem(row, 1, _cell(", ".join(entry.user_ids)))
+            self._plan_table.setItem(row, 0, read_only_cell(entry.fingerprint[-16:]))
+            self._plan_table.setItem(row, 1, read_only_cell(", ".join(entry.user_ids)))
             status = _CONFLICT_LABELS.get(entry.conflict, entry.conflict.value)
-            cell = _cell(status)
+            cell = read_only_cell(status)
             if entry.conflict == ImportConflict.NEW:
                 has_new = True
             else:
@@ -173,9 +173,3 @@ class PublicKeyImportDialog(QDialog):
             self._error_label.show()
         else:
             self._error_label.hide()
-
-
-def _cell(text: str) -> QTableWidgetItem:
-    item = QTableWidgetItem(text)
-    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-    return item

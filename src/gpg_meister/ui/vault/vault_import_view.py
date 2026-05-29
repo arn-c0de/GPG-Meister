@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QTableWidget,
-    QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -27,6 +26,7 @@ from gpg_meister.security.errors import DecryptionError
 from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.security.vault_format import MAGIC
 from gpg_meister.services.vault_service import VaultPreview, VaultService
+from gpg_meister.ui.qt_helpers import read_only_cell
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 from gpg_meister.ui.worker import Worker
 
@@ -323,10 +323,10 @@ class _SelectPage(QWizardPage):
         for row, entry in enumerate(self._keys):
             uid = entry.user_ids[0] if entry.user_ids else "—"
             exp = entry.expires_at.strftime("%Y-%m-%d") if entry.expires_at else "no expiry"
-            self._table.setItem(row, 0, _cell(uid))
-            self._table.setItem(row, 1, _cell(entry.fingerprint[-16:]))
-            self._table.setItem(row, 2, _cell("yes" if entry.has_private_key else ""))
-            self._table.setItem(row, 3, _cell(exp))
+            self._table.setItem(row, 0, read_only_cell(uid))
+            self._table.setItem(row, 1, read_only_cell(entry.fingerprint[-16:]))
+            self._table.setItem(row, 2, read_only_cell("yes" if entry.has_private_key else ""))
+            self._table.setItem(row, 3, read_only_cell(exp))
         self._table.selectAll()
 
     def selected_fingerprints(self) -> list[str]:
@@ -463,9 +463,3 @@ class VaultImportWizard(QWizard):
 
     def imported_fingerprints(self) -> list[str]:
         return self._result_page.imported_fingerprints()
-
-
-def _cell(text: str) -> QTableWidgetItem:
-    item = QTableWidgetItem(text)
-    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-    return item

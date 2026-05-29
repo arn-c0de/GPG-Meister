@@ -201,9 +201,7 @@ class VaultExportView(QWidget):
     # --------------------------------------------------------- item init text
 
     def _init_item_name(self, item: QListWidgetItem, key: KeyInfo) -> None:
-        uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
-        short = key.fingerprint[-16:]
-        name_part = f"{uid}  [{short}]"
+        name_part = key.display_label
         is_stub = key.is_stub
         prefix = "☁ " if is_stub else "\U0001f512 "
         color = _COLOR_STUB if is_stub else _COLOR_LOCKED

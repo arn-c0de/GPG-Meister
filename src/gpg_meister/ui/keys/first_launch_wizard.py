@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QLabel,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
     QWizard,
@@ -24,6 +23,7 @@ from PySide6.QtWidgets import (
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
 from gpg_meister.services.key_service import KeyService
+from gpg_meister.ui.qt_helpers import read_only_cell
 
 _log = logging.getLogger(__name__)
 
@@ -94,11 +94,11 @@ class _SelectPage(QWizardPage):
         self._table.setRowCount(len(self._keys))
         for row, key in enumerate(self._keys):
             uid = key.user_ids[0] if key.user_ids else "—"
-            self._table.setItem(row, 0, _cell(uid))
-            self._table.setItem(row, 1, _cell(key.algorithm.value))
-            self._table.setItem(row, 2, _cell(key.fingerprint[-16:]))
+            self._table.setItem(row, 0, read_only_cell(uid))
+            self._table.setItem(row, 1, read_only_cell(key.algorithm.value))
+            self._table.setItem(row, 2, read_only_cell(key.fingerprint[-16:]))
             scope = "public only (private: import manually)" if key.has_private_key else "public"
-            self._table.setItem(row, 3, _cell(scope))
+            self._table.setItem(row, 3, read_only_cell(scope))
 
     def selected_keys(self) -> list[KeyInfo]:
         rows = {idx.row() for idx in self._table.selectedIndexes()}
@@ -192,9 +192,3 @@ class FirstLaunchWizard(QWizard):
                 "Import Failed",
                 f"Key import failed: {exc}\n\nNo keys were imported.",
             )
-
-
-def _cell(text: str) -> QTableWidgetItem:
-    item = QTableWidgetItem(text)
-    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-    return item
