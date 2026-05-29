@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -227,3 +228,83 @@ def test_chain_verification_rejects_malformed_tip_file(tmp_path: Path) -> None:
 
     ok, _ = verify_chain(log_path)
     assert not ok
+
+
+def test_chain_records_carry_monotonic_seq(tmp_path: Path) -> None:
+    log_path = tmp_path / "audit.log"
+    with AuditLog(log_path, hash_chain=True) as log:
+        log.emit("key_generated", fingerprint="A")
+        log.emit("vault_created")
+
+    seqs = [r["seq"] for r in _read_records(log_path)]
+    assert seqs == [0, 1, 2]
+
+
+def test_chain_seq_continues_across_reopen(tmp_path: Path) -> None:
+    log_path = tmp_path / "audit.log"
+    with AuditLog(log_path, hash_chain=True) as log:
+        log.emit("key_generated", fingerprint="A")
+    with AuditLog(log_path, hash_chain=True) as log:
+        log.emit("vault_created")
+
+    seqs = [r["seq"] for r in _read_records(log_path)]
+    assert seqs == [0, 1, 2, 3]
+    ok, count = verify_chain(log_path)
+    assert ok
+    assert count == 4
+
+
+def test_chain_detects_seq_gap_even_if_hashes_recomputed(tmp_path: Path) -> None:
+    """A same-process attacker who deletes a middle record and rebuilds the hash
+    links is still caught by the seq gap."""
+    log_path = tmp_path / "audit.log"
+    with AuditLog(log_path, hash_chain=True) as log:
+        log.emit("key_generated", fingerprint="A")
+        log.emit("vault_created")
+        log.emit("key_deleted", fingerprint="A")
+
+    lines = [json.loads(line) for line in log_path.read_text().splitlines() if line]
+    # Drop the second record, then rebuild the prev_hash chain so only seq is wrong.
+    del lines[1]
+    prev_hash = ""
+    rebuilt: list[str] = []
+    for obj in lines:
+        obj["prev_hash"] = prev_hash
+        line = json.dumps(obj, sort_keys=True, separators=(",", ":"))
+        rebuilt.append(line)
+        prev_hash = hashlib.sha256(line.encode()).hexdigest()
+    log_path.write_text("\n".join(rebuilt) + "\n")
+    # Fix the tip so only the seq counter exposes the deletion.
+    log_path.with_name("audit.log.tip").write_text(prev_hash + "\n", encoding="ascii")
+
+    ok, _ = verify_chain(log_path)
+    assert not ok
+
+
+def test_dropped_records_counter_surfaces_write_failures(tmp_path: Path) -> None:
+    log_path = tmp_path / "audit.log"
+    log = AuditLog(log_path)
+    assert log.dropped_records == 0
+    # Force the next write to fail, then recover.
+    real_write = log._fh.write
+
+    def _boom(_data: bytes) -> int:
+        raise OSError("disk full")
+
+    log._fh.write = _boom  # type: ignore[method-assign]
+    log.emit("key_generated", fingerprint="A")
+    assert log.dropped_records == 1
+    log._fh.write = real_write  # type: ignore[method-assign]
+    log.emit("vault_created")
+    # The recovery record reports the prior loss in-band, and the counter resets.
+    assert log.dropped_records == 0
+    records = _read_records(log_path)
+    assert any(r.get("dropped_audit_records") == 1 for r in records)
+    log.close()
+
+
+def test_forbidden_key_matching_is_case_insensitive_and_substring(tmp_path: Path) -> None:
+    with AuditLog(tmp_path / "audit.log") as log:
+        for bad_key in ("Passphrase", "master_passphrase", "priv_key"):
+            with pytest.raises(AuditLogError, match="forbidden"):
+                log.emit("key_generated", **{bad_key: "x"})
