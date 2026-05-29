@@ -2,7 +2,7 @@
 Type=Application
 Name=GPG Meister
 Comment=Local-first GPG key management and encrypted vault backup
-Exec=gpg-meister
+Exec=gpgmeister
 Icon=io.github.arn-c0de.GPGMeister
 Categories=Security;Utility;
 Terminal=false

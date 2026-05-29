@@ -2,7 +2,7 @@ app-id: io.github.arn-c0de.GPGMeister
 runtime: org.kde.Platform
 runtime-version: "6.7"
 sdk: org.kde.Sdk
-command: gpg-meister
+command: gpgmeister
 finish-args:
   - --share=ipc
   - --socket=wayland
