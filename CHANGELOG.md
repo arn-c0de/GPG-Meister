@@ -2,6 +2,86 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.4] - 2026-05-29
+
+Security and quality release following a full multi-angle audit. No remotely
+exploitable vulnerabilities were found; the fixes below close locally-scoped
+weaknesses and harden defense-in-depth.
+
+### Security
+
+**Signature verification**
+
+- Signature validity is now derived from GnuPG's `[GNUPG:]` status records
+  rather than the process exit code. Previously a message signed by a **revoked
+  or expired key** (`REVKEYSIG` / `EXPKEYSIG` / `EXPSIG`) — for which gpg still
+  exits 0 — was reported end-to-end as a valid signature, defeating revocation.
+  A new `SignatureStatus` (`VALID` / `INVALID` / `REVOKED_KEY` / `EXPIRED_KEY` /
+  `EXPIRED_SIG` / `ERROR` / `NONE`) is surfaced in the decrypt and verify views
+  with the specific rejection reason. A signature is `VALID` only with
+  `GOODSIG` + `VALIDSIG` and no downgrade record.
+
+**Audit log**
+
+- Added a monotonic `seq` counter to hash-chained records so front/middle
+  truncation and record removal are detectable even if an attacker recomputes
+  the hash links; `verify_chain` enforces seq contiguity. The chain is now
+  documented honestly as "internally consistent", not cryptographically
+  authentic (unkeyed SHA-256 is forgeable by a same-uid actor).
+- `verify_chain` and the tail scan open the log and `.tip` with `O_NOFOLLOW`.
+- Write failures are tracked and surfaced (`dropped_records` + an in-band
+  `dropped_audit_records` field) instead of being silently swallowed.
+- The sensitive-key deny-list is unified in one module, matched
+  case-insensitively, and the diagnostic filter redacts recursively through
+  nested dicts/lists.
+
+**Clipboard**
+
+- Copied secrets are now cleared from the clipboard on application quit (an
+  `aboutToQuit` flush), not only by a timer that is lost if the app closes
+  first. The configured auto-clear delay is honoured at every call site.
+
+**In-memory secrets**
+
+- `_zero_bytes_object` refuses to wipe length-≤1 `bytes` (CPython caches these
+  as shared singletons; zeroing one corrupted interpreter-wide state, reachable
+  from single-character passphrases), bails out on non-CPython runtimes, and
+  reports failures instead of swallowing them. `SecureBytes` gained a `__del__`
+  backstop and surfaces mlock failures.
+- `kdf.derive_key` feeds the mutable bytearray to argon2 directly, only copying
+  to immutable `bytes` on a real `TypeError`.
+- The legacy "all-in-manifest" vault import keeps private-key armor as `bytes`
+  (never decoded to an unzeroable `str`) and wipes the intermediates.
+
+**UI**
+
+- Unexpected exceptions no longer echo their raw text (file paths, key ids, gpg
+  stderr) into the UI; a generic message with a correlation reference is shown
+  and the detail is logged.
+- The signing passphrase is read once at submit and never stored on the
+  encrypt ViewModel; decrypted plaintext auto-clears after the clipboard delay
+  and is scrubbed on hide; the passphrase "Show" toggle auto-reverts after 10 s.
+
+**Storage & startup**
+
+- Factory reset overwrites the metadata DB (and `-wal`/`-shm`), the audit and
+  diagnostic logs, and vault files before deletion — not just the GPG home —
+  and documents that secure erase is best-effort on SSD/CoW storage.
+- `GPGService` pins the binary's SHA-256 for the session (including whitelisted
+  binaries) and re-hashes before each invocation, catching an in-place rewrite
+  of the same inode.
+- The "core dumps could not be disabled" check is a strong warning instead of a
+  hard startup block, so the app still launches on seccomp/musl/hardened hosts.
+- `atomic_write` fchmods the fd after open so the mode is not weakened by umask;
+  `MetadataStore` drops the thread-unsafe global umask juggling.
+
+### Tooling
+
+- `ruff` is clean across `src` and `mypy --strict` on `src` reports zero errors.
+- Added a GitHub Actions CI workflow gating ruff, mypy(src) and pytest.
+- The macOS bundle version is single-sourced from `gpg_meister.__version__`;
+  `install.sh` detects non-Debian systems and exits with guidance.
+
 ## [1.0.3] - 2026-05-17
 
 ### Security
