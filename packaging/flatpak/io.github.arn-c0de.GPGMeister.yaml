@@ -10,8 +10,11 @@ finish-args:
   - --filesystem=xdg-config/gpg-meister
   - --filesystem=xdg-data/gpg-meister
   - --filesystem=xdg-state/gpg-meister
-  # Read-only access to the system keyring so the first-launch wizard can scan it.
-  # The app uses its own isolated keyring under xdg-data; this is for import only.
+  # Read-only access to the system keyring so the first-launch wizard can import
+  # from it. The app otherwise uses its own isolated keyring under xdg-data.
+  # NOTE: ":ro" still exposes the *private* keyring files to the sandbox, even
+  # though only public keys are imported. A future revision should narrow this
+  # to portal-based file selection so private key material is never mounted.
   - --filesystem=~/.gnupg:ro
 modules:
   - name: gnupg

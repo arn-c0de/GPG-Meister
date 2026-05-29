@@ -3,7 +3,18 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # ---------- system dependencies ----------
-echo "==> Installing system dependencies..."
+# This installer automates dependencies for Debian/Ubuntu only. On other
+# distributions, install the equivalents manually (gpg, python3 venv/pip, pipx,
+# and the xcb/xkbcommon libraries Qt needs) and re-run from the "uv" step below.
+if ! command -v apt-get &>/dev/null; then
+    echo "ERROR: this installer only automates Debian/Ubuntu (apt-get not found)." >&2
+    echo "       Install gpg, python3-venv, python3-pip, pipx and the libxcb*/" >&2
+    echo "       libxkbcommon-x11 packages with your package manager, then run:" >&2
+    echo "         uv sync && ln -sf \"\$(pwd)/.venv/bin/gpgmeister\" ~/.local/bin/gpgmeister" >&2
+    exit 1
+fi
+
+echo "==> Installing system dependencies (Debian/Ubuntu)..."
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
     gpg \

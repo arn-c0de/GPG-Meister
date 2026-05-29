@@ -316,11 +316,16 @@ def detect(
 
 
 def diagnostics() -> dict[str, object]:
-    """Return information useful for the GPG setup dialog (planv2.md §9.2)."""
+    """Return information useful for the GPG setup dialog (planv2.md §9.2).
+
+    Intended for a support bundle, so it deliberately avoids leaking the raw
+    GNUPGHOME path (which embeds the username/home layout) — only whether it is
+    set is reported.
+    """
     return {
         "platform": sys.platform,
         "whitelist": [str(p) for p in _platform_whitelist()],
         "whitelist_present": [str(p) for p in _platform_whitelist() if p.exists()],
         "path_candidates": [str(p) for p in _candidates_from_path()],
-        "env_gnupghome": os.environ.get("GNUPGHOME", ""),
+        "env_gnupghome_set": bool(os.environ.get("GNUPGHOME")),
     }

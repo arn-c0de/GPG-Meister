@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from gpg_meister.ui.clipboard import set_sensitive_text
@@ -42,9 +43,9 @@ class GpgTrustDialog(QDialog):
         *,
         mismatch: bool = False,
         old_sha: str | None = None,
-        parent: object = None,
+        parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)  # type: ignore[call-arg]
+        super().__init__(parent)
         self._path = path
         self._new_sha = new_sha
         self._mismatch = mismatch

@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from types import TracebackType
 
-from gpg_meister.storage.permissions import ensure_dir, reject_symlink
+from gpg_meister.storage.permissions import ensure_dir
 
 
 class FileLockTimeoutError(TimeoutError):

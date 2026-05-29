@@ -59,7 +59,7 @@ class _KeyTableWidget(QTableWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self.itemAt(_event_pos(event)) is None:
             self.clearSelection()
-            self.setCurrentItem(None)
+            self.setCurrentCell(-1, -1)
         super().mousePressEvent(event)
 
 
