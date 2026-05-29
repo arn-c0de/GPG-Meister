@@ -48,61 +48,6 @@ def _tmp_path(target: Path) -> Path:
     return target.with_name(f".{target.name}.{suffix}.tmp")
 
 
-def atomic_write_bytes(path: Path, data: bytes, *, mode: int = 0o600) -> None:
-    """Write `data` to `path` atomically.
-
-    Steps:
-      1. Open a fresh tmp file in the same directory with the requested mode.
-      2. Write all bytes, flush, fsync the file descriptor.
-      3. os.replace(tmp, path) — atomic on POSIX and Win32 for files on the
-         same volume.
-      4. fsync the parent directory so the rename survives a crash (POSIX).
-      5. On any failure, the tmp file is removed.
-    """
-    path = Path(path)
-    if not path.parent.exists():
-        raise FileNotFoundError(f"parent directory does not exist: {path.parent}")
-
-    tmp = _tmp_path(path)
-    fd = os.open(
-        str(tmp),
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
-        mode,
-    )
-    # os.open's mode is masked by the process umask, so enforce the exact mode
-    # on the fd. This also means the new file's mode is independent of (and not
-    # weakened by) any pre-existing target's mode, since os.replace adopts the
-    # tmp file's metadata.
-    if sys.platform != "win32":
-        with contextlib.suppress(OSError):
-            os.fchmod(fd, mode)
-    try:
-        try:
-            with os.fdopen(fd, "wb", closefd=True) as fh:
-                fh.write(data)
-                fh.flush()
-                os.fsync(fh.fileno())
-        except BaseException:
-            with contextlib.suppress(FileNotFoundError):
-                tmp.unlink()
-            raise
-
-        try:
-            os.replace(tmp, path)
-        except BaseException:
-            with contextlib.suppress(FileNotFoundError):
-                tmp.unlink()
-            raise
-
-        with contextlib.suppress(OSError):
-            _dir_fsync(path.parent)
-    finally:
-        # If something went sideways and we still have a tmp file, clean it up.
-        if tmp.exists():
-            with contextlib.suppress(OSError):
-                tmp.unlink()
-
-
 class AtomicWriter:
     """Context manager streaming variant of `atomic_write_bytes`.
 
@@ -167,6 +112,24 @@ class AtomicWriter:
             if not self._committed and self._tmp.exists():
                 with contextlib.suppress(OSError):
                     self._tmp.unlink()
+
+
+def atomic_write_bytes(path: Path, data: bytes, *, mode: int = 0o600) -> None:
+    """Write `data` to `path` atomically.
+
+    Steps:
+      1. Open a fresh tmp file in the same directory with the requested mode.
+      2. Write all bytes, flush, fsync the file descriptor.
+      3. os.replace(tmp, path) — atomic on POSIX and Win32 for files on the
+         same volume.
+      4. fsync the parent directory so the rename survives a crash (POSIX).
+      5. On any failure, the tmp file is removed and nothing replaces `path`.
+
+    Implemented on top of :class:`AtomicWriter` so the open/fchmod/fsync/replace
+    /cleanup sequence lives in exactly one place.
+    """
+    with AtomicWriter(path, mode=mode) as fh:
+        fh.write(data)
 
 
 __all__ = ["AtomicWriter", "atomic_write_bytes"]
