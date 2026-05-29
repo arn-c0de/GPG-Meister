@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import io
 import struct
 from collections.abc import Iterable
@@ -64,7 +65,7 @@ from gpg_meister.security.vault_format import (
 )
 from gpg_meister.security.vault_format import pack as vault_pack
 from gpg_meister.security.vault_format import unpack as vault_unpack
-from gpg_meister.services.errors import GPGKeyNotFoundError, ServiceError
+from gpg_meister.services.errors import GPGKeyNotFoundError, GPGPassphraseError, ServiceError
 from gpg_meister.services.gpg_service import GPGService
 from gpg_meister.services.validation import validate_fingerprint
 from gpg_meister.storage.atomic_write import atomic_write_bytes
@@ -263,12 +264,18 @@ def _deserialise_segmented_payload(
     # vault without the 4-byte length prefix. The plaintext has already been
     # authenticated via AEAD, so we trust its origin but still defend against a
     # peer-crafted vault that an unsuspecting user imports.
+    if not payload:
+        raise VaultFormatError("vault payload is empty")
     first_byte = payload[0]
     if 0x80 <= first_byte <= 0x8F:
+        collected_material: list[tuple[str, bytes, bytes | None]] = []
         try:
             stream = io.BytesIO(payload)
-            # raw=True keeps strings as `bytes` so private-key material remains
-            # zeroable; we only decode small metadata fields to `str`.
+            # raw=True keeps every value as `bytes`. We pull the private/public
+            # key armor straight out of the raw map below — *before* decoding any
+            # metadata to `str` — so key material never becomes an unzeroable
+            # immutable `str`. Only the small, non-secret metadata fields are
+            # decoded to `str` for pydantic.
             manifest_obj = msgpack.unpack(
                 stream,
                 raw=True,
@@ -281,7 +288,28 @@ def _deserialise_segmented_payload(
             if not isinstance(manifest_obj, dict):
                 raise VaultFormatError("legacy manifest is not a msgpack map")
 
-            # msgpack keys are bytes under raw=True; normalise to str.
+            # Extract key material (as bytes) from the raw map before validation.
+            raw_keys = manifest_obj.get(b"keys", [])
+            if not isinstance(raw_keys, list):
+                raise VaultFormatError("legacy manifest 'keys' is not a list")
+            for key_entry in raw_keys:
+                if not isinstance(key_entry, dict):
+                    raise VaultFormatError("legacy manifest key entry is not a map")
+                if b"public_key_armored" not in key_entry:
+                    continue
+                pub = key_entry.pop(b"public_key_armored")
+                priv = key_entry.pop(b"private_key_armored", None)
+                if not isinstance(pub, bytes):
+                    raise VaultFormatError("legacy public key armor is not bytes")
+                if priv is not None and not isinstance(priv, bytes):
+                    raise VaultFormatError("legacy private key armor is not bytes")
+                fp_raw = key_entry.get(b"fingerprint")
+                fp = fp_raw.decode("utf-8") if isinstance(fp_raw, bytes) else fp_raw
+                if not isinstance(fp, str):
+                    raise VaultFormatError("legacy manifest key entry missing fingerprint")
+                collected_material.append((fp, pub, priv))
+
+            # Now decode the remaining (armor-free) metadata to str for pydantic.
             def _b2s(value: object) -> object:
                 if isinstance(value, bytes):
                     return value.decode("utf-8")
@@ -294,33 +322,6 @@ def _deserialise_segmented_payload(
             decoded_obj = _b2s(manifest_obj)
             if not isinstance(decoded_obj, dict):
                 raise VaultFormatError("legacy manifest decoded to non-dict")
-
-            # Extract key material before pydantic validation. The bytes objects
-            # below are not zeroable (CPython immutable), but they were already
-            # surfaced in the msgpack output; the segmented re-pack hands them
-            # to a zeroable bytearray immediately.
-            collected_material: list[tuple[str, bytes, bytes | None]] = []
-            keys_list = decoded_obj.get("keys", [])
-            if not isinstance(keys_list, list):
-                raise VaultFormatError("legacy manifest 'keys' is not a list")
-            for key_entry in keys_list:
-                if not isinstance(key_entry, dict):
-                    raise VaultFormatError("legacy manifest key entry is not a map")
-                if "public_key_armored" in key_entry:
-                    pub_field = key_entry.pop("public_key_armored")
-                    priv_field = key_entry.pop("private_key_armored", None)
-                    pub = pub_field.encode("utf-8") if isinstance(pub_field, str) else pub_field
-                    priv: bytes | None
-                    if priv_field is None:
-                        priv = None
-                    elif isinstance(priv_field, str):
-                        priv = priv_field.encode("utf-8")
-                    else:
-                        priv = priv_field
-                    fp = key_entry.get("fingerprint")
-                    if not isinstance(fp, str):
-                        raise VaultFormatError("legacy manifest key entry missing fingerprint")
-                    collected_material.append((fp, pub, priv))
 
             manifest = VaultManifest.model_validate(decoded_obj)
 
@@ -336,14 +337,13 @@ def _deserialise_segmented_payload(
                         _append_key_material(
                             new_payload, fingerprint=fp, public_key=pub, private_key=priv
                         )
+                    # Update the original payload bytearray in-place.
+                    zero_mutable_buffer(payload)
+                    payload.clear()
+                    payload.extend(new_payload)
                 finally:
                     _zero_bytes_object(manifest_bytes)
-
-                # Update the original payload bytearray in-place.
-                zero_mutable_buffer(payload)
-                payload.clear()
-                payload.extend(new_payload)
-                zero_mutable_buffer(new_payload)
+                    zero_mutable_buffer(new_payload)
                 # Fall through to the normal offset-based slice logic below,
                 # reusing the manifest-bytes length captured above.
                 offset = _U32.size + manifest_len
@@ -354,6 +354,14 @@ def _deserialise_segmented_payload(
             raise
         except Exception as exc:
             raise VaultFormatError(f"legacy manifest decoding failed: {exc}") from exc
+        finally:
+            # Best-effort wipe of the immutable key-material intermediates; the
+            # authoritative copy now lives in the (zeroable) payload bytearray.
+            for _fp, _pub, _priv in collected_material:
+                _zero_bytes_object(_pub)
+                if _priv is not None:
+                    _zero_bytes_object(_priv)
+            collected_material.clear()
     else:
         view = memoryview(payload)
         manifest_len, offset = _read_u32(view, 0)
@@ -565,7 +573,6 @@ class VaultService:
             has_private = key.has_private_key and not key.is_stub
 
             if has_private:
-                from gpg_meister.services.errors import GPGPassphraseError
                 key_pw = gpg_passphrases.get(fp)
                 if key_pw is None:
                     raise VaultServiceError(
@@ -793,7 +800,7 @@ class VaultService:
             if sidecar.exists() and not skip_checksum:
                 expected = _read_sidecar_digest(sidecar)
                 actual = hashlib.sha256(data).hexdigest().lower()
-                if expected != actual:
+                if not hmac.compare_digest(expected, actual):
                     self._audit.emit(
                         "vault_import_failed",
                         outcome=OUTCOME_FAILED,
