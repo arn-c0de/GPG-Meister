@@ -2,26 +2,22 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QThreadPool, Signal
+from PySide6.QtCore import QObject
 
 from gpg_meister.models.message import VerifyResult
 from gpg_meister.services.message_service import MessageService
-from gpg_meister.ui.worker import Worker
+from gpg_meister.ui.operation_viewmodel import OperationViewModel
 
 
-class VerifyViewModel(QObject):
+class VerifyViewModel(OperationViewModel):
     """Manages verify-tab state.
 
-    Signals
-    -------
+    Signals (inherited from OperationViewModel)
+    -------------------------------------------
     operation_succeeded   Carries the VerifyResult after verification.
     operation_failed      Human-readable error string.
     loading_changed       True while the background worker is running.
     """
-
-    operation_succeeded: Signal = Signal(object)
-    operation_failed: Signal = Signal(str)
-    loading_changed: Signal = Signal(bool)
 
     def __init__(
         self,
@@ -30,7 +26,6 @@ class VerifyViewModel(QObject):
     ) -> None:
         super().__init__(parent)
         self._svc = message_service
-        self._pool = QThreadPool.globalInstance()
         self._data = ""
         self._signature = ""
 
@@ -53,15 +48,4 @@ class VerifyViewModel(QObject):
         def _do() -> VerifyResult:
             return self._svc.verify(data_bytes, detached_signature=sig_bytes)
 
-        w = Worker(_do)
-        w.signals.result.connect(self._on_success)
-        w.signals.error.connect(self._on_error)
-        w.signals.finished.connect(lambda: self.loading_changed.emit(False))
-        self._pool.start(w)
-
-    def _on_success(self, result: object) -> None:
-        if isinstance(result, VerifyResult):
-            self.operation_succeeded.emit(result)
-
-    def _on_error(self, msg: str) -> None:
-        self.operation_failed.emit(msg)
+        self._run(_do, expect=VerifyResult)

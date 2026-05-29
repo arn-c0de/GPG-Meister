@@ -4,27 +4,23 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, QThreadPool, Signal
+from PySide6.QtCore import QObject
 
 from gpg_meister.models.message import DecryptResult
 from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.message_service import MessageService
-from gpg_meister.ui.worker import Worker
+from gpg_meister.ui.operation_viewmodel import OperationViewModel
 
 
-class DecryptViewModel(QObject):
+class DecryptViewModel(OperationViewModel):
     """Manages decrypt-tab state.
 
-    Signals
-    -------
+    Signals (inherited from OperationViewModel)
+    -------------------------------------------
     operation_succeeded   Carries the DecryptResult after successful decryption.
     operation_failed      Human-readable error string.
     loading_changed       True while the background worker is running.
     """
-
-    operation_succeeded: Signal = Signal(object)
-    operation_failed: Signal = Signal(str)
-    loading_changed: Signal = Signal(bool)
 
     def __init__(
         self,
@@ -33,7 +29,6 @@ class DecryptViewModel(QObject):
     ) -> None:
         super().__init__(parent)
         self._svc = message_service
-        self._pool = QThreadPool.globalInstance()
         self._ciphertext = ""
 
     def set_ciphertext(self, text: str) -> None:
@@ -65,18 +60,6 @@ class DecryptViewModel(QObject):
                     return self._svc.decrypt(ciphertext_bytes, passphrase=pp_secure)
             return self._svc.decrypt(ciphertext_bytes, passphrase=None)
 
-        w = Worker(_do, emit_result=False)
-        w.signals.result_ready.connect(lambda: self._on_success(w.take_result()))
-        w.signals.error.connect(self._on_error)
-        w.signals.finished.connect(self._on_finished)
-        self._pool.start(w)
-
-    def _on_success(self, result: object) -> None:
-        if isinstance(result, DecryptResult):
-            self.operation_succeeded.emit(result)
-
-    def _on_error(self, msg: str) -> None:
-        self.operation_failed.emit(msg)
-
-    def _on_finished(self) -> None:
-        self.loading_changed.emit(False)
+        # secure_result: pull the plaintext via take_result() so it is never
+        # carried across threads inside a Qt signal payload.
+        self._run(_do, expect=DecryptResult, secure_result=True)
