@@ -8,7 +8,6 @@ All timestamps are stored as UTC ISO 8601 strings.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 import sys
 import threading
@@ -68,20 +67,17 @@ class MetadataStore:
 
     def __init__(self, path: Path) -> None:
         ensure_dir(path.parent, mode=0o700)
+        # reject_symlink guards the path before connect; sqlite3.connect cannot
+        # accept a pre-opened fd, so there is an unavoidable (tiny) TOCTOU window
+        # between this lstat and the open. The 0700 parent directory is the real
+        # mitigation — only the owner can place anything under it (L14).
         reject_symlink(path)
         self._path = path
         self._lock = threading.RLock()
-        # Restrict umask to 0o177 (files created by SQLite, including the WAL and
-        # SHM sidecars, will get at most 0o600 permissions). The saved umask is
-        # restored immediately after connect so the change is as narrow as possible.
-        _saved_umask: int | None = None
-        if sys.platform != "win32":
-            _saved_umask = os.umask(0o177)
-        try:
-            self._conn = sqlite3.connect(str(path), check_same_thread=False)
-        finally:
-            if _saved_umask is not None:
-                os.umask(_saved_umask)
+        # No process-global umask juggling: that is not thread-safe (another
+        # thread creating a file during the window would inherit 0o177). We
+        # instead fchmod the db and every sidecar to 0o600 explicitly below.
+        self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         if sys.platform != "win32":
             _fchmod_nofollow(path, 0o600)

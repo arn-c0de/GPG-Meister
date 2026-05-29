@@ -139,7 +139,10 @@ def main() -> None:
     paths.ensure()
     try:
         perform_pending_factory_reset(paths)
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:
+        # Catch the expected I/O / refusal failures; let programming errors
+        # propagate to the top-level handler instead of masking them here
+        # (this runs before logging is configured).
         QMessageBox.critical(None, "Factory reset failed", str(exc))
         sys.exit(1)
     configure_logging(log_file=paths.diagnostic_log)

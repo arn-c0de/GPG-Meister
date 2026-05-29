@@ -24,6 +24,7 @@ Tests live in two places:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import shutil
 import subprocess
@@ -182,6 +183,19 @@ def _decode_output(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _hash_binary(path: Path) -> str | None:
+    """SHA-256 of a file, or None if it cannot be read. Used for the cheap
+    pre-invocation re-hash that detects an in-place binary rewrite."""
+    h = hashlib.sha256()
+    try:
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()
+
+
 def _parse_colons_keys(data: bytes) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
@@ -302,7 +316,11 @@ class GPGService:
     def __init__(self, config: GPGServiceConfig) -> None:
         if not config.binary_path.exists():
             raise GPGServiceError(f"GPG binary does not exist: {config.binary_path}")
-        self._revalidate_binary(config)
+        # The hash observed this session is pinned regardless of whitelist status,
+        # so an in-place rewrite of the same inode (which the device/inode check
+        # cannot see) is caught before invocation. This is a *session* pin, not a
+        # persisted one, so legitimate cross-run binary upgrades are unaffected.
+        self._binary_sha256: str = self._revalidate_binary(config)
         # Capture device/inode immediately after hash-based validation so that
         # _assert_binary_not_swapped() can perform a cheap pre-invocation check.
         try:
@@ -324,7 +342,12 @@ class GPGService:
         self._config = config
 
     def _assert_binary_not_swapped(self) -> None:
-        """Lightweight pre-invocation check: verify the binary's inode/device match startup."""
+        """Pre-invocation check: verify device/inode *and* content hash match startup.
+
+        The device/inode check is cheap but blind to an in-place rewrite of the
+        same inode; re-hashing closes that gap so a binary modified mid-session
+        is caught before it is executed.
+        """
         if self._binary_dev is None and self._binary_ino is None:
             return
         try:
@@ -335,8 +358,14 @@ class GPGService:
             raise GPGServiceError("GPG binary device changed since startup — possible substitution")
         if self._binary_ino is not None and st.st_ino != self._binary_ino:
             raise GPGServiceError("GPG binary inode changed since startup — possible substitution")
+        if self._binary_sha256:
+            current = _hash_binary(self._config.binary_path)
+            if current is not None and current.lower() != self._binary_sha256.lower():
+                raise GPGServiceError(
+                    "GPG binary contents changed since startup — possible substitution"
+                )
 
-    def _revalidate_binary(self, config: GPGServiceConfig) -> None:
+    def _revalidate_binary(self, config: GPGServiceConfig) -> str:
         from gpg_meister.startup.gpg_detector import detect
 
         detected = detect(
@@ -354,6 +383,7 @@ class GPGService:
             raise GPGServiceError("GPG binary device changed before service startup")
         if config.trusted_inode is not None and detected.inode != config.trusted_inode:
             raise GPGServiceError("GPG binary inode changed before service startup")
+        return detected.sha256
 
     @property
     def config(self) -> GPGServiceConfig:
