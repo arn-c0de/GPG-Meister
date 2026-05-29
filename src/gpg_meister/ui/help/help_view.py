@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 
 from PySide6.QtCore import QEvent, QObject
+from PySide6.QtGui import QHelpEvent
 from PySide6.QtWidgets import QTabWidget, QTextBrowser, QToolTip, QWidget
 
 from gpg_meister.ui.help.glossary import TERMS
@@ -141,7 +142,11 @@ _TOOLTIPS: dict[str, str | None] = {
 
 class _CharTooltipFilter(QObject):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if event.type() == QEvent.Type.ToolTip and isinstance(watched, QTextBrowser):
+        if (
+            event.type() == QEvent.Type.ToolTip
+            and isinstance(watched, QTextBrowser)
+            and isinstance(event, QHelpEvent)
+        ):
             cursor = watched.cursorForPosition(event.pos())
             tip = cursor.charFormat().toolTip()
             if tip:

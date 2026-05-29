@@ -408,11 +408,18 @@ def run_all_checks(
     result = CheckResult()
     result.core_dumps_disabled = disable_core_dumps()
     if not result.core_dumps_disabled:
+        # A strong warning, not a hard block: on seccomp/musl/hardened hosts the
+        # prctl call is denied, and refusing to start there would be worse than
+        # running with core dumps that the OS may already restrict separately.
         result.warnings.append(
             CheckWarning(
                 code="core_dumps_enabled",
-                message="Core dumps could not be disabled for this process.",
-                severity=CheckSeverity.ERROR,
+                message=(
+                    "Core dumps could not be disabled for this process. If this host can "
+                    "produce core dumps, a crash could persist decrypted secrets to disk. "
+                    "Consider disabling core dumps system-wide (e.g. ulimit -c 0)."
+                ),
+                severity=CheckSeverity.WARNING,
             )
         )
 

@@ -42,7 +42,7 @@ def _format_toml_value(value: object) -> str:
             .replace("\r", "\\r")
             .replace('"', '\\"')
         )
-        # Escape remaining C0 control characters (U+0000–U+001F except \t and \n/\r already handled)
+        # Escape remaining C0 control characters (U+0000-U+001F except \t and \n/\r already handled)
         escaped = "".join(
             f"\\u{ord(ch):04x}" if (ord(ch) < 0x20 and ch not in "\t") else ch
             for ch in escaped

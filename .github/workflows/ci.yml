@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "1.0.*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      # Qt needs an offscreen platform plugin in headless CI.
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GnuPG and Qt runtime libs
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            gpg \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
+            libxcb-xkb1 libxkbcommon-x11-0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Ruff (lint)
+        run: uv run ruff check .
+
+      - name: Mypy (strict, src)
+        # `src` is gated strictly; test type-checking is tracked separately.
+        run: uv run mypy src
+
+      - name: Pytest
+        run: uv run pytest -q
