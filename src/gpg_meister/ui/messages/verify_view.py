@@ -120,7 +120,28 @@ class VerifyView(QWidget):
             color = "#cc6600" if untrusted else "#006600"
             self._result_label.setStyleSheet(f"color: {color}; font-weight: bold;")
         else:
-            self._result_label.setText("Signature INVALID — the message may have been tampered with.")
+            from gpg_meister.models.message import SignatureStatus
+            messages = {
+                SignatureStatus.INVALID: (
+                    "Signature INVALID — the message may have been tampered with."
+                ),
+                SignatureStatus.REVOKED_KEY: (
+                    "Signature rejected — the signing key has been REVOKED."
+                ),
+                SignatureStatus.EXPIRED_KEY: (
+                    "Signature rejected — the signing key has EXPIRED."
+                ),
+                SignatureStatus.EXPIRED_SIG: (
+                    "Signature rejected — the signature itself has EXPIRED."
+                ),
+                SignatureStatus.ERROR: (
+                    "Signature could not be verified — the public key may be missing."
+                ),
+                SignatureStatus.NONE: "No signature was found in the supplied data.",
+            }
+            self._result_label.setText(
+                messages.get(result.signature_status, "Signature INVALID.")
+            )
             self._result_label.setStyleSheet("color: #cc0000; font-weight: bold;")
         self._result_label.show()
 

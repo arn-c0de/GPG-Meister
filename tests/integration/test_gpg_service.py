@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from gpg_meister.models.key_info import KeyAlgorithm
+from gpg_meister.models.message import SignatureStatus
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.errors import (
     GPGKeyNotFoundError,
@@ -79,10 +80,10 @@ def test_encrypt_decrypt_roundtrip(isolated_gpg: GPGService) -> None:
     ciphertext = isolated_gpg.encrypt(plaintext, recipient_fingerprints=[fp])
     assert "-----BEGIN PGP MESSAGE-----" in ciphertext
     with SecureBytes.from_bytes(b"correct horse battery staple") as pw:
-        decrypted, signer, valid = isolated_gpg.decrypt(ciphertext.encode("utf-8"), passphrase=pw)
+        decrypted, signer, status = isolated_gpg.decrypt(ciphertext.encode("utf-8"), passphrase=pw)
     assert decrypted == plaintext
     assert signer is None  # we did not sign
-    assert valid is False
+    assert status is SignatureStatus.NONE
 
 
 def test_encrypt_decrypt_with_signature(isolated_gpg: GPGService) -> None:
@@ -96,10 +97,10 @@ def test_encrypt_decrypt_with_signature(isolated_gpg: GPGService) -> None:
             passphrase=pw,
         )
     with SecureBytes.from_bytes(b"correct horse battery staple") as pw:
-        decrypted, signer, valid = isolated_gpg.decrypt(ciphertext.encode("utf-8"), passphrase=pw)
+        decrypted, signer, status = isolated_gpg.decrypt(ciphertext.encode("utf-8"), passphrase=pw)
     assert decrypted == plaintext
     assert signer is not None
-    assert valid is True
+    assert status is SignatureStatus.VALID
 
 
 def test_import_public_key_from_other_keyring(

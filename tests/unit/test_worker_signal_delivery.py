@@ -10,7 +10,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QDialogButtonBox
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo
-from gpg_meister.models.message import DecryptResult, EncryptResult, SignResult, VerifyResult
+from gpg_meister.models.message import (
+    DecryptResult,
+    EncryptResult,
+    SignatureStatus,
+    SignResult,
+    VerifyResult,
+)
 from gpg_meister.services.vault_service import VaultDescriptor
 from gpg_meister.ui.keys.key_create_view import KeyCreateDialog
 from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
@@ -72,7 +78,7 @@ class _FakeMessageService:
         return DecryptResult(
             plaintext=b"hello",
             signer_fingerprint="A" * 40,
-            signature_valid=True,
+            signature_status=SignatureStatus.VALID,
             decrypted_with_fingerprint="A" * 40,
         )
 
@@ -86,7 +92,7 @@ class _FakeMessageService:
 
     def verify(self, *_: object, **__: object) -> VerifyResult:
         return VerifyResult(
-            signature_valid=True,
+            signature_status=SignatureStatus.VALID,
             signer_fingerprint="A" * 40,
             signed_at=datetime(2026, 1, 1, tzinfo=UTC),
         )

@@ -8,14 +8,17 @@ confirmation panel without consulting GPG mid-flow.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-import contextlib
-
 from gpg_meister.models.key_info import KeyAlgorithm, TrustLevel
-from gpg_meister.services.errors import GPGKeyNotFoundError
-from gpg_meister.models.message import DecryptResult, EncryptResult, SignResult, VerifyResult
+from gpg_meister.models.message import (
+    DecryptResult,
+    EncryptResult,
+    SignResult,
+    VerifyResult,
+)
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.gpg_service import GPGService
 from gpg_meister.services.validation import validate_fingerprint
@@ -108,7 +111,9 @@ class MessageService:
         passphrase: SecureBytes | None = None,
     ) -> DecryptResult:
         try:
-            plaintext, signer, valid = self._gpg.decrypt(ciphertext, passphrase=passphrase)
+            plaintext, signer, signature_status = self._gpg.decrypt(
+                ciphertext, passphrase=passphrase
+            )
         except Exception as exc:
             self._audit.emit(
                 "message_decrypt_failed",
@@ -127,13 +132,13 @@ class MessageService:
             outcome=OUTCOME_OK,
             byte_count=len(plaintext),
             signer=signer or "",
-            signature_valid=valid,
+            signature_status=signature_status.value,
             signer_trust=signer_trust.value if signer else "",
         )
         return DecryptResult(
             plaintext=plaintext,
             signer_fingerprint=signer,
-            signature_valid=valid,
+            signature_status=signature_status,
             signer_trust=signer_trust,
         )
 
@@ -185,7 +190,7 @@ class MessageService:
         detached_signature: bytes | None = None,
     ) -> VerifyResult:
         _validate_text_payload(data)
-        valid, signer, signed_at = self._gpg.verify(
+        signature_status, signer, signed_at = self._gpg.verify(
             data, detached_signature=detached_signature
         )
         signer_trust = TrustLevel.UNKNOWN
@@ -193,10 +198,13 @@ class MessageService:
             with contextlib.suppress(Exception):
                 signer_trust = self._gpg.find_key(signer).trust
         return VerifyResult(
-            signature_valid=valid,
+            signature_status=signature_status,
             signer_fingerprint=signer,
             signer_trust=signer_trust,
             signed_at=signed_at,
+            failure_reason=(
+                None if signature_status.is_valid else signature_status.summary
+            ),
         )
 
 
