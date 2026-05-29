@@ -250,24 +250,7 @@ class KeyService:
                 retained_fps.append(fp)
                 self._audit.emit("key_imported", outcome=OUTCOME_OK, fingerprint=fp)
                 continue
-            try:
-                self._gpg.delete_key(fp, including_secret=False)
-                self._audit.emit(
-                    "key_imported",
-                    outcome=OUTCOME_WARNING,
-                    fingerprint=fp,
-                    reason="smuggled_key_removed",
-                )
-            except Exception as exc:
-                self._audit.emit(
-                    "key_imported",
-                    outcome=OUTCOME_FAILED,
-                    fingerprint=fp,
-                    reason=f"smuggled_key_deletion_failed:{type(exc).__name__}",
-                )
-                raise ServiceError(
-                    f"Smuggled key {fp[-16:]} could not be removed from keyring"
-                ) from exc
+            remove_smuggled_key(self._gpg, self._audit, fp, including_secret=False)
         return retained_fps
 
     # ------------------------------------------------------------------- export
@@ -332,6 +315,41 @@ class KeyService:
             "notes": row.get("notes") or "",
             "is_favorite": bool(row.get("favorite")),
         })
+
+
+def remove_smuggled_key(
+    gpg: GPGService,
+    audit: AuditLog,
+    fingerprint: str,
+    *,
+    including_secret: bool,
+) -> None:
+    """Delete a key that ``gpg --import`` pulled in but the user never selected.
+
+    A malicious armored blob can bundle extra keys alongside the requested one;
+    this removes each unexpected fingerprint and records the outcome. A WARNING
+    audit event marks a successful removal; a deletion failure is logged FAILED
+    and re-raised as a ``ServiceError`` so a smuggled key never lingers silently.
+    Shared by :meth:`KeyService.import_armored` and ``VaultService.import_keys``.
+    """
+    try:
+        gpg.delete_key(fingerprint, including_secret=including_secret)
+        audit.emit(
+            "key_imported",
+            outcome=OUTCOME_WARNING,
+            fingerprint=fingerprint,
+            reason="smuggled_key_removed",
+        )
+    except Exception as exc:
+        audit.emit(
+            "key_imported",
+            outcome=OUTCOME_FAILED,
+            fingerprint=fingerprint,
+            reason=f"smuggled_key_deletion_failed:{type(exc).__name__}",
+        )
+        raise ServiceError(
+            f"Smuggled key {fingerprint[-16:]} could not be removed from keyring"
+        ) from exc
 
 
 def _validate_public_import_blob(armored: str) -> str:
