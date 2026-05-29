@@ -8,9 +8,13 @@ Actions offered are symbolic strings; the View maps them to buttons.
 
 from __future__ import annotations
 
+import logging
+import secrets
 from dataclasses import dataclass
 
 from gpg_meister.ui.errors.user_error import ErrorSeverity
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -133,6 +137,40 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=(),
         severity=ErrorSeverity.WARNING,
     ),
+    "key_not_found": CatalogEntry(
+        code="key_not_found",
+        title="Key not found",
+        message="The requested key could not be found in your keyring.",
+        actions=("cancel",),
+    ),
+    "config_error": CatalogEntry(
+        code="config_error",
+        title="Configuration problem",
+        message=(
+            "Your configuration could not be loaded or saved. "
+            "Check that the config file is intact and has safe permissions."
+        ),
+        actions=("cancel",),
+    ),
+    "gpg_operation_failed": CatalogEntry(
+        code="gpg_operation_failed",
+        title="GnuPG operation failed",
+        message=(
+            "The GnuPG operation could not be completed. "
+            "The passphrase may be wrong, or the key may be missing or unusable."
+        ),
+        actions=("retry", "cancel"),
+        help_section="troubleshooting",
+    ),
+    "unexpected_error": CatalogEntry(
+        code="unexpected_error",
+        title="Something went wrong",
+        message=(
+            "The operation failed unexpectedly. The technical details were written "
+            "to the diagnostic log under reference {ref}."
+        ),
+        actions=("cancel",),
+    ),
 }
 
 
@@ -153,21 +191,32 @@ def format_message(code: str, **kwargs: str) -> str:
 
 
 def message_for_exception(exc: BaseException) -> str:
-    """Map internal exceptions to a generic user-facing message."""
+    """Map internal exceptions to a user-facing message.
+
+    Known exception types map to curated catalog entries. ``ValueError`` carries
+    intentional, user-facing validation text (raised throughout the services
+    layer) and is shown as-is. Every other exception is treated as unexpected:
+    rather than echo ``str(exc)`` — which can leak file paths, key ids or raw
+    gpg stderr into the UI — we show a generic message with a short correlation
+    reference and write the real detail to the (scrubbed) diagnostic log.
+    """
     name = type(exc).__name__
     code = {
         "DecryptionError": "vault_decryption_failed",
         "VaultFormatError": "vault_format_error",
+        "VaultChecksumMismatchError": "vault_checksum_mismatch",
         "GPGKeyNotFoundError": "key_not_found",
         "ConfigServiceError": "config_error",
+        "GPGProcessError": "gpg_operation_failed",
+        "GPGPassphraseError": "gpg_operation_failed",
+        "GPGValidationError": "gpg_operation_failed",
     }.get(name)
     if code is not None:
         return format_message(code)
     if isinstance(exc, ValueError):
         return str(exc)
-    
-    # Fallback: include the actual error message so users can debug without logs.
-    msg = str(exc).strip()
-    if msg:
-        return f"The operation failed: {msg}"
-    return "The operation failed. Check the diagnostic log for details."
+
+    # Unknown/unexpected exception: do not surface raw exception text in the UI.
+    ref = secrets.token_hex(3)
+    _log.error("unexpected error [ref=%s]: %s", ref, type(exc).__name__, exc_info=exc)
+    return format_message("unexpected_error", ref=ref)

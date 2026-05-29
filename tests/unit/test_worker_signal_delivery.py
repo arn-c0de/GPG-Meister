@@ -140,7 +140,11 @@ def test_key_create_dialog_surfaces_background_errors() -> None:
     _pump_until(lambda: not dlg._error_label.isHidden())
 
     assert not dlg._error_label.isHidden()
-    assert dlg._error_label.text() == "The operation failed: create failed"
+    # Unexpected (non-ValueError) exceptions must not leak their raw text into
+    # the UI — a generic message with a correlation reference is shown instead.
+    shown = dlg._error_label.text()
+    assert "create failed" not in shown
+    assert "reference" in shown.lower()
 
 
 def test_encrypt_viewmodel_emits_result() -> None:

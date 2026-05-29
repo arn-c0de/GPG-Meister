@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from PySide6.QtCore import QThreadPool
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
@@ -16,8 +17,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from PySide6.QtCore import QThreadPool
 
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.services.key_service import KeyService

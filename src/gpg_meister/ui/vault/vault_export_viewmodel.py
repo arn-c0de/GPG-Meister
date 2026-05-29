@@ -123,6 +123,18 @@ class VaultExportViewModel(QObject):
             self._unlocked_fps.discard(fp)
             self.key_unlock_state_changed.emit(fp, False)
 
+    def reset_secrets(self) -> None:
+        """Drop every stored passphrase string (best-effort, L7).
+
+        The per-key unlock UX needs candidate passphrases held until submit;
+        this clears them when the form is abandoned or finished so they do not
+        outlive the operation. Plain ``str`` cannot be truly zeroed in CPython.
+        """
+        self._master_passphrase = ""
+        self._confirm_passphrase = ""
+        self._key_passphrases.clear()
+        self._unlocked_fps.clear()
+
     def is_key_unlocked(self, fp: str) -> bool:
         key = self._key_map.get(fp)
         if key and key.is_stub:
@@ -166,19 +178,18 @@ class VaultExportViewModel(QObject):
         self._unlocked_fps.difference_update(fps)
 
         def _do() -> VaultDescriptor:
-            with master_secure as master_pp:
-                with contextlib.ExitStack() as stack:
-                    gpg_pps: dict[str, SecureBytes] = {
-                        fp: stack.enter_context(pw)
-                        for fp, pw in gpg_secure.items()
-                    }
-                    return self._vault_svc.create(
-                        target_path=target,
-                        master_passphrase=master_pp,
-                        gpg_passphrases=gpg_pps,
-                        fingerprints=fps,
-                        description=desc,
-                    )
+            with master_secure as master_pp, contextlib.ExitStack() as stack:
+                gpg_pps: dict[str, SecureBytes] = {
+                    fp: stack.enter_context(pw)
+                    for fp, pw in gpg_secure.items()
+                }
+                return self._vault_svc.create(
+                    target_path=target,
+                    master_passphrase=master_pp,
+                    gpg_passphrases=gpg_pps,
+                    fingerprints=fps,
+                    description=desc,
+                )
 
         w = Worker(_do)
         w.signals.result.connect(self._on_success)
@@ -187,6 +198,7 @@ class VaultExportViewModel(QObject):
         self._pool.start(w)
 
     def _on_success(self, result: object) -> None:
+        self.reset_secrets()
         if isinstance(result, VaultDescriptor):
             self.operation_succeeded.emit(result)
 

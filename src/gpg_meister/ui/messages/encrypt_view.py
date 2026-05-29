@@ -249,9 +249,6 @@ class EncryptView(QWidget):
         self._recip_list.itemSelectionChanged.connect(self._on_recip_selection)
         self._sign_box.toggled.connect(self._on_sign_toggled)
         self._sign_combo.currentIndexChanged.connect(self._on_sign_key_changed)
-        self._sign_passphrase.passphrase_changed.connect(
-            lambda: self._vm.set_passphrase(self._sign_passphrase.text())
-        )
         self._verify_check.toggled.connect(self._on_verify_toggled)
         self._btn_encrypt.clicked.connect(self._submit)
         self._btn_clear.clicked.connect(self._clear)
@@ -304,7 +301,7 @@ class EncryptView(QWidget):
     def _on_sign_toggled(self, checked: bool) -> None:
         if not checked:
             self._vm.set_sign_with(None)
-            self._vm.set_passphrase("")
+            self._sign_passphrase.clear()
 
     def _on_sign_key_changed(self, idx: int) -> None:
         if not self._sign_box.isChecked():
@@ -384,7 +381,9 @@ class EncryptView(QWidget):
         copy_text(text, clear_after_seconds=self._clipboard_clear_seconds)
 
     def _submit(self) -> None:
-        self._vm.submit()
+        # Pass the field's text accessor so the ViewModel reads the passphrase
+        # once at submit and never stores it (L7).
+        self._vm.submit(self._sign_passphrase.text)
         self._sign_passphrase.clear()
 
 
