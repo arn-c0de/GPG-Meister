@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,6 +28,14 @@ MAX_IMPORT_TIME_COST = 3
 MAX_IMPORT_MEMORY_COST_KB = 262_144
 MAX_IMPORT_PARALLELISM = 4
 
+# Validated field types shared by KDFParams and the untrusted-header KDFFields
+# (models/vault.py), so the accept/reject bounds at the trust boundary are
+# defined exactly once. Each is a required int constrained to the policy range.
+TimeCost = Annotated[int, Field(ge=MIN_TIME_COST, le=MAX_TIME_COST)]
+MemoryCost = Annotated[int, Field(ge=MIN_MEMORY_COST_KB, le=MAX_MEMORY_COST_KB)]
+Parallelism = Annotated[int, Field(ge=1, le=MAX_PARALLELISM)]
+HashLen = Annotated[int, Field(ge=MIN_HASH_LEN, le=MAX_HASH_LEN)]
+
 
 class KDFAlgorithm(StrEnum):
     ARGON2ID = "argon2id"
@@ -41,10 +50,10 @@ class KDFParams(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     algorithm: KDFAlgorithm = KDFAlgorithm.ARGON2ID
-    time_cost: int = Field(..., ge=MIN_TIME_COST, le=MAX_TIME_COST)
-    memory_cost: int = Field(..., ge=MIN_MEMORY_COST_KB, le=MAX_MEMORY_COST_KB)
-    parallelism: int = Field(..., ge=1, le=MAX_PARALLELISM)
-    hash_len: int = Field(..., ge=MIN_HASH_LEN, le=MAX_HASH_LEN)
+    time_cost: TimeCost
+    memory_cost: MemoryCost
+    parallelism: Parallelism
+    hash_len: HashLen
     salt_len: int = Field(..., ge=MIN_SALT_LEN, le=MAX_SALT_LEN)
 
 

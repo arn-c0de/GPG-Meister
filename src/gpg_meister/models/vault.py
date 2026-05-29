@@ -14,19 +14,16 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from gpg_meister.models.kdf_params import (
-    MAX_HASH_LEN,
-    MAX_MEMORY_COST_KB,
-    MAX_PARALLELISM,
     MAX_SALT_LEN,
-    MAX_TIME_COST,
-    MIN_HASH_LEN,
-    MIN_MEMORY_COST_KB,
     MIN_SALT_LEN,
-    MIN_TIME_COST,
+    HashLen,
     KDFAlgorithm,
     KDFParams,
+    MemoryCost,
+    Parallelism,
+    TimeCost,
 )
-from gpg_meister.models.key_info import _FINGERPRINT_CHARS, FINGERPRINT_LENGTH
+from gpg_meister.models.key_info import FINGERPRINT_LENGTH, normalise_fingerprint
 
 VAULT_FORMAT_TAG = "GPGMEISTER_VAULT"
 VAULT_FORMAT_VERSION = 2
@@ -79,10 +76,10 @@ class KDFFields(BaseModel):
 
     algorithm: KDFAlgorithm
     salt_b64: str
-    time_cost: int = Field(..., ge=MIN_TIME_COST, le=MAX_TIME_COST)
-    memory_cost: int = Field(..., ge=MIN_MEMORY_COST_KB, le=MAX_MEMORY_COST_KB)
-    parallelism: int = Field(..., ge=1, le=MAX_PARALLELISM)
-    hash_len: int = Field(..., ge=MIN_HASH_LEN, le=MAX_HASH_LEN)
+    time_cost: TimeCost
+    memory_cost: MemoryCost
+    parallelism: Parallelism
+    hash_len: HashLen
 
     @field_validator("salt_b64")
     @classmethod
@@ -150,10 +147,7 @@ class VaultKeyEntry(BaseModel):
     @field_validator("fingerprint")
     @classmethod
     def _normalise_fingerprint(cls, value: str) -> str:
-        upper = value.upper()
-        if len(upper) != FINGERPRINT_LENGTH or not set(upper).issubset(_FINGERPRINT_CHARS):
-            raise ValueError("fingerprint must be 40 uppercase hex characters")
-        return upper
+        return normalise_fingerprint(value)
 
     @field_validator("user_ids")
     @classmethod
@@ -168,9 +162,6 @@ class VaultKeyEntry(BaseModel):
             f"VaultKeyEntry(fingerprint={self.fingerprint!r}, "
             f"has_private_key={self.has_private_key}, key_material=<segmented>)"
         )
-
-    def __str__(self) -> str:
-        return self.__repr__()
 
 
 class VaultManifest(BaseModel):
