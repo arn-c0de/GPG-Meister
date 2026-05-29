@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo, TrustLevel
+from gpg_meister.models.message import SignatureStatus
 from gpg_meister.security.secure_bytes import SecureBytes, zero_mutable_buffer
 from gpg_meister.services.errors import (
     GPGKeyNotFoundError,
@@ -217,6 +218,66 @@ def _parse_status(stderr: bytes) -> list[list[str]]:
             continue
         records.append(line.removeprefix("[GNUPG:] ").split())
     return records
+
+
+# GnuPG emits exactly one of these per signature; the ones other than GOODSIG
+# all mean "do not trust this signature as-is" even though gpg still exits 0 and
+# (for the EXP*/REV* variants) still emits a companion VALIDSIG line.
+_SIG_DOWNGRADE = {
+    "REVKEYSIG": SignatureStatus.REVOKED_KEY,
+    "EXPKEYSIG": SignatureStatus.EXPIRED_KEY,
+    "EXPSIG": SignatureStatus.EXPIRED_SIG,
+    "BADSIG": SignatureStatus.INVALID,
+    "ERRSIG": SignatureStatus.ERROR,
+}
+
+
+def _evaluate_signature(
+    records: Iterable[Sequence[str]],
+) -> tuple[SignatureStatus, str | None, datetime | None]:
+    """Derive ``(status, signer_fingerprint, signed_at)`` from gpg status records.
+
+    Validity is taken from the status records, never the exit code. A signature
+    is :data:`SignatureStatus.VALID` only when gpg reports ``GOODSIG`` *and*
+    ``VALIDSIG`` and none of the revocation/expiry/error variants are present.
+    Revoked- or expired-key signatures still produce a ``VALIDSIG`` line (so the
+    fingerprint is recovered) but are downgraded so callers never treat them as
+    trustworthy. The signer fingerprint is bound to the full-length ``VALIDSIG``
+    fingerprint rather than the short key id from ``GOODSIG``/``BADSIG``.
+    """
+    has_goodsig = False
+    has_validsig = False
+    downgrade: SignatureStatus | None = None
+    signer_fp: str | None = None
+    signed_at: datetime | None = None
+
+    for record in records:
+        if not record:
+            continue
+        tag = record[0]
+        if tag == "GOODSIG":
+            has_goodsig = True
+        elif tag == "VALIDSIG" and len(record) > 1:
+            has_validsig = True
+            signer_fp = record[1]
+            for token in record[2:]:
+                if token.isdigit():
+                    with contextlib.suppress(ValueError, OSError, OverflowError):
+                        signed_at = datetime.fromtimestamp(float(token), tz=UTC)
+                    break
+        elif tag in _SIG_DOWNGRADE:
+            # Worst observed problem wins (a later BADSIG must not be masked).
+            downgrade = _SIG_DOWNGRADE[tag]
+
+    if downgrade is not None:
+        return downgrade, signer_fp, signed_at
+    if has_goodsig and has_validsig:
+        return SignatureStatus.VALID, signer_fp, signed_at
+    if has_goodsig or has_validsig:
+        # A lone GOODSIG/VALIDSIG without its companion is anomalous; refuse to
+        # assert validity rather than fail open.
+        return SignatureStatus.ERROR, signer_fp, signed_at
+    return SignatureStatus.NONE, None, None
 
 
 def _write_all(fd: int, data: bytes | bytearray | memoryview) -> None:
@@ -677,8 +738,13 @@ class GPGService:
         ciphertext: bytes,
         *,
         passphrase: SecureBytes | None = None,
-    ) -> tuple[bytes, str | None, bool]:
-        """Return (plaintext, signer_fingerprint_if_any, signature_valid)."""
+    ) -> tuple[bytes, str | None, SignatureStatus]:
+        """Return (plaintext, signer_fingerprint_if_any, signature_status).
+
+        ``signature_status`` is derived from the gpg status records, so a
+        signature from a revoked or expired key is reported as such instead of
+        being treated as valid (gpg exits 0 in those cases).
+        """
         proc = self._run_gpg(
             ["--decrypt"],
             input_data=ciphertext,
@@ -693,14 +759,8 @@ class GPGService:
             if "bad_passphrase" in combined or "bad passphrase" in combined or "no secret key" in combined:
                 raise GPGPassphraseError(f"decryption failed: {detail}")
             raise GPGProcessError(f"decryption failed: {detail}")
-        signer: str | None = None
-        valid = False
-        for record in _parse_status(proc.status):
-            if record and record[0] == "VALIDSIG" and len(record) > 1:
-                signer = record[1]
-                valid = True
-                break
-        return bytes(proc.stdout or b""), signer, valid
+        status, signer, _ = _evaluate_signature(_parse_status(proc.status))
+        return bytes(proc.stdout or b""), signer, status
 
     def sign(
         self,
@@ -728,8 +788,13 @@ class GPGService:
         data: bytes,
         *,
         detached_signature: bytes | None = None,
-    ) -> tuple[bool, str | None, datetime | None]:
-        """Return (valid, signer_fingerprint, signed_at)."""
+    ) -> tuple[SignatureStatus, str | None, datetime | None]:
+        """Return (signature_status, signer_fingerprint, signed_at).
+
+        Validity is derived from the gpg status records, not the exit code, so
+        signatures from revoked or expired keys (which gpg still exits 0 for)
+        are reported as such rather than as valid.
+        """
         if detached_signature is not None:
             # We use a named temporary file in the GPG home directory (which is
             # 0700) to avoid leaving detached data in global /tmp.
@@ -757,19 +822,8 @@ class GPGService:
         else:
             proc = self._run_gpg(["--verify"], input_data=data, status_fd=True)
 
-        valid = proc.returncode == 0
-        fp: str | None = None
-        signed_at: datetime | None = None
-        for record in _parse_status(proc.status):
-            if record and record[0] == "VALIDSIG" and len(record) > 1:
-                fp = record[1]
-                for token in record[2:]:
-                    if token.isdigit():
-                        with contextlib.suppress(ValueError, OSError):
-                            signed_at = datetime.fromtimestamp(float(token), tz=UTC)
-                        break
-                break
-        return valid, fp, signed_at
+        status, fp, signed_at = _evaluate_signature(_parse_status(proc.status))
+        return status, fp, signed_at
 
     # ---------------------------------------------------------------------- meta
 

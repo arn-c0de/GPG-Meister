@@ -3,10 +3,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from gpg_meister.models.message import SignatureStatus
 from gpg_meister.services.gpg_service import (
     GPGService,
     GPGServiceConfig,
+    _evaluate_signature,
     _GPGRun,
+    _parse_status,
     _write_all,
 )
 
@@ -31,14 +34,18 @@ def test_detached_verify_uses_gpg_home_for_temp_signature(tmp_path: Path) -> Non
             returncode=0,
             stdout=b"",
             stderr=b"",
-            status=b"[GNUPG:] VALIDSIG " + (b"A" * 40) + b" 0 0 0 0 0 0 0 0 0\n",
+            status=(
+                b"[GNUPG:] GOODSIG DEADBEEF signer\n"
+                b"[GNUPG:] VALIDSIG " + (b"A" * 40) + b" 2020-01-01 1577836800 0 4 0 1 8 01 "
+                + (b"A" * 40) + b"\n"
+            ),
         )
 
     service._run_gpg = _fake_run_gpg  # type: ignore[assignment,method-assign]
 
-    valid, fingerprint, signed_at = service.verify(b"payload", detached_signature=b"sig")
+    status, fingerprint, signed_at = service.verify(b"payload", detached_signature=b"sig")
 
-    assert valid is True
+    assert status is SignatureStatus.VALID
     assert fingerprint == "A" * 40
     assert signed_at is not None
     assert captured_sig_path is not None
@@ -47,6 +54,56 @@ def test_detached_verify_uses_gpg_home_for_temp_signature(tmp_path: Path) -> Non
     assert captured_data_path.parent == service._config.home_dir
     assert not captured_sig_path.exists()
     assert not captured_data_path.exists()
+
+
+def _records(*lines: str) -> list[list[str]]:
+    blob = "".join(f"[GNUPG:] {line}\n" for line in lines).encode()
+    return _parse_status(blob)
+
+
+def test_evaluate_signature_valid_requires_goodsig_and_validsig() -> None:
+    fpr = "A" * 40
+    status, signer, _ = _evaluate_signature(
+        _records("GOODSIG DEADBEEF signer", f"VALIDSIG {fpr} 2020-01-01 1577836800 0")
+    )
+    assert status is SignatureStatus.VALID
+    assert signer == fpr
+
+
+def test_evaluate_signature_revoked_key_is_not_valid() -> None:
+    fpr = "B" * 40
+    # gpg emits REVKEYSIG *and* VALIDSIG and still exits 0 for a revoked signer.
+    status, signer, _ = _evaluate_signature(
+        _records("REVKEYSIG DEADBEEF signer", f"VALIDSIG {fpr} 2020-01-01 1577836800 0")
+    )
+    assert status is SignatureStatus.REVOKED_KEY
+    assert status.is_valid is False
+    assert signer == fpr  # fingerprint still surfaced for attribution
+
+
+def test_evaluate_signature_expired_key_is_not_valid() -> None:
+    status, _, _ = _evaluate_signature(
+        _records("EXPKEYSIG DEADBEEF signer", "VALIDSIG " + "C" * 40 + " 2020-01-01 1577836800 0")
+    )
+    assert status is SignatureStatus.EXPIRED_KEY
+    assert status.is_valid is False
+
+
+def test_evaluate_signature_bad_signature() -> None:
+    status, _, _ = _evaluate_signature(_records("BADSIG DEADBEEF signer"))
+    assert status is SignatureStatus.INVALID
+
+
+def test_evaluate_signature_none_when_unsigned() -> None:
+    status, signer, _ = _evaluate_signature(_records("ENC_TO DEADBEEF 1 0"))
+    assert status is SignatureStatus.NONE
+    assert signer is None
+
+
+def test_evaluate_signature_lone_validsig_is_not_trusted() -> None:
+    # A VALIDSIG without the companion GOODSIG must not be reported valid.
+    status, _, _ = _evaluate_signature(_records("VALIDSIG " + "D" * 40 + " 2020-01-01 1577836800 0"))
+    assert status is SignatureStatus.ERROR
 
 
 def test_write_all_accepts_memoryview_without_buffered_writer() -> None:
