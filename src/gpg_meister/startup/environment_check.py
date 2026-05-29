@@ -105,11 +105,19 @@ def check_gpg_version(gpg_path: Path) -> str:
             f"Failed to query GPG version: {exc}",
         ) from exc
 
-    match = re.search(r"GnuPG\)?\s+(\d+\.\d+\.\d+)", result.stdout)
+    combined = f"{result.stdout}\n{result.stderr}"
+    if result.returncode != 0:
+        raise EnvironmentCheckError(
+            "gpg_version_check_failed",
+            f"GPG exited with status {result.returncode}: {combined.strip()[:200]}",
+        )
+
+    # Scan both streams: some builds print the banner to stderr.
+    match = re.search(r"GnuPG\)?\s+(\d+\.\d+\.\d+)", combined)
     if not match:
         raise EnvironmentCheckError(
             "gpg_version_parse_failed",
-            "Could not parse GnuPG version from output.",
+            f"Could not parse GnuPG version from output: {combined.strip()[:200]}",
         )
 
     version_str = match.group(1)

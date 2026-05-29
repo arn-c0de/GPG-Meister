@@ -69,6 +69,13 @@ def atomic_write_bytes(path: Path, data: bytes, *, mode: int = 0o600) -> None:
         os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
         mode,
     )
+    # os.open's mode is masked by the process umask, so enforce the exact mode
+    # on the fd. This also means the new file's mode is independent of (and not
+    # weakened by) any pre-existing target's mode, since os.replace adopts the
+    # tmp file's metadata.
+    if sys.platform != "win32":
+        with contextlib.suppress(OSError):
+            os.fchmod(fd, mode)
     try:
         try:
             with os.fdopen(fd, "wb", closefd=True) as fh:
@@ -124,6 +131,9 @@ class AtomicWriter:
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
             self._mode,
         )
+        if sys.platform != "win32":
+            with contextlib.suppress(OSError):
+                os.fchmod(fd, self._mode)
         self._fh = os.fdopen(fd, "wb", closefd=True)
         return self
 
