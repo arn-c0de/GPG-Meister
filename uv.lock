@@ -572,7 +572,7 @@ wheels = [
 
 [[package]]
 name = "gpg-meister"
-version = "1.0.3"
+version = "1.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "argon2-cffi" },

@@ -1,6 +1,6 @@
 [project]
 name = "gpg-meister"
-version = "1.0.3"
+version = "1.0.4"
 description = "Local-first GPG key management, message encryption, and encrypted vault backup."
 readme = "README.md"
 requires-python = ">=3.11"
