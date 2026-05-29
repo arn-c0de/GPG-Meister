@@ -167,3 +167,40 @@ def test_passphrase_never_in_argv(
     for argv in captured_argvs:
         for item in argv:
             assert needle not in item, f"passphrase leaked into argv: {argv!r}"
+
+
+def test_run_gpg_does_not_leak_file_descriptors(isolated_gpg: GPGService) -> None:
+    """Regression guard for the _run_gpg pipe/thread plumbing.
+
+    Exercises every fd path — no-pipe (version/list), status-fd only (verify),
+    and passphrase + status-fd (sign/decrypt) — many times and asserts the
+    process's open-fd count does not grow. Catches a leaked or double-handled
+    passphrase/status pipe in the subprocess machinery.
+    """
+    import os
+
+    fd_dir = "/proc/self/fd"
+    if not os.path.isdir(fd_dir):
+        pytest.skip("fd accounting requires /proc (Linux)")
+
+    pw_text = b"correct horse battery staple"
+    fp = _gen_eddsa(isolated_gpg)
+    ciphertext = isolated_gpg.encrypt(b"payload", recipient_fingerprints=[fp])
+
+    def _one_cycle() -> None:
+        isolated_gpg.version()
+        isolated_gpg.list_keys(secret=False)
+        with SecureBytes.from_bytes(pw_text) as pw:
+            signature = isolated_gpg.sign(b"data", fingerprint=fp, passphrase=pw, detached=True)
+        isolated_gpg.verify(b"data", detached_signature=signature.encode("utf-8"))
+        with SecureBytes.from_bytes(pw_text) as pw:
+            isolated_gpg.decrypt(ciphertext.encode("utf-8"), passphrase=pw)
+
+    # Warm up so one-time fds (caches, agent socket) are already open, then
+    # measure across a batch.
+    _one_cycle()
+    baseline = len(os.listdir(fd_dir))
+    for _ in range(8):
+        _one_cycle()
+    leaked = len(os.listdir(fd_dir)) - baseline
+    assert leaked <= 2, f"file descriptors leaked across runs: +{leaked}"

@@ -324,6 +324,50 @@ def _write_all(fd: int, data: bytes | bytearray | memoryview) -> None:
         view.release()
 
 
+# Upper bound on buffered status output so a runaway GPG cannot OOM us.
+_STATUS_BUF_LIMIT = 1 * 1024 * 1024
+
+
+def _drain_pipe(fd: int, buffer: bytearray, *, limit: int) -> None:
+    """Read ``fd`` into ``buffer`` until EOF (or ``limit``), then close ``fd``.
+
+    Runs on a worker thread draining GPG's dedicated status pipe. Owns ``fd``:
+    it is always closed here on exit.
+    """
+    try:
+        while True:
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                return
+            if len(buffer) + len(chunk) > limit:
+                return
+            buffer.extend(chunk)
+    except OSError:
+        return
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+
+
+def _write_passphrase_pipe(fd: int, secret: bytearray) -> None:
+    """Write ``secret`` + newline to ``fd``, then close ``fd`` and zero ``secret``.
+
+    Runs on a worker thread feeding GPG's ``--passphrase-fd``. Owns ``fd`` (always
+    closed here) and wipes the passphrase bytes as soon as they are written so a
+    plaintext copy does not linger.
+    """
+    try:
+        _write_all(fd, memoryview(secret))
+        _write_all(fd, b"\n")
+    except OSError:
+        pass
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        if secret:
+            zero_mutable_buffer(secret)
+
+
 class GPGService:
     """Encapsulates a configured GnuPG home and binary.
 
@@ -484,46 +528,25 @@ class GPGService:
                 os.close(status_write)
                 status_write = None
             if status_read is not None:
-                sfd = status_read
+                # Hand fd ownership to the drain thread, then forget it here so
+                # the finally block does not also try to close it.
+                status_reader = threading.Thread(
+                    target=_drain_pipe,
+                    args=(status_read, status_buf),
+                    kwargs={"limit": _STATUS_BUF_LIMIT},
+                    daemon=True,
+                )
                 status_read = None
-
-                def _drain_status() -> None:
-                    try:
-                        while True:
-                            chunk = os.read(sfd, 4096)
-                            if not chunk:
-                                return
-                            # Bound the buffer so a runaway GPG can't OOM us.
-                            if len(status_buf) + len(chunk) > 1 * 1024 * 1024:
-                                return
-                            status_buf.extend(chunk)
-                    except OSError:
-                        return
-                    finally:
-                        with contextlib.suppress(OSError):
-                            os.close(sfd)
-
-                status_reader = threading.Thread(target=_drain_status, daemon=True)
                 status_reader.start()
             if pass_write is not None:
-                fd = pass_write
+                # The writer thread owns the fd and zeroes pass_bytes after the
+                # write; the finally block re-zeroes as a backstop (idempotent).
+                pass_writer = threading.Thread(
+                    target=_write_passphrase_pipe,
+                    args=(pass_write, pass_bytes),
+                    daemon=True,
+                )
                 pass_write = None
-
-                def _write_passphrase() -> None:
-                    nonlocal pass_bytes
-                    try:
-                        _write_all(fd, memoryview(pass_bytes))
-                        _write_all(fd, b"\n")
-                    except OSError:
-                        pass
-                    finally:
-                        with contextlib.suppress(OSError):
-                            os.close(fd)
-                        if pass_bytes:
-                            zero_mutable_buffer(pass_bytes)
-                            pass_bytes = bytearray()
-
-                pass_writer = threading.Thread(target=_write_passphrase, daemon=True)
                 pass_writer.start()
             try:
                 stdout, stderr = proc.communicate(
