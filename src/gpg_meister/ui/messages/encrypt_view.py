@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -29,6 +28,7 @@ from gpg_meister.models.key_info import KeyInfo, TrustLevel
 from gpg_meister.models.message import EncryptResult
 from gpg_meister.ui.clipboard import copy_text
 from gpg_meister.ui.messages.encrypt_viewmodel import EncryptViewModel
+from gpg_meister.ui.qt_helpers import monospace_font
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
 _TRUST_LABELS: dict[TrustLevel, tuple[str, str]] = {
@@ -75,7 +75,7 @@ class _RecipientCard(QFrame):
             key.fingerprint[i : i + 4] for i in range(0, len(key.fingerprint), 4)
         )
         fp_label = QLabel(fp_groups)
-        fp_label.setFont(_monospace_font())
+        fp_label.setFont(monospace_font())
         fp_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(fp_label)
 
@@ -260,8 +260,7 @@ class EncryptView(QWidget):
         self._sign_combo.clear()
         self._sign_combo.addItem("(none)", None)
         for key in keys:
-            uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
-            label = f"{uid}  [{key.fingerprint[-16:]}]"
+            label = key.display_label
             self._recip_combo.addItem(label, key)
             if key.has_private_key:
                 self._sign_combo.addItem(label, key)
@@ -276,8 +275,7 @@ class EncryptView(QWidget):
         if any(k.fingerprint == key.fingerprint for k in self._recipient_keys):
             return
         self._recipient_keys.append(key)
-        uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
-        item = QListWidgetItem(f"{uid}  [{key.fingerprint[-16:]}]")
+        item = QListWidgetItem(key.display_label)
         item.setData(Qt.ItemDataRole.UserRole, key)
         self._recip_list.addItem(item)
         self._vm.set_recipients([k.fingerprint for k in self._recipient_keys])
@@ -385,17 +383,3 @@ class EncryptView(QWidget):
         # once at submit and never stores it (L7).
         self._vm.submit(self._sign_passphrase.text)
         self._sign_passphrase.clear()
-
-
-def _monospace_font() -> QFont:
-    from PySide6.QtGui import QFontDatabase
-    families = QFontDatabase.families()
-    for candidate in ("Cascadia Code", "Fira Code", "Consolas", "Courier New", "Monospace"):
-        if candidate in families:
-            f = QFont(candidate)
-            f.setPointSize(9)
-            return f
-    f = QFont()
-    f.setFixedPitch(True)
-    f.setPointSize(9)
-    return f

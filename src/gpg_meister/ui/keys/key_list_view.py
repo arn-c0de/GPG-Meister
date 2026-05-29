@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -26,6 +25,7 @@ from gpg_meister.ui.keys.key_create_view import KeyCreateDialog
 from gpg_meister.ui.keys.key_detail_view import KeyDetailView
 from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
 from gpg_meister.ui.keys.public_key_import_view import PublicKeyImportDialog
+from gpg_meister.ui.qt_helpers import read_only_cell
 
 _COL_FAV = 0
 _COL_UID = 1
@@ -138,7 +138,7 @@ class KeyListView(QWidget):
         self._keys = keys
         self._table.setRowCount(len(keys))
         for row, key in enumerate(keys):
-            fav_item = _cell(_STAR_ON if key.is_favorite else _STAR_OFF)
+            fav_item = read_only_cell(_STAR_ON if key.is_favorite else _STAR_OFF)
             fav_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if key.is_favorite:
                 fav_item.setForeground(Qt.GlobalColor.yellow)
@@ -147,13 +147,13 @@ class KeyListView(QWidget):
             self._table.setItem(row, _COL_FAV, fav_item)
 
             uid = _display_name(key)
-            self._table.setItem(row, _COL_UID, _cell(uid))
-            self._table.setItem(row, _COL_ALGO, _cell(key.algorithm.value))
-            self._table.setItem(row, _COL_FP, _cell(key.fingerprint[-16:]))
-            self._table.setItem(row, _COL_CREATED, _cell(_fmt_date(key.created_at)))
-            self._table.setItem(row, _COL_EXPIRES, _cell(_fmt_date(key.expires_at)))
-            self._table.setItem(row, _COL_HAS_PRIV, _cell("yes" if key.has_private_key else ""))
-            self._table.setItem(row, _COL_TRUST, _cell(key.trust.value))
+            self._table.setItem(row, _COL_UID, read_only_cell(uid))
+            self._table.setItem(row, _COL_ALGO, read_only_cell(key.algorithm.value))
+            self._table.setItem(row, _COL_FP, read_only_cell(key.fingerprint[-16:]))
+            self._table.setItem(row, _COL_CREATED, read_only_cell(_fmt_date(key.created_at)))
+            self._table.setItem(row, _COL_EXPIRES, read_only_cell(_fmt_date(key.expires_at)))
+            self._table.setItem(row, _COL_HAS_PRIV, read_only_cell("yes" if key.has_private_key else ""))
+            self._table.setItem(row, _COL_TRUST, read_only_cell(key.trust.value))
 
             if key.is_revoked or _is_expired(key):
                 for col in range(_TOTAL_COLS):
@@ -257,12 +257,6 @@ class KeyListView(QWidget):
         dlg = KeyDetailView(key, self._vm._svc, parent=self)
         dlg.key_updated.connect(lambda _updated: self._vm.refresh())
         dlg.exec()
-
-
-def _cell(text: str) -> QTableWidgetItem:
-    item = QTableWidgetItem(text)
-    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-    return item
 
 
 def _display_name(key: KeyInfo) -> str:

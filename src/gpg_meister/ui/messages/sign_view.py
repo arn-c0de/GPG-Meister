@@ -109,8 +109,7 @@ class SignView(QWidget):
     def _on_keys_loaded(self, keys: list[KeyInfo]) -> None:
         self._key_combo.clear()
         for key in keys:
-            uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
-            self._key_combo.addItem(f"{uid}  [{key.fingerprint[-16:]}]", key)
+            self._key_combo.addItem(key.display_label, key)
 
     def _on_key_changed(self, idx: int) -> None:
         key = self._key_combo.itemData(idx)

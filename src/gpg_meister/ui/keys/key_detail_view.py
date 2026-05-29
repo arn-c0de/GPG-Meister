@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from PySide6.QtCore import Qt, QThreadPool, Signal
-from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -21,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.models.key_info import KeyInfo, TrustLevel
 from gpg_meister.services.key_service import KeyService
+from gpg_meister.ui.qt_helpers import monospace_font
 from gpg_meister.ui.widgets.clipboard_button import ClipboardButton
 from gpg_meister.ui.widgets.fingerprint_label import FingerprintLabel
 from gpg_meister.ui.worker import Worker
@@ -116,7 +116,7 @@ class KeyDetailView(QDialog):
 
         self._armor_view = QTextEdit()
         self._armor_view.setReadOnly(True)
-        self._armor_view.setFont(_monospace_font())
+        self._armor_view.setFont(monospace_font())
         self._armor_view.setMaximumHeight(120)
         self._armor_view.setPlaceholderText("Public key will appear here after clicking Copy Public Key")
         layout.addWidget(self._armor_view)
@@ -192,17 +192,3 @@ class KeyDetailView(QDialog):
         self.key_updated.emit(updated)
         self._set_edit_mode(False)
         QMessageBox.information(self, "Key details saved", "Key usage context was updated.")
-
-
-def _monospace_font() -> QFont:
-    from PySide6.QtGui import QFont, QFontDatabase
-    families = QFontDatabase.families()
-    for candidate in ("Cascadia Code", "Fira Code", "Consolas", "Courier New", "Monospace"):
-        if candidate in families:
-            f = QFont(candidate)
-            f.setPointSize(9)
-            return f
-    f = QFont()
-    f.setFixedPitch(True)
-    f.setPointSize(9)
-    return f
