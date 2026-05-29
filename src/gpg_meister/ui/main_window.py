@@ -23,6 +23,16 @@ from gpg_meister.ui.widgets.warning_banner import WarningBanner
 if TYPE_CHECKING:
     from gpg_meister.startup.environment_check import CheckResult
 
+# Tab order and display labels — the single source of truth for both the
+# placeholders built at startup and the real views installed later.
+_TAB_DEFS: list[tuple[AppPage, str]] = [
+    (AppPage.KEYS, "Keys"),
+    (AppPage.MESSAGES, "Messages"),
+    (AppPage.VAULT, "Vault"),
+    (AppPage.SETTINGS, "Settings"),
+    (AppPage.HELP, "Help"),
+]
+
 
 class _PlaceholderTab(QWidget):
     """Placeholder tab shown while a feature is not yet loaded."""
@@ -54,6 +64,7 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(_icon_path)))
         self._banners: list[WarningBanner] = []
         self._tab_pages: list[AppPage] = []
+        self._tab_labels: dict[AppPage, str] = dict(_TAB_DEFS)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -74,11 +85,8 @@ class MainWindow(QMainWindow):
         self._tabs.setMovable(False)
         self._root_layout.addWidget(self._tabs, stretch=1)
 
-        self._add_tab(_PlaceholderTab("Keys"), "Keys", AppPage.KEYS)
-        self._add_tab(_PlaceholderTab("Messages"), "Messages", AppPage.MESSAGES)
-        self._add_tab(_PlaceholderTab("Vault"), "Vault", AppPage.VAULT)
-        self._add_tab(_PlaceholderTab("Settings"), "Settings", AppPage.SETTINGS)
-        self._add_tab(_PlaceholderTab("Help"), "Help", AppPage.HELP)
+        for page, label in _TAB_DEFS:
+            self._add_tab(_PlaceholderTab(label), label, page)
         self._tabs.currentChanged.connect(self._emit_current_page_changed)
 
         self._status_bar = QStatusBar()
@@ -114,30 +122,15 @@ class MainWindow(QMainWindow):
     def show_status(self, message: str, timeout_ms: int = 4000) -> None:
         self._status_bar.showMessage(message, timeout_ms)
 
-    def install_keys_tab(self, view: QWidget) -> None:
-        """Replace the placeholder Keys tab with the real KeyListView."""
-        self.replace_tab(0, view, "Keys", AppPage.KEYS)
+    def install_tab(self, page: AppPage, view: QWidget) -> None:
+        """Replace a page's placeholder tab with its real view.
 
-    def install_messages_tab(self, view: QWidget) -> None:
-        """Replace the placeholder Messages tab with the real MessagesTabView."""
-        self.replace_tab(1, view, "Messages", AppPage.MESSAGES)
-
-    def install_vault_tab(self, view: QWidget) -> None:
-        """Replace the placeholder Vault tab with the real VaultTabView."""
-        self.replace_tab(2, view, "Vault", AppPage.VAULT)
-
-    def install_settings_tab(self, view: QWidget) -> None:
-        """Replace the placeholder Settings tab with the real SettingsView."""
-        self.replace_tab(3, view, "Settings", AppPage.SETTINGS)
-
-    def install_help_tab(self, view: QWidget) -> None:
-        """Replace the placeholder Help tab with the real HelpView."""
-        self.replace_tab(4, view, "Help", AppPage.HELP)
-
-    def replace_tab(self, index: int, widget: QWidget, label: str, page: AppPage) -> None:
-        """Replace a placeholder tab with a real view."""
+        The index and label are looked up from the tabs built in ``_build_ui``,
+        so callers never repeat the tab order or hard-code an index.
+        """
+        index = self._tab_pages.index(page)
         self._tabs.removeTab(index)
-        self._tabs.insertTab(index, widget, label)
+        self._tabs.insertTab(index, view, self._tab_labels[page])
         self._tab_pages[index] = page
 
     def current_page(self) -> AppPage:
