@@ -183,6 +183,17 @@ def _decode_output(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _require_ok(proc: _GPGRun, message: str, *, ok: tuple[int, ...] = (0,)) -> None:
+    """Raise ``GPGProcessError`` unless the run's return code is acceptable.
+
+    Centralises the ``message: <truncated stderr>`` pattern so the truncation
+    width and decoding stay identical across every call site. ``ok`` lists the
+    return codes that count as success (delete operations also accept 2).
+    """
+    if proc.returncode not in ok:
+        raise GPGProcessError(f"{message}: {_decode_output(proc.stderr)[:200]}")
+
+
 def _hash_binary(path: Path) -> str | None:
     """SHA-256 of a file, or None if it cannot be read. Used for the cheap
     pre-invocation re-hash that detects an in-place binary rewrite."""
@@ -552,31 +563,24 @@ class GPGService:
 
     def _secret_fingerprints(self) -> set[str]:
         proc = self._run_gpg(["--with-colons", "--fingerprint", "--list-secret-keys"])
-        if proc.returncode != 0:
-            raise GPGProcessError(f"failed to list secret keys: {_decode_output(proc.stderr)[:200]}")
+        _require_ok(proc, "failed to list secret keys")
         rows: Iterable[dict[str, Any]] = _parse_colons_keys(proc.stdout)
         return {str(r.get("fingerprint", "")).upper() for r in rows if r.get("fingerprint")}
 
     def list_keys(self, *, secret: bool = False) -> list[KeyInfo]:
         args = ["--with-colons", "--fingerprint", "--list-secret-keys" if secret else "--list-keys"]
         proc = self._run_gpg(args)
-        if proc.returncode != 0:
-            kind = "secret " if secret else ""
-            raise GPGProcessError(f"failed to list {kind}keys: {_decode_output(proc.stderr)[:200]}")
-        rows: Iterable[dict[str, Any]] = _parse_colons_keys(proc.stdout)
+        _require_ok(proc, f"failed to list {'secret ' if secret else ''}keys")
+        rows = _parse_colons_keys(proc.stdout)
+        # A secret listing implies every row has a private key; for a public
+        # listing we cross-reference the secret fingerprints once.
+        secret_fps: set[str] = set() if secret else self._secret_fingerprints()
         infos: list[KeyInfo] = []
-        if secret:
-            # All rows from a secret listing already have private keys.
-            for row in rows:
-                info = _to_key_info(row)
-                infos.append(info.model_copy(update={"has_private_key": True}))
-        else:
-            secret_fps = self._secret_fingerprints()
-            for row in rows:
-                info = _to_key_info(row)
-                if info.fingerprint in secret_fps:
-                    info = info.model_copy(update={"has_private_key": True})
-                infos.append(info)
+        for row in rows:
+            info = _to_key_info(row)
+            if secret or info.fingerprint in secret_fps:
+                info = info.model_copy(update={"has_private_key": True})
+            infos.append(info)
         return infos
 
     def find_key(self, fingerprint: str) -> KeyInfo:
@@ -620,8 +624,7 @@ class GPGService:
             passphrase=passphrase,
             status_fd=True,
         )
-        if proc.returncode != 0:
-            raise GPGProcessError(f"GPG key generation failed: {_decode_output(proc.stderr)[:200]}")
+        _require_ok(proc, "GPG key generation failed")
         fp = ""
         for record in _parse_status(proc.status):
             if record and record[0] == "KEY_CREATED" and len(record) >= 3:
@@ -692,8 +695,7 @@ class GPGService:
             ["--with-colons", "--fingerprint", "--show-keys"],
             input_data=armored.encode("utf-8"),
         )
-        if proc.returncode != 0:
-            raise GPGProcessError(f"key scan failed: {_decode_output(proc.stderr)[:200]}")
+        _require_ok(proc, "key scan failed")
         return _parse_colons_keys(proc.stdout)
 
     # -------------------------------------------------------------------- delete
@@ -714,16 +716,10 @@ class GPGService:
                 ["--yes", "--delete-secret-and-public-key", fp],
                 passphrase=passphrase,
             )
-            if proc.returncode not in (0, 2):
-                raise GPGProcessError(
-                    f"failed to delete key {fp}: {_decode_output(proc.stderr)[:200]}"
-                )
+            _require_ok(proc, f"failed to delete key {fp}", ok=(0, 2))
         else:
             proc = self._run_gpg(["--yes", "--delete-key", fp])
-            if proc.returncode not in (0, 2):
-                raise GPGProcessError(
-                    f"failed to delete public key {fp}: {_decode_output(proc.stderr)[:200]}"
-                )
+            _require_ok(proc, f"failed to delete public key {fp}", ok=(0, 2))
         try:
             self.find_key(fp)
         except GPGKeyNotFoundError:
@@ -759,8 +755,7 @@ class GPGService:
             passphrase=passphrase if signer else None,
             status_fd=True,
         )
-        if proc.returncode != 0:
-            raise GPGProcessError(f"encryption failed: {_decode_output(proc.stderr)[:200]}")
+        _require_ok(proc, "encryption failed")
         return _decode_output(proc.stdout)
 
     def decrypt(
