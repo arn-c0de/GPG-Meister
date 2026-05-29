@@ -21,7 +21,12 @@ if TYPE_CHECKING:
     from gpg_meister.storage.audit_log import AuditLog
     from gpg_meister.storage.metadata_store import MetadataStore
     from gpg_meister.storage.paths import AppPaths
+    from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
     from gpg_meister.ui.main_window import MainWindow
+    from gpg_meister.ui.messages.encrypt_viewmodel import EncryptViewModel
+    from gpg_meister.ui.messages.messages_tab import MessagesTabView
+    from gpg_meister.ui.messages.sign_viewmodel import SignViewModel
+    from gpg_meister.ui.vault.vault_export_viewmodel import VaultExportViewModel
 
 
 _DEFAULT_STYLESHEET: str | None = None
@@ -40,21 +45,14 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
     from gpg_meister.ui.gpg_trust_dialog import GpgTrustDialog
 
     while True:
+        trust = config.gpg_binary_trusted_hash
         try:
             return detect(
                 user_override_path=config.gpg_binary_path,
-                trusted_hash=config.gpg_binary_trusted_hash.sha256
-                if config.gpg_binary_trusted_hash
-                else None,
-                trusted_path=config.gpg_binary_trusted_hash.path
-                if config.gpg_binary_trusted_hash
-                else None,
-                trusted_device=config.gpg_binary_trusted_hash.device
-                if config.gpg_binary_trusted_hash
-                else None,
-                trusted_inode=config.gpg_binary_trusted_hash.inode
-                if config.gpg_binary_trusted_hash
-                else None,
+                trusted_hash=trust.sha256 if trust else None,
+                trusted_path=trust.path if trust else None,
+                trusted_device=trust.device if trust else None,
+                trusted_inode=trust.inode if trust else None,
             )
         except GPGDetectionError as exc:
             if exc.reason not in (
@@ -77,19 +75,10 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
                 audit.close()
                 sys.exit(1)
 
-            # For IDENTITY_MISMATCH, we re-prompt the user to re-trust the binary.
-            # We already have the new hash and path from detect().
+            # For HASH/IDENTITY mismatch, re-prompt the user to re-trust the
+            # binary; detect() already gave us the new hash and path.
             mismatch = exc.reason in (DetectionReason.HASH_MISMATCH, DetectionReason.IDENTITY_MISMATCH)
-            old_sha = (
-                config.gpg_binary_trusted_hash.sha256
-                if config.gpg_binary_trusted_hash
-                else None
-            )
-
-            # We need the new device/inode to persist them if the user clicks 'Trust'.
-            # We'll get them from another detect() call if the user confirms,
-            # or we could have detect() return them in the exception.
-            # For now, let's just re-run detect() once more if they confirm.
+            old_sha = trust.sha256 if trust else None
 
             dlg = GpgTrustDialog(
                 exc.path,
@@ -217,6 +206,7 @@ def main() -> None:
         warning_count=str(len(check_result.warnings)),
     )
 
+    from gpg_meister.models.config import AppPage
     from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
     from gpg_meister.services.key_service import KeyService
     from gpg_meister.services.message_service import MessageService
@@ -257,7 +247,7 @@ def main() -> None:
         require_delete_text_confirmation=config.require_delete_text_confirmation,
     )
     key_view = KeyListView(key_vm)
-    window.install_keys_tab(key_view)
+    window.install_tab(AppPage.KEYS, key_view)
 
     encrypt_vm = EncryptViewModel(msg_svc, key_svc)
     decrypt_vm = DecryptViewModel(msg_svc)
@@ -271,26 +261,25 @@ def main() -> None:
         key_svc,
         clipboard_clear_seconds=config.clipboard_clear_seconds,
     )
-    window.install_messages_tab(messages_view)
+    window.install_tab(AppPage.MESSAGES, messages_view)
 
     export_vm = VaultExportViewModel(vault_svc, key_svc)
     _wire_key_inventory_updates(key_vm, encrypt_vm, sign_vm, export_vm, messages_view)
     vault_view = VaultTabView(export_vm, vault_svc)
-    window.install_vault_tab(vault_view)
+    window.install_tab(AppPage.VAULT, vault_view)
 
     settings_vm = SettingsViewModel(config, paths)
     settings_view = SettingsView(settings_vm)
-    settings_vm.config_saved.connect(lambda: _apply_appearance(app, settings_vm.config))
-    settings_vm.config_saved.connect(
-        lambda: key_vm.set_require_delete_text_confirmation(
-            settings_vm.config.require_delete_text_confirmation
-        )
-    )
-    settings_vm.config_saved.connect(
-        lambda: set_default_clear_seconds(settings_vm.config.clipboard_clear_seconds)
-    )
-    window.install_settings_tab(settings_view)
-    window.install_help_tab(HelpView())
+
+    def _on_settings_saved() -> None:
+        cfg = settings_vm.config
+        _apply_appearance(app, cfg)
+        key_vm.set_require_delete_text_confirmation(cfg.require_delete_text_confirmation)
+        set_default_clear_seconds(cfg.clipboard_clear_seconds)
+
+    settings_vm.config_saved.connect(_on_settings_saved)
+    window.install_tab(AppPage.SETTINGS, settings_view)
+    window.install_tab(AppPage.HELP, HelpView())
     window.set_current_page(config.last_open_page)
 
     def _persist_current_page(page_value: str) -> None:
@@ -307,7 +296,7 @@ def main() -> None:
     def _on_key_created(key: object) -> None:
         from gpg_meister.models.key_info import KeyInfo
         if isinstance(key, KeyInfo):
-            uid = key.user_ids[0] if key.user_ids else key.fingerprint[-16:]
+            uid = key.primary_user_id
             window.show_backup_reminder(uid)
             metadata.upsert_key(key.fingerprint, label=uid)
 
@@ -332,32 +321,26 @@ def main() -> None:
 
 
 def _wire_key_inventory_updates(
-    key_vm: object,
-    encrypt_vm: object,
-    sign_vm: object,
-    export_vm: object | None,
-    messages_view: object | None = None,
+    key_vm: KeyListViewModel,
+    encrypt_vm: EncryptViewModel,
+    sign_vm: SignViewModel,
+    export_vm: VaultExportViewModel | None,
+    messages_view: MessagesTabView | None = None,
 ) -> None:
-    """Refresh dependent key pickers whenever the key inventory changes."""
+    """Refresh dependent key pickers whenever the key inventory changes.
 
-    signals = getattr(key_vm, "keys_changed", None)
-    connect = getattr(signals, "connect", None)
-    if not callable(connect):
-        return
+    ``export_vm``/``messages_view`` are optional because not every caller wires
+    them; the rest are concrete viewmodels with known signals.
+    """
 
     def _refresh_dependents(_keys: object) -> None:
         for vm in (encrypt_vm, sign_vm, export_vm):
-            if vm is None:
-                continue
-            loader = getattr(vm, "load_keys", None)
-            if callable(loader):
-                loader()
+            if vm is not None:
+                vm.load_keys()
         if messages_view is not None:
-            refresh = getattr(messages_view, "refresh_share_keys", None)
-            if callable(refresh):
-                refresh()
+            messages_view.refresh_share_keys()
 
-    connect(_refresh_dependents)
+    key_vm.keys_changed.connect(_refresh_dependents)
 
 
 def _check_backup_staleness(

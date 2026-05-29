@@ -13,7 +13,7 @@ from gpg_meister.ui.main_window import MainWindow
 def test_main_window_restores_current_page() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    window.install_vault_tab(QWidget())
+    window.install_tab(AppPage.VAULT, QWidget())
 
     assert window.set_current_page(AppPage.VAULT)
     app.processEvents()
@@ -36,7 +36,7 @@ def test_main_window_emits_page_changes() -> None:
 def test_show_backup_reminder_adds_banner_and_switches_tab() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    window.install_vault_tab(QWidget())
+    window.install_tab(AppPage.VAULT, QWidget())
     window.show() # Make window visible
     app.processEvents()
 
