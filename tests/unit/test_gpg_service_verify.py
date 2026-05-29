@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from subprocess import CompletedProcess
 
-from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig, _write_all
+from gpg_meister.services.gpg_service import (
+    GPGService,
+    GPGServiceConfig,
+    _GPGRun,
+    _write_all,
+)
 
 
 def test_detached_verify_uses_gpg_home_for_temp_signature(tmp_path: Path) -> None:
@@ -16,17 +20,18 @@ def test_detached_verify_uses_gpg_home_for_temp_signature(tmp_path: Path) -> Non
     captured_sig_path: Path | None = None
     captured_data_path: Path | None = None
 
-    def _fake_run_gpg(args: list[str], **_: object) -> CompletedProcess[bytes]:
+    def _fake_run_gpg(args: list[str], **_: object) -> _GPGRun:
         nonlocal captured_sig_path, captured_data_path
         captured_sig_path = Path(args[1])
         captured_data_path = Path(args[2])
         assert captured_sig_path.read_bytes() == b"sig"
         assert captured_data_path.read_bytes() == b"payload"
-        return CompletedProcess(
-            args,
-            0,
-            b"",
-            b"[GNUPG:] VALIDSIG " + (b"A" * 40) + b" 0 0 0 0 0 0 0 0 0\n",
+        return _GPGRun(
+            args=tuple(args),
+            returncode=0,
+            stdout=b"",
+            stderr=b"",
+            status=b"[GNUPG:] VALIDSIG " + (b"A" * 40) + b" 0 0 0 0 0 0 0 0 0\n",
         )
 
     service._run_gpg = _fake_run_gpg  # type: ignore[assignment,method-assign]
