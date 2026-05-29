@@ -21,32 +21,15 @@ from typing import Any
 import structlog
 from structlog.types import EventDict, WrappedLogger
 
+from gpg_meister.storage.audit_log import ALLOWED_EVENTS as _AUDIT_EVENT_NAMES
 from gpg_meister.storage.secret_keys import contains_secret_marker, is_forbidden_key
 
 _REDACTED = "[REDACTED]"
 
-# Event names owned by the audit logger — the debug logger must never emit them.
-_AUDIT_EVENT_NAMES: frozenset[str] = frozenset(
-    {
-        "audit_log_opened",
-        "gpg_binary_resolved",
-        "gpg_binary_rejected",
-        "startup_environment_check",
-        "key_generated",
-        "key_deleted",
-        "key_imported",
-        "key_exported_public",
-        "key_exported_private",
-        "message_signed",
-        "message_decrypted",
-        "message_decrypt_failed",
-        "vault_created",
-        "vault_imported",
-        "vault_import_failed",
-        "config_loaded",
-        "config_saved",
-    }
-)
+# Event names owned by the audit logger — the diagnostic logger must never emit
+# them. The set itself lives in `audit_log` (its single source of truth, used
+# there to *accept* events); imported here so the diagnostic guard that
+# *rejects* them can never drift out of sync.
 
 
 def _redact(value: Any) -> Any:

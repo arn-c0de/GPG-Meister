@@ -11,6 +11,18 @@ FINGERPRINT_LENGTH = 40
 _FINGERPRINT_CHARS = set("0123456789ABCDEF")
 
 
+def normalise_fingerprint(value: str) -> str:
+    """Upper-case and validate a 40-character hex fingerprint.
+
+    Shared by every model that stores a fingerprint (``KeyInfo``,
+    ``VaultKeyEntry``) so the rule lives in exactly one place.
+    """
+    upper = value.upper()
+    if len(upper) != FINGERPRINT_LENGTH or not set(upper).issubset(_FINGERPRINT_CHARS):
+        raise ValueError("fingerprint must be 40 uppercase hex characters")
+    return upper
+
+
 class KeyAlgorithm(StrEnum):
     RSA = "RSA"
     DSA = "DSA"
@@ -51,10 +63,7 @@ class KeyInfo(BaseModel):
     @field_validator("fingerprint")
     @classmethod
     def _validate_fingerprint(cls, value: str) -> str:
-        upper = value.upper()
-        if len(upper) != FINGERPRINT_LENGTH or not set(upper).issubset(_FINGERPRINT_CHARS):
-            raise ValueError("fingerprint must be 40 uppercase hex characters")
-        return upper
+        return normalise_fingerprint(value)
 
     @property
     def is_expired(self) -> bool:
