@@ -8,7 +8,6 @@ from __future__ import annotations
 import ctypes
 import secrets
 import time
-from typing import TYPE_CHECKING
 
 from argon2 import exceptions as argon2_exceptions
 from argon2.low_level import Type, hash_secret_raw
@@ -29,9 +28,6 @@ from gpg_meister.models.kdf_params import (
 )
 from gpg_meister.security.errors import KDFError
 from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
-
-if TYPE_CHECKING:
-    pass
 
 
 def generate_salt(length: int = MIN_SALT_LEN) -> bytes:

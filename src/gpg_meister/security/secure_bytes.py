@@ -154,9 +154,6 @@ class SecureBytes:
         state = "closed" if self._closed else f"size={self._size}"
         return f"<SecureBytes {state}>"
 
-    def __str__(self) -> str:
-        return self.__repr__()
-
     # Pickling is forbidden — sensitive data must never end up in a serialised stream.
     def __reduce__(self) -> tuple[object, ...]:
         raise TypeError("SecureBytes cannot be pickled")

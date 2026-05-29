@@ -27,9 +27,11 @@ class CatalogEntry:
     help_section: str = ""
 
 
-_CATALOG: dict[str, CatalogEntry] = {
-    "vault_decryption_failed": CatalogEntry(
-        code="vault_decryption_failed",
+# Each entry's code is written once as the first positional argument; the lookup
+# dict below is keyed by it, so the code is never repeated as a dict key too.
+_ENTRIES: tuple[CatalogEntry, ...] = (
+    CatalogEntry(
+        "vault_decryption_failed",
         title="Vault could not be opened",
         message=(
             "The vault could not be opened. The passphrase may be wrong, "
@@ -38,8 +40,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=("retry", "cancel"),
         help_section="troubleshooting",
     ),
-    "gpg_binary_not_found": CatalogEntry(
-        code="gpg_binary_not_found",
+    CatalogEntry(
+        "gpg_binary_not_found",
         title="GnuPG not found",
         message=(
             "GPG Meister needs GnuPG installed on this computer, but none was found. "
@@ -48,8 +50,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=("open_install_guide", "choose_path"),
         help_section="troubleshooting",
     ),
-    "gpg_version_too_old": CatalogEntry(
-        code="gpg_version_too_old",
+    CatalogEntry(
+        "gpg_version_too_old",
         title="GnuPG version too old",
         message=(
             "Your installed GnuPG (version {version}) is too old. "
@@ -58,8 +60,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=("open_upgrade_guide",),
         help_section="troubleshooting",
     ),
-    "key_expired": CatalogEntry(
-        code="key_expired",
+    CatalogEntry(
+        "key_expired",
         title="Key expired",
         message=(
             "The key for {uid} expired on {date}. "
@@ -68,8 +70,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=("continue_anyway", "cancel"),
         severity=ErrorSeverity.WARNING,
     ),
-    "key_revoked": CatalogEntry(
-        code="key_revoked",
+    CatalogEntry(
+        "key_revoked",
         title="Key revoked",
         message=(
             "The key for {uid} was revoked by its owner. "
@@ -77,8 +79,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         ),
         actions=("cancel",),
     ),
-    "key_not_trusted": CatalogEntry(
-        code="key_not_trusted",
+    CatalogEntry(
+        "key_not_trusted",
         title="Key not verified",
         message=(
             "You have not marked {fingerprint} as trusted. "
@@ -88,8 +90,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=("verify_and_trust", "continue_once", "cancel"),
         severity=ErrorSeverity.WARNING,
     ),
-    "signature_invalid": CatalogEntry(
-        code="signature_invalid",
+    CatalogEntry(
+        "signature_invalid",
         title="Invalid signature",
         message=(
             "The signature on this message is invalid. "
@@ -98,8 +100,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         ),
         actions=("show_details",),
     ),
-    "signer_unknown": CatalogEntry(
-        code="signer_unknown",
+    CatalogEntry(
+        "signer_unknown",
         title="Unknown signer",
         message=(
             "This message was signed by an unknown key ({fingerprint}). "
@@ -108,8 +110,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=("import_key",),
         severity=ErrorSeverity.WARNING,
     ),
-    "vault_format_error": CatalogEntry(
-        code="vault_format_error",
+    CatalogEntry(
+        "vault_format_error",
         title="Not a valid vault",
         message=(
             "This file does not look like a GPG Meister vault. "
@@ -117,8 +119,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         ),
         actions=("choose_another_file",),
     ),
-    "vault_checksum_mismatch": CatalogEntry(
-        code="vault_checksum_mismatch",
+    CatalogEntry(
+        "vault_checksum_mismatch",
         title="Vault checksum mismatch",
         message=(
             "The vault's checksum does not match. "
@@ -127,8 +129,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=("open_anyway", "cancel"),
         severity=ErrorSeverity.WARNING,
     ),
-    "low_entropy_passphrase": CatalogEntry(
-        code="low_entropy_passphrase",
+    CatalogEntry(
+        "low_entropy_passphrase",
         title="Passphrase too weak",
         message=(
             "This passphrase is too easy to guess. "
@@ -137,14 +139,14 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=(),
         severity=ErrorSeverity.WARNING,
     ),
-    "key_not_found": CatalogEntry(
-        code="key_not_found",
+    CatalogEntry(
+        "key_not_found",
         title="Key not found",
         message="The requested key could not be found in your keyring.",
         actions=("cancel",),
     ),
-    "config_error": CatalogEntry(
-        code="config_error",
+    CatalogEntry(
+        "config_error",
         title="Configuration problem",
         message=(
             "Your configuration could not be loaded or saved. "
@@ -152,8 +154,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         ),
         actions=("cancel",),
     ),
-    "gpg_operation_failed": CatalogEntry(
-        code="gpg_operation_failed",
+    CatalogEntry(
+        "gpg_operation_failed",
         title="GnuPG operation failed",
         message=(
             "The GnuPG operation could not be completed. "
@@ -162,8 +164,8 @@ _CATALOG: dict[str, CatalogEntry] = {
         actions=("retry", "cancel"),
         help_section="troubleshooting",
     ),
-    "unexpected_error": CatalogEntry(
-        code="unexpected_error",
+    CatalogEntry(
+        "unexpected_error",
         title="Something went wrong",
         message=(
             "The operation failed unexpectedly. The technical details were written "
@@ -171,7 +173,9 @@ _CATALOG: dict[str, CatalogEntry] = {
         ),
         actions=("cancel",),
     ),
-}
+)
+
+_CATALOG: dict[str, CatalogEntry] = {entry.code: entry for entry in _ENTRIES}
 
 
 def lookup(code: str) -> CatalogEntry | None:
