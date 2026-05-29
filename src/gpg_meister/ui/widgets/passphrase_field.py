@@ -15,6 +15,15 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.security.password_policy import PasswordStrength, assess
 
+# Strength → (progress-bar value, label, stylesheet). Module-level so it is not
+# rebuilt on every keystroke.
+_STRENGTH_DISPLAY: dict[PasswordStrength, tuple[int, str, str]] = {
+    PasswordStrength.REJECTED: (1, "Too weak", "color: #cc0000"),
+    PasswordStrength.WEAK: (2, "Weak", "color: #dd6600"),
+    PasswordStrength.ACCEPTABLE: (3, "Acceptable", "color: #aaaa00"),
+    PasswordStrength.STRONG: (4, "Strong", "color: #006600"),
+}
+
 
 class PassphraseField(QWidget):
     """Masked passphrase input with a strength indicator bar.
@@ -116,15 +125,7 @@ class PassphraseField(QWidget):
             return
 
         result = assess(text)
-        strength_map: dict[PasswordStrength, tuple[int, str, str]] = {
-            PasswordStrength.REJECTED: (1, "Too weak", "color: #cc0000"),
-            PasswordStrength.WEAK: (2, "Weak", "color: #dd6600"),
-            PasswordStrength.ACCEPTABLE: (3, "Acceptable", "color: #aaaa00"),
-            PasswordStrength.STRONG: (4, "Strong", "color: #006600"),
-        }
-        bar_val, label_text, style = strength_map.get(
-            result.strength, (0, "", "")
-        )
+        bar_val, label_text, style = _STRENGTH_DISPLAY.get(result.strength, (0, "", ""))
         self._strength_bar.setValue(bar_val)
         self._strength_label.setText(label_text)
         self._strength_label.setStyleSheet(style)

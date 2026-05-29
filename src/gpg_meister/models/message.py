@@ -85,9 +85,6 @@ class DecryptResult(BaseModel):
             f"{len(self.plaintext)} bytes>)"
         )
 
-    def __str__(self) -> str:
-        return self.__repr__()
-
 
 class SignResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")

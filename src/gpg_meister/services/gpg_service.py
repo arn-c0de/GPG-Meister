@@ -127,30 +127,36 @@ class GPGServiceConfig:
     trusted_inode: int | None = None
 
 
+# GnuPG colon-format trust letters → our TrustLevel (doc/DETAILS).
+_TRUST_MAP: dict[str, TrustLevel] = {
+    "u": TrustLevel.ULTIMATE,
+    "f": TrustLevel.FULL,
+    "m": TrustLevel.MARGINAL,
+    "n": TrustLevel.NEVER,
+    "-": TrustLevel.UNKNOWN,
+    "q": TrustLevel.UNKNOWN,
+    "e": TrustLevel.UNKNOWN,
+    "r": TrustLevel.NEVER,
+}
+
+# GnuPG numeric algorithm IDs → our enum (doc/DETAILS):
+# 1=RSA, 17=DSA, 18=ECDH, 19=ECDSA, 22=EdDSA.
+_ALGORITHM_MAP: dict[str, KeyAlgorithm] = {
+    "1": KeyAlgorithm.RSA,
+    "17": KeyAlgorithm.DSA,
+    "18": KeyAlgorithm.ECDH,
+    "19": KeyAlgorithm.ECDSA,
+    "22": KeyAlgorithm.EDDSA,
+}
+
+
 def _trust_from_gpg(letter: str) -> TrustLevel:
-    return {
-        "u": TrustLevel.ULTIMATE,
-        "f": TrustLevel.FULL,
-        "m": TrustLevel.MARGINAL,
-        "n": TrustLevel.NEVER,
-        "-": TrustLevel.UNKNOWN,
-        "q": TrustLevel.UNKNOWN,
-        "e": TrustLevel.UNKNOWN,
-        "r": TrustLevel.NEVER,
-    }.get(letter, TrustLevel.UNKNOWN)
+    return _TRUST_MAP.get(letter, TrustLevel.UNKNOWN)
 
 
 def _algorithm_from_gpg(numeric: str) -> KeyAlgorithm:
     """Map GnuPG's numeric algorithm id (`pub:1`, etc.) to our enum."""
-    # GnuPG algorithm IDs per doc/DETAILS:
-    # 1=RSA, 17=DSA, 18=ECDH, 19=ECDSA, 22=EdDSA
-    return {
-        "1": KeyAlgorithm.RSA,
-        "17": KeyAlgorithm.DSA,
-        "18": KeyAlgorithm.ECDH,
-        "19": KeyAlgorithm.ECDSA,
-        "22": KeyAlgorithm.EDDSA,
-    }.get(numeric, KeyAlgorithm.UNKNOWN)
+    return _ALGORITHM_MAP.get(numeric, KeyAlgorithm.UNKNOWN)
 
 
 def _to_key_info(entry: dict[str, Any]) -> KeyInfo:
