@@ -70,3 +70,64 @@ def is_forbidden_key(key: str) -> bool:
 def contains_secret_marker(value: object) -> bool:
     """True when a string value carries a PGP armor header."""
     return isinstance(value, str) and any(trigger in value for trigger in CONTENT_TRIGGERS)
+
+
+# The two consumers of the deny-list — the diagnostic logger (redacts) and the
+# audit logger (rejects) — used to hand-roll their own dict/list/tuple recursion.
+# They now share these two walkers so the traversal (and the depth at which a
+# nested secret is caught) is defined and tested in exactly one place. Both
+# recurse through dicts, lists *and* tuples at every depth, including
+# lists-of-lists, so a secret cannot hide one container deeper than expected.
+
+
+def redact_secrets(value: object, *, placeholder: str) -> object:
+    """Return a deep copy of ``value`` with secrets replaced by ``placeholder``.
+
+    A deny-listed key (its whole value) and any string value carrying a PGP
+    armor header are replaced; everything else is copied through. Used by the
+    diagnostic-log processor.
+    """
+    if isinstance(value, dict):
+        out: dict[object, object] = {}
+        for key, val in value.items():
+            if (isinstance(key, str) and is_forbidden_key(key)) or contains_secret_marker(val):
+                out[key] = placeholder
+            else:
+                out[key] = redact_secrets(val, placeholder=placeholder)
+        return out
+    if isinstance(value, (list, tuple)):
+        items = [
+            placeholder if contains_secret_marker(item) else redact_secrets(item, placeholder=placeholder)
+            for item in value
+        ]
+        return tuple(items) if isinstance(value, tuple) else items
+    return value
+
+
+def find_secret_violation(value: object, *, reserved: frozenset[str] = frozenset()) -> str | None:
+    """Return a description of the first policy violation in ``value``, or None.
+
+    Mirrors :func:`redact_secrets`' traversal but *detects* instead of
+    rewriting: a deny-listed key, a reserved envelope key (top level only), or a
+    secret-marked value anywhere in the structure. Used by the audit logger,
+    which raises on a non-None result.
+    """
+    if isinstance(value, dict):
+        for key, val in value.items():
+            if isinstance(key, str) and is_forbidden_key(key):
+                return f"forbidden key {key!r} in audit payload"
+            if reserved and key in reserved:
+                return f"key {key!r} is reserved for the audit envelope"
+            if contains_secret_marker(val):
+                return f"value of key {key!r} looks like secret key material"
+            nested = find_secret_violation(val)
+            if nested is not None:
+                return nested
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            if contains_secret_marker(item):
+                return "list value looks like secret key material"
+            nested = find_secret_violation(item)
+            if nested is not None:
+                return nested
+    return None

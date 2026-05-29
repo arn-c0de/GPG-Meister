@@ -192,6 +192,16 @@ def test_forbidden_key_in_list_rejected(tmp_path: Path) -> None:
         log.emit("key_generated", details=[{"passphrase": "secret"}])
 
 
+def test_secret_in_nested_list_rejected(tmp_path: Path) -> None:
+    """Secret material hidden one list deeper (list-of-lists) must still raise."""
+    pgp = "-----BEGIN PGP PRIVATE KEY BLOCK-----\nx\n-----END PGP PRIVATE KEY BLOCK-----"
+    with (
+        AuditLog(tmp_path / "audit.log") as log,
+        pytest.raises(AuditLogError, match="secret key material"),
+    ):
+        log.emit("key_generated", rows=[[pgp]])
+
+
 def test_chain_tip_detects_tail_truncation(tmp_path: Path) -> None:
     """verify_chain must return False when the tip file shows records were removed."""
     log_path = tmp_path / "audit.log"
