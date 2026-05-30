@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -22,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.services.vault_service import VaultDescriptor
+from gpg_meister.ui.qt_helpers import busy_bar, error_label
 from gpg_meister.ui.vault.vault_export_viewmodel import VaultExportViewModel
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
@@ -47,8 +47,30 @@ class VaultExportView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
+        self._build_key_section(layout)
+        self._build_unlock_section(layout)
+        self._build_path_section(layout)
+        self._build_passphrase_section(layout)
 
-        # Key selection list
+        btn_row = QHBoxLayout()
+        self._btn_export = QPushButton("Create Vault")
+        self._btn_export.setEnabled(False)
+        btn_row.addWidget(self._btn_export)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._progress = busy_bar()
+        layout.addWidget(self._progress)
+
+        self._error_label = error_label()
+        layout.addWidget(self._error_label)
+
+        self._result_label = QLabel()
+        self._result_label.setWordWrap(True)
+        self._result_label.hide()
+        layout.addWidget(self._result_label)
+
+    def _build_key_section(self, layout: QVBoxLayout) -> None:
         key_box = QGroupBox("Keys to include in vault")
         key_layout = QVBoxLayout(key_box)
         key_layout.addWidget(QLabel(
@@ -59,7 +81,7 @@ class VaultExportView(QWidget):
         key_layout.addWidget(self._key_list)
         layout.addWidget(key_box, stretch=1)
 
-        # Per-key unlock panel
+    def _build_unlock_section(self, layout: QVBoxLayout) -> None:
         unlock_box = QGroupBox("Unlock key for export")
         unlock_layout = QVBoxLayout(unlock_box)
         self._unlock_label = QLabel("Click a key above to enter its passphrase.")
@@ -82,7 +104,7 @@ class VaultExportView(QWidget):
         unlock_layout.addWidget(stub_hint)
         layout.addWidget(unlock_box)
 
-        # Target path
+    def _build_path_section(self, layout: QVBoxLayout) -> None:
         path_box = QGroupBox("Output file")
         path_layout = QHBoxLayout(path_box)
         self._path_field = QLineEdit()
@@ -93,7 +115,6 @@ class VaultExportView(QWidget):
         path_layout.addWidget(self._btn_browse)
         layout.addWidget(path_box)
 
-        # Description
         desc_box = QGroupBox("Description (optional)")
         desc_layout = QVBoxLayout(desc_box)
         self._desc_field = QLineEdit()
@@ -101,7 +122,7 @@ class VaultExportView(QWidget):
         desc_layout.addWidget(self._desc_field)
         layout.addWidget(desc_box)
 
-        # Vault master passphrase
+    def _build_passphrase_section(self, layout: QVBoxLayout) -> None:
         pp_box = QGroupBox("Vault master passphrase")
         pp_layout = QVBoxLayout(pp_box)
         pp_layout.addWidget(QLabel("New passphrase to encrypt this vault:"))
@@ -117,30 +138,6 @@ class VaultExportView(QWidget):
         pp_layout.addWidget(self._pp_mismatch)
         pp_box.setMinimumHeight(200)
         layout.addWidget(pp_box)
-
-        btn_row = QHBoxLayout()
-        self._btn_export = QPushButton("Create Vault")
-        self._btn_export.setEnabled(False)
-        btn_row.addWidget(self._btn_export)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
-        self._progress.setFixedHeight(4)
-        self._progress.hide()
-        layout.addWidget(self._progress)
-
-        self._error_label = QLabel()
-        self._error_label.setStyleSheet("color: #cc0000;")
-        self._error_label.setWordWrap(True)
-        self._error_label.hide()
-        layout.addWidget(self._error_label)
-
-        self._result_label = QLabel()
-        self._result_label.setWordWrap(True)
-        self._result_label.hide()
-        layout.addWidget(self._result_label)
 
     def _connect_signals(self) -> None:
         self._vm.keys_loaded.connect(self._on_keys_loaded)

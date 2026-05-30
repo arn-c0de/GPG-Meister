@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -28,7 +27,7 @@ from gpg_meister.models.key_info import KeyInfo, TrustLevel
 from gpg_meister.models.message import EncryptResult
 from gpg_meister.ui.clipboard import copy_text
 from gpg_meister.ui.messages.encrypt_viewmodel import EncryptViewModel
-from gpg_meister.ui.qt_helpers import monospace_font
+from gpg_meister.ui.qt_helpers import busy_bar, error_label, monospace_font
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
 _TRUST_LABELS: dict[TrustLevel, tuple[str, str]] = {
@@ -122,8 +121,10 @@ class EncryptView(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         root.addWidget(splitter, stretch=1)
+        self._build_top(splitter)
+        self._build_bottom(splitter)
 
-        # --- Top: plaintext input + recipient controls ---
+    def _build_top(self, splitter: QSplitter) -> None:
         top_widget = QWidget()
         top_layout = QVBoxLayout(top_widget)
         top_layout.setContentsMargins(0, 0, 0, 0)
@@ -135,7 +136,6 @@ class EncryptView(QWidget):
         self._plaintext.setAcceptRichText(False)
         top_layout.addWidget(self._plaintext, stretch=1)
 
-        # Recipient row
         recip_box = QGroupBox("Recipients")
         recip_layout = QVBoxLayout(recip_box)
 
@@ -158,7 +158,6 @@ class EncryptView(QWidget):
         recip_layout.addWidget(self._recip_list)
         top_layout.addWidget(recip_box)
 
-        # Optional sign-with
         sign_box = QGroupBox("Sign (optional)")
         sign_box.setCheckable(True)
         sign_box.setChecked(False)
@@ -177,7 +176,7 @@ class EncryptView(QWidget):
 
         splitter.addWidget(top_widget)
 
-        # --- Bottom: confirmation panel + output ---
+    def _build_bottom(self, splitter: QSplitter) -> None:
         bottom_widget = QWidget()
         bottom_layout = QVBoxLayout(bottom_widget)
         bottom_layout.setContentsMargins(0, 0, 0, 0)
@@ -208,16 +207,10 @@ class EncryptView(QWidget):
         btn_row.addStretch()
         bottom_layout.addLayout(btn_row)
 
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
-        self._progress.setFixedHeight(4)
-        self._progress.hide()
+        self._progress = busy_bar()
         bottom_layout.addWidget(self._progress)
 
-        self._error_label = QLabel()
-        self._error_label.setStyleSheet("color: #cc0000;")
-        self._error_label.setWordWrap(True)
-        self._error_label.hide()
+        self._error_label = error_label()
         bottom_layout.addWidget(self._error_label)
 
         output_box = QGroupBox("Encrypted output")

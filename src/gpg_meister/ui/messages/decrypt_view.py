@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QProgressBar,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -18,6 +17,7 @@ from PySide6.QtWidgets import (
 from gpg_meister.models.message import DecryptResult
 from gpg_meister.ui.clipboard import copy_text
 from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
+from gpg_meister.ui.qt_helpers import busy_bar, error_label
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
 
@@ -77,16 +77,10 @@ class DecryptView(QWidget):
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
-        self._progress.setFixedHeight(4)
-        self._progress.hide()
+        self._progress = busy_bar()
         layout.addWidget(self._progress)
 
-        self._error_label = QLabel()
-        self._error_label.setStyleSheet("color: #cc0000;")
-        self._error_label.setWordWrap(True)
-        self._error_label.hide()
+        self._error_label = error_label()
         layout.addWidget(self._error_label)
 
         output_box = QGroupBox("Decrypted plaintext")

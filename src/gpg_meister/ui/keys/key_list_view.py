@@ -11,9 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
-    QLabel,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QTableWidget,
     QVBoxLayout,
@@ -25,7 +23,7 @@ from gpg_meister.ui.keys.key_create_view import KeyCreateDialog
 from gpg_meister.ui.keys.key_detail_view import KeyDetailView
 from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
 from gpg_meister.ui.keys.public_key_import_view import PublicKeyImportDialog
-from gpg_meister.ui.qt_helpers import read_only_cell
+from gpg_meister.ui.qt_helpers import busy_bar, error_label, read_only_cell
 
 _COL_FAV = 0
 _COL_UID = 1
@@ -109,15 +107,10 @@ class KeyListView(QWidget):
         self._table.verticalHeader().hide()
         layout.addWidget(self._table, stretch=1)
 
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
-        self._progress.setFixedHeight(4)
-        self._progress.hide()
+        self._progress = busy_bar()
         layout.addWidget(self._progress)
 
-        self._error_label = QLabel()
-        self._error_label.setStyleSheet("color: #cc0000;")
-        self._error_label.hide()
+        self._error_label = error_label(word_wrap=False)
         layout.addWidget(self._error_label)
 
     def _connect_signals(self) -> None:
