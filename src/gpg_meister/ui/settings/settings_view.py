@@ -142,14 +142,16 @@ class SettingsView(QWidget):
         # --- Reset ---
         reset_box = QGroupBox("Factory reset")
         reset_layout = QVBoxLayout(reset_box)
-        reset_layout.addWidget(QLabel(
-            "Reset GPG Meister to a clean local state. This removes the app config, "
-            "local keyring, metadata database, logs, cache, and vault files stored "
-            "inside the app data directory on the next launch."
-        ))
-        reset_layout.addWidget(QLabel(
-            "Externally exported files outside the app-managed folders are not removed."
-        ))
+        reset_layout.addWidget(
+            QLabel(
+                "Reset GPG Meister to a clean local state. This removes the app config, "
+                "local keyring, metadata database, logs, cache, and vault files stored "
+                "inside the app data directory on the next launch."
+            )
+        )
+        reset_layout.addWidget(
+            QLabel("Externally exported files outside the app-managed folders are not removed.")
+        )
         self._btn_factory_reset = QPushButton("Schedule Factory Reset")
         reset_layout.addWidget(self._btn_factory_reset)
         root.addWidget(reset_box)
@@ -191,23 +193,13 @@ class SettingsView(QWidget):
 
     def _load_current(self) -> None:
         cfg = self._vm.config
-        idx = self._locale_combo.findData(cfg.locale)
-        if idx >= 0:
-            self._locale_combo.setCurrentIndex(idx)
-        idx = self._cipher_combo.findData(cfg.cipher.value)
-        if idx >= 0:
-            self._cipher_combo.setCurrentIndex(idx)
-        idx = self._kdf_combo.findData(cfg.kdf_profile.value)
-        if idx >= 0:
-            self._kdf_combo.setCurrentIndex(idx)
+        _set_combo(self._locale_combo, cfg.locale)
+        _set_combo(self._cipher_combo, cfg.cipher.value)
+        _set_combo(self._kdf_combo, cfg.kdf_profile.value)
         appearance = (
-            AppearanceMode.SYSTEM
-            if cfg.appearance == AppearanceMode.DARK
-            else cfg.appearance
+            AppearanceMode.SYSTEM if cfg.appearance == AppearanceMode.DARK else cfg.appearance
         )
-        idx = self._appearance_combo.findData(appearance.value)
-        if idx >= 0:
-            self._appearance_combo.setCurrentIndex(idx)
+        _set_combo(self._appearance_combo, appearance.value)
         self._clipboard_spin.setValue(cfg.clipboard_clear_seconds)
         self._backup_spin.setValue(cfg.backup_reminder_days)
         self._high_contrast_check.setChecked(cfg.high_contrast)
@@ -271,6 +263,11 @@ class SettingsView(QWidget):
         app = QApplication.instance()
         if app is not None:
             app.quit()
+
+
+def _set_combo(combo: QComboBox, value: object) -> None:
+    if (idx := combo.findData(value)) >= 0:
+        combo.setCurrentIndex(idx)
 
 
 def _combo_enum_value(

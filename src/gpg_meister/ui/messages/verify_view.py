@@ -85,10 +85,7 @@ class VerifyView(QWidget):
         self._btn_verify.setEnabled(self._vm.can_submit())
 
     def _on_loading(self, loading: bool) -> None:
-        if loading:
-            self._progress.show()
-        else:
-            self._progress.hide()
+        self._progress.setVisible(loading)
         self._btn_verify.setEnabled(not loading and self._vm.can_submit())
 
     def _on_success(self, result: object) -> None:
@@ -97,6 +94,7 @@ class VerifyView(QWidget):
         self._error_label.hide()
         if result.signature_valid:
             from gpg_meister.models.key_info import TrustLevel
+
             signer = result.signer_fingerprint or "unknown"
             date_str = (
                 result.signed_at.strftime("%Y-%m-%d %H:%M UTC")
@@ -115,6 +113,7 @@ class VerifyView(QWidget):
             self._result_label.setStyleSheet(f"color: {color}; font-weight: bold;")
         else:
             from gpg_meister.models.message import SignatureStatus
+
             messages = {
                 SignatureStatus.INVALID: (
                     "Signature INVALID — the message may have been tampered with."
@@ -122,9 +121,7 @@ class VerifyView(QWidget):
                 SignatureStatus.REVOKED_KEY: (
                     "Signature rejected — the signing key has been REVOKED."
                 ),
-                SignatureStatus.EXPIRED_KEY: (
-                    "Signature rejected — the signing key has EXPIRED."
-                ),
+                SignatureStatus.EXPIRED_KEY: ("Signature rejected — the signing key has EXPIRED."),
                 SignatureStatus.EXPIRED_SIG: (
                     "Signature rejected — the signature itself has EXPIRED."
                 ),
@@ -133,9 +130,7 @@ class VerifyView(QWidget):
                 ),
                 SignatureStatus.NONE: "No signature was found in the supplied data.",
             }
-            self._result_label.setText(
-                messages.get(result.signature_status, "Signature INVALID.")
-            )
+            self._result_label.setText(messages.get(result.signature_status, "Signature INVALID."))
             self._result_label.setStyleSheet("color: #cc0000; font-weight: bold;")
         self._result_label.show()
 

@@ -64,14 +64,10 @@ class _RecipientCard(QFrame):
         uid_label = QLabel(key.primary_user_id)
         uid_label.setTextFormat(Qt.TextFormat.PlainText)
         uid_label.setStyleSheet("font-weight: bold;")
-        uid_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        uid_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(uid_label)
 
-        fp_groups = " ".join(
-            key.fingerprint[i : i + 4] for i in range(0, len(key.fingerprint), 4)
-        )
+        fp_groups = " ".join(key.fingerprint[i : i + 4] for i in range(0, len(key.fingerprint), 4))
         fp_label = QLabel(fp_groups)
         fp_label.setFont(monospace_font())
         fp_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -142,9 +138,7 @@ class EncryptView(QWidget):
         recip_add_row = QHBoxLayout()
         self._recip_combo = QComboBox()
         self._recip_combo.setPlaceholderText("Select a key to add…")
-        self._recip_combo.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
+        self._recip_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn_add_recip = QPushButton("Add")
         self._btn_remove_recip = QPushButton("Remove")
         self._btn_remove_recip.setEnabled(False)
@@ -164,9 +158,7 @@ class EncryptView(QWidget):
         sign_layout = QHBoxLayout(sign_box)
         self._sign_combo = QComboBox()
         self._sign_combo.setPlaceholderText("Select signing key…")
-        self._sign_combo.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
+        self._sign_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._sign_passphrase = PassphraseField(show_strength=False)
         self._sign_passphrase.setPlaceholderText("Signing key passphrase…")
         sign_layout.addWidget(self._sign_combo, stretch=1)
@@ -233,9 +225,7 @@ class EncryptView(QWidget):
         self._vm.operation_succeeded.connect(self._on_success)
         self._vm.operation_failed.connect(self._on_error)
 
-        self._plaintext.textChanged.connect(
-            self._on_plaintext_changed
-        )
+        self._plaintext.textChanged.connect(self._on_plaintext_changed)
         self._btn_add_recip.clicked.connect(self._add_recipient)
         self._btn_remove_recip.clicked.connect(self._remove_recipient)
         self._recip_list.itemSelectionChanged.connect(self._on_recip_selection)
@@ -331,10 +321,7 @@ class EncryptView(QWidget):
         self._btn_encrypt.setEnabled(can)
 
     def _on_loading(self, loading: bool) -> None:
-        if loading:
-            self._progress.show()
-        else:
-            self._progress.hide()
+        self._progress.setVisible(loading)
         self._btn_encrypt.setEnabled(not loading and self._vm.can_submit())
 
     def _on_success(self, result: object) -> None:

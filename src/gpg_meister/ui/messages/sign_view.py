@@ -107,10 +107,7 @@ class SignView(QWidget):
 
     def _on_key_changed(self, idx: int) -> None:
         key = self._key_combo.itemData(idx)
-        if isinstance(key, KeyInfo):
-            self._vm.set_fingerprint(key.fingerprint)
-        else:
-            self._vm.set_fingerprint("")
+        self._vm.set_fingerprint(key.fingerprint if isinstance(key, KeyInfo) else "")
         self._update_button()
 
     def _on_passphrase_changed(self) -> None:
@@ -125,10 +122,7 @@ class SignView(QWidget):
         self._btn_sign.setEnabled(self._vm.can_submit())
 
     def _on_loading(self, loading: bool) -> None:
-        if loading:
-            self._progress.show()
-        else:
-            self._progress.hide()
+        self._progress.setVisible(loading)
         self._btn_sign.setEnabled(not loading and self._vm.can_submit())
 
     def _on_success(self, result: object) -> None:
@@ -153,6 +147,7 @@ class SignView(QWidget):
         text = self._output.toPlainText()
         if text:
             from gpg_meister.ui.clipboard import copy_text
+
             copy_text(text)
 
     def _submit(self) -> None:
