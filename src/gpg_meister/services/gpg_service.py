@@ -291,11 +291,9 @@ def _evaluate_signature(
         elif tag == "VALIDSIG" and len(record) > 1:
             has_validsig = True
             signer_fp = record[1]
-            for token in record[2:]:
-                if token.isdigit():
-                    with contextlib.suppress(ValueError, OSError, OverflowError):
-                        signed_at = datetime.fromtimestamp(float(token), tz=UTC)
-                    break
+            if len(record) > 3:
+                with contextlib.suppress(ValueError, OSError, OverflowError):
+                    signed_at = datetime.fromtimestamp(float(record[3]), tz=UTC)
         elif tag in _SIG_DOWNGRADE:
             # Worst observed problem wins (a later BADSIG must not be masked).
             downgrade = _SIG_DOWNGRADE[tag]
@@ -877,6 +875,13 @@ class GPGService:
             proc = self._run_gpg(["--verify"], input_data=data, status_fd=True)
 
         status, fp, signed_at = _evaluate_signature(_parse_status(proc.status))
+        # A non-zero exit that produced no status records means the GPG process
+        # itself failed (e.g. OOM kill, missing home dir) rather than a bad sig.
+        # Surface that as ERROR so callers don't mistake a process crash for
+        # "unsigned data".  Exit 1 is gpg's own "signature bad" code and is
+        # covered by the status records already parsed above.
+        if status is SignatureStatus.NONE and proc.returncode not in (0, 1):
+            return SignatureStatus.ERROR, None, None
         return status, fp, signed_at
 
     # ---------------------------------------------------------------------- meta

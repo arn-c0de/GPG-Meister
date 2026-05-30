@@ -62,8 +62,7 @@ class _RecipientCard(QFrame):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(2)
 
-        uid = key.user_ids[0] if key.user_ids else "—"
-        uid_label = QLabel(uid)
+        uid_label = QLabel(key.primary_user_id)
         uid_label.setTextFormat(Qt.TextFormat.PlainText)
         uid_label.setStyleSheet("font-weight: bold;")
         uid_label.setTextInteractionFlags(

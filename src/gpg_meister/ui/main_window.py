@@ -128,7 +128,12 @@ class MainWindow(QMainWindow):
         The index and label are looked up from the tabs built in ``_build_ui``,
         so callers never repeat the tab order or hard-code an index.
         """
-        index = self._tab_pages.index(page)
+        try:
+            index = self._tab_pages.index(page)
+        except ValueError:
+            raise ValueError(
+                f"install_tab: {page!r} is not registered in _TAB_DEFS — add it to _build_ui first"
+            ) from None
         self._tabs.removeTab(index)
         self._tabs.insertTab(index, view, self._tab_labels[page])
         self._tab_pages[index] = page

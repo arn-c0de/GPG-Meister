@@ -157,6 +157,10 @@ class VaultKeyEntry(BaseModel):
                 raise ValueError("vault user ID is too long")
         return value
 
+    @property
+    def primary_user_id(self) -> str:
+        return self.user_ids[0] if self.user_ids else self.fingerprint[-16:]
+
     def __repr__(self) -> str:
         return (
             f"VaultKeyEntry(fingerprint={self.fingerprint!r}, "

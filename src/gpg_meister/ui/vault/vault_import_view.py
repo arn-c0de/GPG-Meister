@@ -321,9 +321,8 @@ class _SelectPage(QWizardPage):
         )
         self._table.setRowCount(len(self._keys))
         for row, entry in enumerate(self._keys):
-            uid = entry.user_ids[0] if entry.user_ids else "—"
             exp = entry.expires_at.strftime("%Y-%m-%d") if entry.expires_at else "no expiry"
-            self._table.setItem(row, 0, read_only_cell(uid))
+            self._table.setItem(row, 0, read_only_cell(entry.primary_user_id))
             self._table.setItem(row, 1, read_only_cell(entry.fingerprint[-16:]))
             self._table.setItem(row, 2, read_only_cell("yes" if entry.has_private_key else ""))
             self._table.setItem(row, 3, read_only_cell(exp))
