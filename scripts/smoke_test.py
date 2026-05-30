@@ -346,10 +346,15 @@ def run() -> int:
             ct = gpg.encrypt(msg, recipient_fingerprints=[primary_fp], always_trust=True)
             assert "BEGIN PGP MESSAGE" in ct
             with SecureBytes.from_bytes(PASSPHRASE) as pw:
-                pt, signer, status = gpg.decrypt(ct.encode("utf-8"), passphrase=pw)
+                pt, signer, status, decrypted_with = gpg.decrypt(
+                    ct.encode("utf-8"), passphrase=pw
+                )
             assert pt == msg, "plaintext mismatch"
             assert signer is None, f"unexpected signer {signer}"
             assert status is SignatureStatus.NONE, f"expected NONE, got {status}"
+            assert decrypted_with and len(decrypted_with) == 40, (
+                f"unexpected decryption key {decrypted_with}"
+            )
             assert not status.is_valid
             rep.ok(f"{len(ct)} → {len(pt)} bytes; status={status}")
         except Exception as exc:
@@ -384,11 +389,16 @@ def run() -> int:
                     always_trust=True,
                 )
             with SecureBytes.from_bytes(PASSPHRASE) as pw:
-                pt, signer, status = gpg.decrypt(ct.encode("utf-8"), passphrase=pw)
+                pt, signer, status, decrypted_with = gpg.decrypt(
+                    ct.encode("utf-8"), passphrase=pw
+                )
             assert pt == msg, "plaintext mismatch"
             assert status is SignatureStatus.VALID, f"expected VALID, got {status}"
             assert status.is_valid
             assert signer == primary_fp, f"unexpected signer {signer}"
+            assert decrypted_with and len(decrypted_with) == 40, (
+                f"unexpected decryption key {decrypted_with}"
+            )
             rep.ok(f"signer={signer[:16]}…; status={status}")
         except Exception as exc:
             rep.fail(repr(exc))

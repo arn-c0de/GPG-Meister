@@ -55,6 +55,24 @@ mkdir -p "$INSTALL_DIR"
 ln -sf "$(pwd)/.venv/bin/gpgmeister" "$INSTALL_DIR/gpgmeister"
 echo "==> Linked gpgmeister -> $INSTALL_DIR/gpgmeister"
 
+# ---------- desktop integration (icon + .desktop file) ----------
+ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+mkdir -p "$ICON_DIR"
+cp "$(pwd)/logo.png" "$ICON_DIR/io.github.arn-c0de.GPGMeister.png"
+echo "==> Installed icon -> $ICON_DIR/io.github.arn-c0de.GPGMeister.png"
+
+DESKTOP_DIR="$HOME/.local/share/applications"
+mkdir -p "$DESKTOP_DIR"
+cp "$(pwd)/packaging/linux/io.github.arn-c0de.GPGMeister.desktop" "$DESKTOP_DIR/"
+echo "==> Installed .desktop -> $DESKTOP_DIR/io.github.arn-c0de.GPGMeister.desktop"
+
+if command -v update-desktop-database &>/dev/null; then
+    update-desktop-database "$DESKTOP_DIR"
+fi
+if command -v gtk-update-icon-cache &>/dev/null; then
+    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+fi
+
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     echo ""
     echo "NOTE: Add ~/.local/bin to your PATH if not already set:"

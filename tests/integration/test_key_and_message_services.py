@@ -106,6 +106,8 @@ def test_encrypt_decrypt_via_message_service(
     assert dec.plaintext == b"hello world"
     assert dec.signer_fingerprint is None
     assert dec.signature_valid is False
+    assert dec.decrypted_with_fingerprint is not None
+    assert len(dec.decrypted_with_fingerprint) == 40
 
 
 def test_encrypt_with_signature(
@@ -124,6 +126,8 @@ def test_encrypt_with_signature(
     assert dec.plaintext == b"signed and sealed"
     assert dec.signer_fingerprint is not None
     assert dec.signature_valid is True
+    assert dec.decrypted_with_fingerprint is not None
+    assert len(dec.decrypted_with_fingerprint) == 40
 
 
 def test_decrypt_failure_records_audit(

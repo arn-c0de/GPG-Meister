@@ -309,6 +309,14 @@ def _evaluate_signature(
     return SignatureStatus.NONE, None, None
 
 
+def _decryption_fingerprint(records: Iterable[Sequence[str]]) -> str | None:
+    """Return the secret-key fingerprint GPG used for a successful decrypt."""
+    for record in records:
+        if len(record) > 1 and record[0] == "DECRYPTION_KEY":
+            return record[1]
+    return None
+
+
 def _write_all(fd: int, data: bytes | bytearray | memoryview) -> None:
     view = memoryview(data)
     try:
@@ -790,8 +798,8 @@ class GPGService:
         ciphertext: bytes,
         *,
         passphrase: SecureBytes | None = None,
-    ) -> tuple[bytes, str | None, SignatureStatus]:
-        """Return (plaintext, signer_fingerprint_if_any, signature_status).
+    ) -> tuple[bytes, str | None, SignatureStatus, str | None]:
+        """Return plaintext plus signature and decryption-key metadata.
 
         ``signature_status`` is derived from the gpg status records, so a
         signature from a revoked or expired key is reported as such instead of
@@ -811,8 +819,10 @@ class GPGService:
             if "bad_passphrase" in combined or "bad passphrase" in combined or "no secret key" in combined:
                 raise GPGPassphraseError(f"decryption failed: {detail}")
             raise GPGProcessError(f"decryption failed: {detail}")
-        status, signer, _ = _evaluate_signature(_parse_status(proc.status))
-        return bytes(proc.stdout or b""), signer, status
+        records = _parse_status(proc.status)
+        status, signer, _ = _evaluate_signature(records)
+        decrypted_with = _decryption_fingerprint(records)
+        return bytes(proc.stdout or b""), signer, status, decrypted_with
 
     def sign(
         self,

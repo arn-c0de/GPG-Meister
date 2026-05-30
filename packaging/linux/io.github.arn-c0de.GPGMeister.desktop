@@ -6,3 +6,4 @@ Exec=gpgmeister
 Icon=io.github.arn-c0de.GPGMeister
 Categories=Security;Utility;
 Terminal=false
+StartupWMClass=gpg-meister

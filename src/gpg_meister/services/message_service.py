@@ -111,7 +111,7 @@ class MessageService:
         passphrase: SecureBytes | None = None,
     ) -> DecryptResult:
         try:
-            plaintext, signer, signature_status = self._gpg.decrypt(
+            plaintext, signer, signature_status, decrypted_with = self._gpg.decrypt(
                 ciphertext, passphrase=passphrase
             )
         except Exception as exc:
@@ -134,12 +134,14 @@ class MessageService:
             signer=signer or "",
             signature_status=signature_status.value,
             signer_trust=signer_trust.value if signer else "",
+            decrypted_with=decrypted_with or "",
         )
         return DecryptResult(
             plaintext=plaintext,
             signer_fingerprint=signer,
             signature_status=signature_status,
             signer_trust=signer_trust,
+            decrypted_with_fingerprint=decrypted_with,
         )
 
     # -------------------------------------------------------------------- sign
