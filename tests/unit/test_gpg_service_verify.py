@@ -7,6 +7,7 @@ from gpg_meister.models.message import SignatureStatus
 from gpg_meister.services.gpg_service import (
     GPGService,
     GPGServiceConfig,
+    _decryption_fingerprint,
     _evaluate_signature,
     _GPGRun,
     _parse_status,
@@ -100,9 +101,19 @@ def test_evaluate_signature_none_when_unsigned() -> None:
     assert signer is None
 
 
+def test_decryption_fingerprint_uses_decryption_key_status() -> None:
+    fpr = "E" * 40
+    assert (
+        _decryption_fingerprint(_records("ENC_TO DEADBEEF 1 0", f"DECRYPTION_KEY {fpr} {fpr}"))
+        == fpr
+    )
+
+
 def test_evaluate_signature_lone_validsig_is_not_trusted() -> None:
     # A VALIDSIG without the companion GOODSIG must not be reported valid.
-    status, _, _ = _evaluate_signature(_records("VALIDSIG " + "D" * 40 + " 2020-01-01 1577836800 0"))
+    status, _, _ = _evaluate_signature(
+        _records("VALIDSIG " + "D" * 40 + " 2020-01-01 1577836800 0")
+    )
     assert status is SignatureStatus.ERROR
 
 

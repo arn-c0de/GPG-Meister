@@ -80,10 +80,14 @@ def test_encrypt_decrypt_roundtrip(isolated_gpg: GPGService) -> None:
     ciphertext = isolated_gpg.encrypt(plaintext, recipient_fingerprints=[fp])
     assert "-----BEGIN PGP MESSAGE-----" in ciphertext
     with SecureBytes.from_bytes(b"correct horse battery staple") as pw:
-        decrypted, signer, status = isolated_gpg.decrypt(ciphertext.encode("utf-8"), passphrase=pw)
+        decrypted, signer, status, decrypted_with = isolated_gpg.decrypt(
+            ciphertext.encode("utf-8"), passphrase=pw
+        )
     assert decrypted == plaintext
     assert signer is None  # we did not sign
     assert status is SignatureStatus.NONE
+    assert decrypted_with is not None
+    assert len(decrypted_with) == 40
 
 
 def test_encrypt_decrypt_with_signature(isolated_gpg: GPGService) -> None:
@@ -97,10 +101,14 @@ def test_encrypt_decrypt_with_signature(isolated_gpg: GPGService) -> None:
             passphrase=pw,
         )
     with SecureBytes.from_bytes(b"correct horse battery staple") as pw:
-        decrypted, signer, status = isolated_gpg.decrypt(ciphertext.encode("utf-8"), passphrase=pw)
+        decrypted, signer, status, decrypted_with = isolated_gpg.decrypt(
+            ciphertext.encode("utf-8"), passphrase=pw
+        )
     assert decrypted == plaintext
     assert signer is not None
     assert status is SignatureStatus.VALID
+    assert decrypted_with is not None
+    assert len(decrypted_with) == 40
 
 
 def test_import_public_key_from_other_keyring(

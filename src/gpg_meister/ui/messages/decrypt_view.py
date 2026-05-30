@@ -94,13 +94,13 @@ class DecryptView(QWidget):
         self._output = QTextEdit()
         self._output.setReadOnly(True)
         self._output.setPlaceholderText("Decrypted text will appear here…")
-        self._signer_label = QLabel()
-        self._signer_label.setWordWrap(True)
-        self._signer_label.hide()
+        self._metadata_label = QLabel()
+        self._metadata_label.setWordWrap(True)
+        self._metadata_label.hide()
         self._btn_copy_output = QPushButton("Copy to Clipboard")
         self._btn_copy_output.setEnabled(False)
         output_layout.addWidget(self._output, stretch=1)
-        output_layout.addWidget(self._signer_label)
+        output_layout.addWidget(self._metadata_label)
         output_layout.addWidget(self._btn_copy_output)
         layout.addWidget(output_box, stretch=1)
 
@@ -146,6 +146,9 @@ class DecryptView(QWidget):
         if self._clipboard_clear_seconds > 0:
             self._output_clear_timer.start(self._clipboard_clear_seconds * 1000)
 
+        metadata_lines = []
+        if result.decrypted_with_fingerprint:
+            metadata_lines.append(f"Decrypted with: {result.decrypted_with_fingerprint}")
         if result.signer_fingerprint:
             from gpg_meister.models.key_info import TrustLevel
             status_label = result.signature_status.summary
@@ -155,7 +158,7 @@ class DecryptView(QWidget):
             if result.signature_valid and untrusted:
                 status_label = "valid (signer UNTRUSTED)"
             signer = result.signer_fingerprint or "unknown key"
-            self._signer_label.setText(
+            metadata_lines.append(
                 f"Signed by: {signer}  (signature {status_label}{trust_str})"
             )
             if not result.signature_valid:
@@ -164,10 +167,15 @@ class DecryptView(QWidget):
                 color = "#cc6600"
             else:
                 color = "#006600"
-            self._signer_label.setStyleSheet(f"color: {color};")
-            self._signer_label.show()
+            self._metadata_label.setStyleSheet(f"color: {color};")
         else:
-            self._signer_label.hide()
+            self._metadata_label.setStyleSheet("color: #444444;")
+
+        if metadata_lines:
+            self._metadata_label.setText("\n".join(metadata_lines))
+            self._metadata_label.show()
+        else:
+            self._metadata_label.hide()
 
     def _on_error(self, msg: str) -> None:
         self._error_label.setText(msg)
@@ -183,7 +191,7 @@ class DecryptView(QWidget):
         """Wipe the revealed plaintext (auto-clear timer, hide, or Clear button)."""
         self._output_clear_timer.stop()
         self._output.clear()
-        self._signer_label.hide()
+        self._metadata_label.hide()
         self._btn_copy_output.setEnabled(False)
 
     def hideEvent(self, event: QHideEvent) -> None:
