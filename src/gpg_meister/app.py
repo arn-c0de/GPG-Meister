@@ -117,7 +117,6 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("GPG Meister")
     app.setOrganizationName("GPG Meister")
-    app.setDesktopFileName("io.github.arn-c0de.GPGMeister")
     app.setWindowIcon(_app_icon())
     _remember_default_appearance(app)
 
