@@ -146,7 +146,7 @@ class DecryptView(QWidget):
         if self._clipboard_clear_seconds > 0:
             self._output_clear_timer.start(self._clipboard_clear_seconds * 1000)
 
-        if result.signature_status.is_present:
+        if result.signer_fingerprint:
             from gpg_meister.models.key_info import TrustLevel
             status_label = result.signature_status.summary
             trust = result.signer_trust

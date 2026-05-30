@@ -93,8 +93,7 @@ class _SelectPage(QWizardPage):
         self._status.setText(f"Found {len(self._keys)} key(s). Select those you want to import:")
         self._table.setRowCount(len(self._keys))
         for row, key in enumerate(self._keys):
-            uid = key.user_ids[0] if key.user_ids else "—"
-            self._table.setItem(row, 0, read_only_cell(uid))
+            self._table.setItem(row, 0, read_only_cell(key.primary_user_id))
             self._table.setItem(row, 1, read_only_cell(key.algorithm.value))
             self._table.setItem(row, 2, read_only_cell(key.fingerprint[-16:]))
             scope = "public only (private: import manually)" if key.has_private_key else "public"
@@ -124,9 +123,8 @@ class _ConfirmPage(QWizardPage):
         lines = []
         has_private = False
         for key in keys:
-            uid = key.user_ids[0] if key.user_ids else "—"
             scope = " [PUBLIC KEY ONLY — private key not imported]" if key.has_private_key else ""
-            lines.append(f"• {uid}  ({key.fingerprint[-16:]}){scope}")
+            lines.append(f"• {key.primary_user_id}  ({key.fingerprint[-16:]}){scope}")
             if key.has_private_key:
                 has_private = True
         if has_private:

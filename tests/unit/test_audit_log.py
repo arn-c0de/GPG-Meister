@@ -218,15 +218,18 @@ def test_chain_tip_detects_tail_truncation(tmp_path: Path) -> None:
     assert not ok
 
 
-def test_chain_verification_requires_tip_file(tmp_path: Path) -> None:
+def test_chain_verification_accepts_missing_tip_file(tmp_path: Path) -> None:
+    # Logs written by 1.0.3 have no .tip sidecar; verify_chain must not raise
+    # a false tamper alarm when upgrading from those older versions.
     log_path = tmp_path / "audit.log"
     with AuditLog(log_path, hash_chain=True) as log:
         log.emit("key_generated", fingerprint="A")
 
     log_path.with_name("audit.log.tip").unlink()
 
-    ok, _ = verify_chain(log_path)
-    assert not ok
+    ok, count = verify_chain(log_path)
+    assert ok
+    assert count >= 1
 
 
 def test_chain_verification_rejects_malformed_tip_file(tmp_path: Path) -> None:

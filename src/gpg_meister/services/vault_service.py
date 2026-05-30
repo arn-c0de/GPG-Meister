@@ -338,6 +338,7 @@ def _rebuild_legacy_segmented_payload(payload: bytearray) -> tuple[VaultManifest
             # logic (which expects slices into plaintext) works unchanged.
             manifest_bytes = _serialise_manifest(manifest)
             manifest_len = len(manifest_bytes)
+            new_payload: bytearray | None = None
             try:
                 new_payload = bytearray(_U32.pack(manifest_len))
                 new_payload.extend(manifest_bytes)
@@ -351,7 +352,8 @@ def _rebuild_legacy_segmented_payload(payload: bytearray) -> tuple[VaultManifest
                 payload.extend(new_payload)
             finally:
                 _zero_bytes_object(manifest_bytes)
-                zero_mutable_buffer(new_payload)
+                if new_payload is not None:
+                    zero_mutable_buffer(new_payload)
             # Reuse the manifest-bytes length captured above as the key-stream offset.
             return manifest, _U32.size + manifest_len
         # Segmented-but-no-prefix (if it ever existed).

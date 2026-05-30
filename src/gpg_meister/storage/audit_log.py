@@ -40,6 +40,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+from gpg_meister.storage.atomic_write import atomic_write_bytes
 from gpg_meister.storage.file_lock import FileLock
 from gpg_meister.storage.permissions import ensure_dir, reject_symlink
 from gpg_meister.storage.secret_keys import FORBIDDEN_KEYS, find_secret_violation
@@ -246,8 +247,9 @@ class AuditLog:
         if self._hash_chain:
             self._prev_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()
             with contextlib.suppress(OSError):
-                self._tip_path.write_bytes(
-                    (f"{self._prev_hash} {self._seq - 1}\n").encode("ascii")
+                atomic_write_bytes(
+                    self._tip_path,
+                    (f"{self._prev_hash} {self._seq - 1}\n").encode("ascii"),
                 )
 
     def close(self) -> None:
@@ -347,7 +349,11 @@ def verify_chain(path: Path) -> tuple[bool, int]:
     tip_path = path.with_name(path.name + ".tip")
     if prev_hash is not None:
         if not tip_path.exists():
-            return False, count
+            # .tip was introduced in 1.0.4; logs written by earlier versions
+            # are tip-less but internally consistent — skip the tip check so
+            # an upgrade does not produce a spurious tamper warning.
+            _log.debug("verify_chain: no .tip file for %s (pre-1.0.4 log?)", path)
+            return True, count
         try:
             with _open_ro_nofollow(tip_path) as tf:
                 tip_raw = tf.read(256).decode("ascii", errors="replace").strip()

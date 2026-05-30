@@ -260,7 +260,7 @@ class KeyListView(QWidget):
 
 
 def _display_name(key: KeyInfo) -> str:
-    primary_uid = key.user_ids[0] if key.user_ids else "—"
+    primary_uid = key.primary_user_id
     if not key.label:
         return primary_uid
     return f"{key.label} | {primary_uid}"
