@@ -122,10 +122,7 @@ class MessageService:
             )
             raise
 
-        signer_trust = TrustLevel.UNKNOWN
-        if signer:
-            with contextlib.suppress(Exception):
-                signer_trust = self._gpg.find_key(signer).trust
+        signer_trust = _resolve_signer_trust(self._gpg, signer)
 
         self._audit.emit(
             "message_decrypted",
@@ -195,19 +192,21 @@ class MessageService:
         signature_status, signer, signed_at = self._gpg.verify(
             data, detached_signature=detached_signature
         )
-        signer_trust = TrustLevel.UNKNOWN
-        if signer:
-            with contextlib.suppress(Exception):
-                signer_trust = self._gpg.find_key(signer).trust
+        signer_trust = _resolve_signer_trust(self._gpg, signer)
         return VerifyResult(
             signature_status=signature_status,
             signer_fingerprint=signer,
             signer_trust=signer_trust,
             signed_at=signed_at,
-            failure_reason=(
-                None if signature_status.is_valid else signature_status.summary
-            ),
+            failure_reason=(None if signature_status.is_valid else signature_status.summary),
         )
+
+
+def _resolve_signer_trust(gpg: GPGService, signer: str | None) -> TrustLevel:
+    if signer:
+        with contextlib.suppress(Exception):
+            return gpg.find_key(signer).trust
+    return TrustLevel.UNKNOWN
 
 
 def _validate_text_payload(data: bytes) -> None:

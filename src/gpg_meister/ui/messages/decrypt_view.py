@@ -121,10 +121,7 @@ class DecryptView(QWidget):
         self._btn_decrypt.setEnabled(self._vm.can_submit())
 
     def _on_loading(self, loading: bool) -> None:
-        if loading:
-            self._progress.show()
-        else:
-            self._progress.hide()
+        self._progress.setVisible(loading)
         self._btn_decrypt.setEnabled(not loading and self._vm.can_submit())
 
     def _on_success(self, result: object) -> None:
@@ -145,6 +142,7 @@ class DecryptView(QWidget):
             metadata_lines.append(f"Decrypted with: {result.decrypted_with_fingerprint}")
         if result.signer_fingerprint:
             from gpg_meister.models.key_info import TrustLevel
+
             status_label = result.signature_status.summary
             trust = result.signer_trust
             trust_str = f"  trust: {trust.value}"
@@ -152,9 +150,7 @@ class DecryptView(QWidget):
             if result.signature_valid and untrusted:
                 status_label = "valid (signer UNTRUSTED)"
             signer = result.signer_fingerprint or "unknown key"
-            metadata_lines.append(
-                f"Signed by: {signer}  (signature {status_label}{trust_str})"
-            )
+            metadata_lines.append(f"Signed by: {signer}  (signature {status_label}{trust_str})")
             if not result.signature_valid:
                 color = "#cc0000"
             elif untrusted:

@@ -26,16 +26,14 @@ from gpg_meister.ui.vault.vault_export_viewmodel import VaultExportViewModel
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
 _COLOR_UNLOCKED = QColor("#1a7a1a")
-_COLOR_LOCKED   = QColor("#8a4a00")
-_COLOR_STUB     = QColor("#444444")
+_COLOR_LOCKED = QColor("#8a4a00")
+_COLOR_STUB = QColor("#444444")
 
 
 class VaultExportView(QWidget):
     """Export tab: select keys, unlock each key, choose file, create vault."""
 
-    def __init__(
-        self, viewmodel: VaultExportViewModel, parent: QWidget | None = None
-    ) -> None:
+    def __init__(self, viewmodel: VaultExportViewModel, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._vm = viewmodel
         self._active_fp: str | None = None
@@ -73,9 +71,9 @@ class VaultExportView(QWidget):
     def _build_key_section(self, layout: QVBoxLayout) -> None:
         key_box = QGroupBox("Keys to include in vault")
         key_layout = QVBoxLayout(key_box)
-        key_layout.addWidget(QLabel(
-            "Select keys (Ctrl+click for multiple). Click a key to enter its passphrase."
-        ))
+        key_layout.addWidget(
+            QLabel("Select keys (Ctrl+click for multiple). Click a key to enter its passphrase.")
+        )
         self._key_list = QListWidget()
         self._key_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         key_layout.addWidget(self._key_list)
@@ -313,10 +311,7 @@ class VaultExportView(QWidget):
     # ---------------------------------------------------------------- loading
 
     def _on_loading(self, loading: bool) -> None:
-        if loading:
-            self._progress.show()
-        else:
-            self._progress.hide()
+        self._progress.setVisible(loading)
         self._btn_export.setEnabled(not loading and self._vm.can_submit())
         self._btn_browse.setEnabled(not loading)
 

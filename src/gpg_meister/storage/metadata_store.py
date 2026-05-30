@@ -127,34 +127,28 @@ class MetadataStore:
     ) -> None:
         """Insert or update a key metadata row."""
         with self._tx() as conn:
-            existing = conn.execute(
-                "SELECT fingerprint FROM key_metadata WHERE fingerprint = ?",
-                (fingerprint,),
-            ).fetchone()
-            if existing:
-                conn.execute(
-                    "UPDATE key_metadata SET "
-                    "label = COALESCE(?, label), "
-                    "purpose = COALESCE(?, purpose), "
-                    "platform = COALESCE(?, platform), "
-                    "notes = COALESCE(?, notes) "
-                    "WHERE fingerprint = ?",
-                    (label, purpose, platform, notes, fingerprint),
-                )
-            else:
-                conn.execute(
-                    "INSERT INTO key_metadata "
-                    "(fingerprint, label, purpose, platform, notes, import_timestamp)"
-                    " VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        fingerprint,
-                        label or "",
-                        purpose or "",
-                        platform or "",
-                        notes or "",
-                        _utc_now(),
-                    ),
-                )
+            conn.execute(
+                "INSERT INTO key_metadata"
+                " (fingerprint, label, purpose, platform, notes, import_timestamp)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(fingerprint) DO UPDATE SET"
+                " label = COALESCE(?, label),"
+                " purpose = COALESCE(?, purpose),"
+                " platform = COALESCE(?, platform),"
+                " notes = COALESCE(?, notes)",
+                (
+                    fingerprint,
+                    label or "",
+                    purpose or "",
+                    platform or "",
+                    notes or "",
+                    _utc_now(),
+                    label,
+                    purpose,
+                    platform,
+                    notes,
+                ),
+            )
 
     def touch_key(self, fingerprint: str) -> None:
         """Update last_used_timestamp to now."""
@@ -193,9 +187,7 @@ class MetadataStore:
     # vault_record
     # ------------------------------------------------------------------
 
-    def add_vault_record(
-        self, filename: str, *, key_count: int, description: str = ""
-    ) -> int:
+    def add_vault_record(self, filename: str, *, key_count: int, description: str = "") -> int:
         """Insert a vault record and return its row id."""
         with self._tx() as conn:
             cursor = conn.execute(

@@ -42,15 +42,18 @@ class SignatureStatus(StrEnum):
     @property
     def summary(self) -> str:
         """Short human-readable label for UI display."""
-        return {
-            SignatureStatus.NONE: "no signature",
-            SignatureStatus.VALID: "valid",
-            SignatureStatus.INVALID: "INVALID",
-            SignatureStatus.REVOKED_KEY: "INVALID — signing key REVOKED",
-            SignatureStatus.EXPIRED_KEY: "INVALID — signing key EXPIRED",
-            SignatureStatus.EXPIRED_SIG: "INVALID — signature EXPIRED",
-            SignatureStatus.ERROR: "could not be verified",
-        }[self]
+        return _STATUS_SUMMARIES[self]
+
+
+_STATUS_SUMMARIES: dict[SignatureStatus, str] = {
+    SignatureStatus.NONE: "no signature",
+    SignatureStatus.VALID: "valid",
+    SignatureStatus.INVALID: "INVALID",
+    SignatureStatus.REVOKED_KEY: "INVALID — signing key REVOKED",
+    SignatureStatus.EXPIRED_KEY: "INVALID — signing key EXPIRED",
+    SignatureStatus.EXPIRED_SIG: "INVALID — signature EXPIRED",
+    SignatureStatus.ERROR: "could not be verified",
+}
 
 
 class EncryptResult(BaseModel):

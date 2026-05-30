@@ -145,7 +145,9 @@ class KeyListView(QWidget):
             self._table.setItem(row, _COL_FP, read_only_cell(key.fingerprint[-16:]))
             self._table.setItem(row, _COL_CREATED, read_only_cell(_fmt_date(key.created_at)))
             self._table.setItem(row, _COL_EXPIRES, read_only_cell(_fmt_date(key.expires_at)))
-            self._table.setItem(row, _COL_HAS_PRIV, read_only_cell("yes" if key.has_private_key else ""))
+            self._table.setItem(
+                row, _COL_HAS_PRIV, read_only_cell("yes" if key.has_private_key else "")
+            )
             self._table.setItem(row, _COL_TRUST, read_only_cell(key.trust.value))
 
             if key.is_revoked or _is_expired(key):
@@ -155,10 +157,7 @@ class KeyListView(QWidget):
                         item.setForeground(Qt.GlobalColor.gray)
 
     def _on_loading(self, loading: bool) -> None:
-        if loading:
-            self._progress.show()
-        else:
-            self._progress.hide()
+        self._progress.setVisible(loading)
         self._btn_create.setEnabled(not loading)
         self._btn_import.setEnabled(not loading)
         self._btn_refresh.setEnabled(not loading)

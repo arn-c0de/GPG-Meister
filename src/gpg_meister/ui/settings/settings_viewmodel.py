@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
-from gpg_meister.models.config import AppConfig, AppearanceMode, AppPage, AuditConfig
+from gpg_meister.models.config import AppConfig, AppearanceMode, AppPage
 from gpg_meister.models.kdf_params import KDFProfile
 from gpg_meister.models.vault import CipherAlgorithm
 from gpg_meister.services import config_service
@@ -81,10 +81,7 @@ class SettingsViewModel(QObject):
         self._pending.require_delete_text_confirmation = on
 
     def set_audit_hash_chain(self, on: bool) -> None:
-        self._pending.audit = AuditConfig(
-            enabled=self._pending.audit.enabled,
-            hash_chain=on,
-        )
+        self._pending.audit = self._pending.audit.model_copy(update={"hash_chain": on})
 
     def save(self) -> None:
         try:

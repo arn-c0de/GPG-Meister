@@ -30,22 +30,19 @@ _WRITABLE_CONFIG_STATUSES = {
 }
 
 
+_TOML_STR_ESCAPES = str.maketrans({'"': '\\"', "\\": "\\\\", "\n": "\\n", "\r": "\\r"})
+
+
 def _format_toml_value(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
     if isinstance(value, str):
-        escaped = (
-            value.replace("\\", "\\\\")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace('"', '\\"')
-        )
-        # Escape remaining C0 control characters (U+0000-U+001F except \t and \n/\r already handled)
+        escaped = value.translate(_TOML_STR_ESCAPES)
+        # Escape remaining C0 control characters (U+0000-U+001F except \t already handled)
         escaped = "".join(
-            f"\\u{ord(ch):04x}" if (ord(ch) < 0x20 and ch not in "\t") else ch
-            for ch in escaped
+            f"\\u{ord(ch):04x}" if (ord(ch) < 0x20 and ch not in "\t") else ch for ch in escaped
         )
         return f'"{escaped}"'
     raise TypeError(f"unsupported config value type: {type(value).__name__}")
@@ -112,7 +109,11 @@ def warn_if_world_readable(path: Path) -> str | None:
     if sys.platform == "win32" or not path.exists():
         return None
     rep = report(path)
-    if rep.status in (PermissionStatus.OK, PermissionStatus.WINDOWS_ACL, PermissionStatus.NOT_FOUND):
+    if rep.status in (
+        PermissionStatus.OK,
+        PermissionStatus.WINDOWS_ACL,
+        PermissionStatus.NOT_FOUND,
+    ):
         return None
     return (
         f"config file {path} has unsafe permissions ({rep.status.value}) — "
@@ -126,8 +127,6 @@ def ensure_safe_to_load(path: Path) -> None:
         return
     rep = report(path)
     if rep.status in _WRITABLE_CONFIG_STATUSES:
-        raise ConfigServiceError(
-            f"refusing to load unsafe config file {path}: {rep.status.value}"
-        )
+        raise ConfigServiceError(f"refusing to load unsafe config file {path}: {rep.status.value}")
     if rep.status in (PermissionStatus.GROUP_READABLE, PermissionStatus.WORLD_READABLE):
         ensure_file_mode(path, mode=0o600)
