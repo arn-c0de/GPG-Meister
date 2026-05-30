@@ -36,6 +36,25 @@ _PAGE_SELECT = 2
 _PAGE_RESULT = 3
 
 
+def _make_passphrase_pair(raw: str) -> tuple[SecureBytes, SecureBytes | None]:
+    """Return (normalised_secure, raw_secure_or_None) for vault operations.
+
+    raw_secure is only returned when the normalised form differs from raw,
+    so callers can fall back to the pre-normalisation form for legacy vaults.
+    """
+    from gpg_meister.security.password_policy import normalise_passphrase
+    norm = normalise_passphrase(raw)
+    norm_bytes = norm.encode("utf-8")
+    norm_secure = SecureBytes.from_bytes(norm_bytes)
+    _zero_bytes_object(norm_bytes)
+    raw_secure: SecureBytes | None = None
+    if norm != raw:
+        raw_bytes = raw.encode("utf-8")
+        raw_secure = SecureBytes.from_bytes(raw_bytes)
+        _zero_bytes_object(raw_bytes)
+    return norm_secure, raw_secure
+
+
 class _FilePage(QWizardPage):
     def __init__(self) -> None:
         super().__init__()
@@ -161,24 +180,12 @@ class _PassphrasePage(QWizardPage):
             self._status_label.setStyleSheet("color: #cc0000;")
             return False
 
-        from gpg_meister.security.password_policy import normalise_passphrase
-        pp_norm_text = normalise_passphrase(pp_raw_text)
-
         self._status_label.setText("Decrypting vault… (this may take a moment)")
         self._status_label.setStyleSheet("color: #666666;")
         self._set_next_enabled(False)
         self._working = True
 
-        # Capture both forms if they differ, to support vaults created without normalization.
-        pp_norm_bytes = pp_norm_text.encode("utf-8")
-        pp_norm_secure = SecureBytes.from_bytes(pp_norm_bytes)
-        _zero_bytes_object(pp_norm_bytes)
-
-        pp_raw_secure = None
-        if pp_norm_text != pp_raw_text:
-            pp_raw_bytes = pp_raw_text.encode("utf-8")
-            pp_raw_secure = SecureBytes.from_bytes(pp_raw_bytes)
-            _zero_bytes_object(pp_raw_bytes)
+        pp_norm_secure, pp_raw_secure = _make_passphrase_pair(pp_raw_text)
 
         def _do() -> VaultPreview:
             try:
@@ -239,13 +246,13 @@ class _PassphrasePage(QWizardPage):
 
     def _run_preview_skip_checksum(self) -> None:
         vault_path = Path(self.field("vault_path"))
-        pp_text = self._pp_field.text()
+        pp_text = self._pp_field.text().strip()
         self._set_next_enabled(False)
         self._working = True
 
-        pp_bytes = pp_text.encode()
-        pp_secure = SecureBytes.from_bytes(pp_bytes)
-        _zero_bytes_object(pp_bytes)
+        pp_secure, _raw_fallback = _make_passphrase_pair(pp_text)
+        if _raw_fallback is not None:
+            _raw_fallback.close()
 
         def _do() -> VaultPreview:
             with pp_secure as pp:
@@ -368,19 +375,7 @@ class _ResultPage(QWizardPage):
         vault_path = Path(self.field("vault_path"))
 
         pp_raw_text = pp_page.passphrase().strip()
-        from gpg_meister.security.password_policy import normalise_passphrase
-        pp_norm_text = normalise_passphrase(pp_raw_text)
-
-        # Capture both forms if they differ.
-        pp_norm_bytes = pp_norm_text.encode("utf-8")
-        pp_norm_secure = SecureBytes.from_bytes(pp_norm_bytes)
-        _zero_bytes_object(pp_norm_bytes)
-
-        pp_raw_secure = None
-        if pp_norm_text != pp_raw_text:
-            pp_raw_bytes = pp_raw_text.encode("utf-8")
-            pp_raw_secure = SecureBytes.from_bytes(pp_raw_bytes)
-            _zero_bytes_object(pp_raw_bytes)
+        pp_norm_secure, pp_raw_secure = _make_passphrase_pair(pp_raw_text)
 
         self._log.setPlainText("Importing keys…")
         self._set_finish_enabled(False)

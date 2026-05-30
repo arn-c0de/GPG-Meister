@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase
-from PySide6.QtWidgets import QTableWidgetItem
+from PySide6.QtWidgets import QLabel, QProgressBar, QTableWidgetItem
 
 _MONOSPACE_CANDIDATES = ("Cascadia Code", "Fira Code", "Consolas", "Courier New", "Monospace")
 
@@ -33,3 +33,22 @@ def read_only_cell(text: str) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
     return item
+
+
+def error_label(*, word_wrap: bool = True) -> QLabel:
+    """A hidden, red-text label for displaying error messages."""
+    lbl = QLabel()
+    lbl.setStyleSheet("color: #cc0000;")
+    if word_wrap:
+        lbl.setWordWrap(True)
+    lbl.hide()
+    return lbl
+
+
+def busy_bar() -> QProgressBar:
+    """A hidden 4px indeterminate progress bar for background operations."""
+    bar = QProgressBar()
+    bar.setRange(0, 0)
+    bar.setFixedHeight(4)
+    bar.hide()
+    return bar
