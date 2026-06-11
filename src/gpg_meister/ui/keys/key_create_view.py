@@ -57,32 +57,32 @@ class KeyCreateDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.addLayout(self._build_identity_form())
+        self._add_passphrase_fields(layout)
+        self._add_status_widgets(layout)
+
+        self._buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Create Key")
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
+        self._buttons.accepted.connect(self._on_submit)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+
+    def _build_identity_form(self) -> QFormLayout:
         form = QFormLayout()
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        self._name_field = QLineEdit()
-        self._name_field.setPlaceholderText("Your Name")
-        self._name_field.setAccessibleName("Name")
+        self._name_field = _line_edit("Name", "Your Name")
         form.addRow("Name:", self._name_field)
-
-        self._email_field = QLineEdit()
-        self._email_field.setPlaceholderText("you@example.com")
-        self._email_field.setAccessibleName("Email")
+        self._email_field = _line_edit("Email", "you@example.com")
         form.addRow("Email:", self._email_field)
-
-        self._label_field = QLineEdit()
-        self._label_field.setPlaceholderText("Optional internal label")
-        self._label_field.setAccessibleName("Label")
+        self._label_field = _line_edit("Label", "Optional internal label")
         form.addRow("Label:", self._label_field)
-
-        self._platform_field = QLineEdit()
-        self._platform_field.setPlaceholderText("GitHub, Laptop, Server, ...")
-        self._platform_field.setAccessibleName("Platform")
+        self._platform_field = _line_edit("Platform", "GitHub, Laptop, Server, ...")
         form.addRow("Platform:", self._platform_field)
-
-        self._purpose_field = QLineEdit()
-        self._purpose_field.setPlaceholderText("Code signing, email, backup, ...")
-        self._purpose_field.setAccessibleName("Purpose")
+        self._purpose_field = _line_edit("Purpose", "Code signing, email, backup, ...")
         form.addRow("Purpose:", self._purpose_field)
 
         self._notes_field = QTextEdit()
@@ -102,17 +102,15 @@ class KeyCreateDialog(QDialog):
             self._expiry_combo.addItem(label)
         self._expiry_combo.setCurrentIndex(1)
         form.addRow("Expires:", self._expiry_combo)
+        return form
 
-        layout.addLayout(form)
-
-        passphrase_label = QLabel("Passphrase:")
-        layout.addWidget(passphrase_label)
+    def _add_passphrase_fields(self, layout: QVBoxLayout) -> None:
+        layout.addWidget(QLabel("Passphrase:"))
         self._passphrase_field = PassphraseField(show_strength=True)
         self._passphrase_field.setPlaceholderText("New key passphrase…")
         layout.addWidget(self._passphrase_field)
 
-        confirm_label = QLabel("Confirm passphrase:")
-        layout.addWidget(confirm_label)
+        layout.addWidget(QLabel("Confirm passphrase:"))
         self._confirm_field = PassphraseField(show_strength=False)
         self._confirm_field.setPlaceholderText("Repeat passphrase…")
         layout.addWidget(self._confirm_field)
@@ -121,6 +119,7 @@ class KeyCreateDialog(QDialog):
         self._mismatch_label.setStyleSheet("color: #cc0000;")
         layout.addWidget(self._mismatch_label)
 
+    def _add_status_widgets(self, layout: QVBoxLayout) -> None:
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
         self._progress.setFixedHeight(6)
@@ -132,15 +131,6 @@ class KeyCreateDialog(QDialog):
         self._error_label.setWordWrap(True)
         self._error_label.hide()
         layout.addWidget(self._error_label)
-
-        self._buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Create Key")
-        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
-        self._buttons.accepted.connect(self._on_submit)
-        self._buttons.rejected.connect(self.reject)
-        layout.addWidget(self._buttons)
 
     def _connect_signals(self) -> None:
         self._name_field.textChanged.connect(self._vm.set_name)
@@ -211,3 +201,10 @@ class KeyCreateDialog(QDialog):
     def _on_error(self, msg: str) -> None:
         self._error_label.setText(msg)
         self._error_label.show()
+
+
+def _line_edit(accessible_name: str, placeholder: str) -> QLineEdit:
+    field = QLineEdit()
+    field.setPlaceholderText(placeholder)
+    field.setAccessibleName(accessible_name)
+    return field

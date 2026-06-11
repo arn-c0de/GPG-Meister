@@ -46,21 +46,29 @@ class SettingsView(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(10)
+        root.addWidget(self._build_language_box())
+        root.addWidget(self._build_crypto_box())
+        root.addWidget(self._build_interface_box())
+        root.addWidget(self._build_audit_box())
+        root.addWidget(self._build_deletion_box())
+        root.addWidget(self._build_reset_box())
+        root.addLayout(self._build_button_row())
+        root.addStretch()
 
-        # --- Localisation ---
-        locale_box = QGroupBox("Language")
-        locale_form = QFormLayout(locale_box)
+    def _build_language_box(self) -> QGroupBox:
+        box = QGroupBox("Language")
+        form = QFormLayout(box)
         self._locale_combo = QComboBox()
         for language in available_language_options():
             self._locale_combo.addItem(language.label, language.code)
         self._locale_combo.setAccessibleName("Language")
-        locale_form.addRow("Language:", self._locale_combo)
-        locale_form.addRow("", QLabel("Language change takes effect on next launch."))
-        root.addWidget(locale_box)
+        form.addRow("Language:", self._locale_combo)
+        form.addRow("", QLabel("Language change takes effect on next launch."))
+        return box
 
-        # --- Cryptography ---
-        crypto_box = QGroupBox("Cryptography")
-        crypto_form = QFormLayout(crypto_box)
+    def _build_crypto_box(self) -> QGroupBox:
+        box = QGroupBox("Cryptography")
+        form = QFormLayout(box)
 
         self._cipher_combo = QComboBox()
         self._cipher_combo.addItem(
@@ -69,104 +77,100 @@ class SettingsView(QWidget):
         )
         self._cipher_combo.addItem("AES-256-GCM", CipherAlgorithm.AES_256_GCM.value)
         self._cipher_combo.setAccessibleName("Vault cipher algorithm")
-        crypto_form.addRow("Vault cipher:", self._cipher_combo)
+        form.addRow("Vault cipher:", self._cipher_combo)
 
         self._kdf_combo = QComboBox()
         self._kdf_combo.addItem("High memory (safer, ~1 s)", KDFProfile.HIGH_MEMORY.value)
         self._kdf_combo.addItem("Balanced (faster, ~0.2 s)", KDFProfile.BALANCED.value)
         self._kdf_combo.setAccessibleName("KDF profile")
-        crypto_form.addRow("KDF profile:", self._kdf_combo)
+        form.addRow("KDF profile:", self._kdf_combo)
+        return box
 
-        root.addWidget(crypto_box)
-
-        # --- UI behaviour ---
-        ui_box = QGroupBox("Interface")
-        ui_form = QFormLayout(ui_box)
+    def _build_interface_box(self) -> QGroupBox:
+        box = QGroupBox("Interface")
+        form = QFormLayout(box)
 
         self._clipboard_spin = QSpinBox()
         self._clipboard_spin.setRange(0, 3600)
         self._clipboard_spin.setSuffix(" seconds")
         self._clipboard_spin.setSpecialValueText("Never clear")
         self._clipboard_spin.setAccessibleName("Clipboard auto-clear delay")
-        ui_form.addRow("Clear clipboard after:", self._clipboard_spin)
+        form.addRow("Clear clipboard after:", self._clipboard_spin)
 
         self._appearance_combo = QComboBox()
         self._appearance_combo.addItem("Dark mode", AppearanceMode.SYSTEM.value)
         self._appearance_combo.addItem("Day mode", AppearanceMode.LIGHT.value)
         self._appearance_combo.setAccessibleName("Appearance")
-        ui_form.addRow("Color mode:", self._appearance_combo)
+        form.addRow("Color mode:", self._appearance_combo)
 
         self._backup_spin = QSpinBox()
         self._backup_spin.setRange(1, 365)
         self._backup_spin.setSuffix(" days")
         self._backup_spin.setAccessibleName("Backup reminder interval")
-        ui_form.addRow("Vault backup reminder every:", self._backup_spin)
+        form.addRow("Vault backup reminder every:", self._backup_spin)
 
         self._high_contrast_check = QCheckBox("Enable high-contrast theme")
         self._high_contrast_check.setAccessibleDescription(
             "Increases foreground/background contrast ratio"
         )
-        ui_form.addRow("", self._high_contrast_check)
+        form.addRow("", self._high_contrast_check)
 
         self._reduce_motion_check = QCheckBox("Reduce animations")
         self._reduce_motion_check.setAccessibleDescription(
             "Disables or reduces animated transitions"
         )
-        ui_form.addRow("", self._reduce_motion_check)
+        form.addRow("", self._reduce_motion_check)
+        return box
 
-        root.addWidget(ui_box)
-
-        # --- Audit ---
-        audit_box = QGroupBox("Audit log")
-        audit_form = QFormLayout(audit_box)
+    def _build_audit_box(self) -> QGroupBox:
+        box = QGroupBox("Audit log")
+        form = QFormLayout(box)
         self._hash_chain_check = QCheckBox("Enable hash-chain integrity (append-only proof)")
         self._hash_chain_check.setAccessibleDescription(
             "Each audit record includes a hash of the previous record, "
             "making it detectable if records are deleted or reordered."
         )
-        audit_form.addRow("", self._hash_chain_check)
-        root.addWidget(audit_box)
+        form.addRow("", self._hash_chain_check)
+        return box
 
-        # --- Deletion safety ---
-        delete_box = QGroupBox("Deletion safety")
-        delete_form = QFormLayout(delete_box)
+    def _build_deletion_box(self) -> QGroupBox:
+        box = QGroupBox("Deletion safety")
+        form = QFormLayout(box)
         self._delete_text_confirmation_check = QCheckBox(
             "Require typing DELETE before removing a key"
         )
         self._delete_text_confirmation_check.setAccessibleDescription(
             "When disabled, key deletion only uses the existing delete dialog."
         )
-        delete_form.addRow("", self._delete_text_confirmation_check)
-        root.addWidget(delete_box)
+        form.addRow("", self._delete_text_confirmation_check)
+        return box
 
-        # --- Reset ---
-        reset_box = QGroupBox("Factory reset")
-        reset_layout = QVBoxLayout(reset_box)
-        reset_layout.addWidget(
+    def _build_reset_box(self) -> QGroupBox:
+        box = QGroupBox("Factory reset")
+        layout = QVBoxLayout(box)
+        layout.addWidget(
             QLabel(
                 "Reset GPG Meister to a clean local state. This removes the app config, "
                 "local keyring, metadata database, logs, cache, and vault files stored "
                 "inside the app data directory on the next launch."
             )
         )
-        reset_layout.addWidget(
+        layout.addWidget(
             QLabel("Externally exported files outside the app-managed folders are not removed.")
         )
         self._btn_factory_reset = QPushButton("Schedule Factory Reset")
-        reset_layout.addWidget(self._btn_factory_reset)
-        root.addWidget(reset_box)
+        layout.addWidget(self._btn_factory_reset)
+        return box
 
-        # --- Buttons ---
-        btn_row = QHBoxLayout()
+    def _build_button_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
         self._btn_save = QPushButton("Save Settings")
         self._btn_save.setDefault(True)
         self._status_label = QLabel()
         self._status_label.setWordWrap(True)
-        btn_row.addWidget(self._btn_save)
-        btn_row.addWidget(self._status_label, stretch=1)
-        root.addLayout(btn_row)
-
-        root.addStretch()
+        row.addWidget(self._btn_save)
+        row.addWidget(self._status_label, stretch=1)
+        return row
 
     def _connect_signals(self) -> None:
         self._vm.config_saved.connect(lambda: self._set_status("Settings saved.", ok=True))
