@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from gpg_meister.services.message_service import MessageService
     from gpg_meister.services.vault_service import VaultService
     from gpg_meister.startup.environment_check import CheckResult
-    from gpg_meister.startup.gpg_detector import DetectedGPG
+    from gpg_meister.startup.gpg_detector import DetectedGPG, GPGDetectionError
     from gpg_meister.storage.audit_log import AuditLog
     from gpg_meister.storage.metadata_store import MetadataStore
     from gpg_meister.storage.paths import AppPaths
@@ -38,17 +38,26 @@ _DEFAULT_STYLESHEET: str | None = None
 _DEFAULT_PALETTE: QPalette | None = None
 
 
+def _fail_startup(audit: AuditLog, title: str, message: str) -> NoReturn:
+    QMessageBox.critical(None, title, message)
+    audit.close()
+    sys.exit(1)
+
+
 def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> DetectedGPG:
     """Resolve a trusted GPG binary, showing a trust-pinning dialog when needed.
 
     Handles USER_OVERRIDE_UNTRUSTED and HASH_MISMATCH interactively; all other
     detection failures are fatal.
     """
-    from gpg_meister.models.config import GPGBinaryTrust
-    from gpg_meister.services import config_service
     from gpg_meister.startup.gpg_detector import DetectionReason, GPGDetectionError, detect
-    from gpg_meister.ui.gpg_trust_dialog import GpgTrustDialog
 
+    interactive_reasons = (
+        DetectionReason.USER_OVERRIDE_UNTRUSTED,
+        DetectionReason.HASH_MISMATCH,
+        DetectionReason.IDENTITY_MISMATCH,
+        DetectionReason.NOT_ROOT_OWNED,
+    )
     while True:
         trust = config.gpg_binary_trusted_hash
         try:
@@ -60,57 +69,65 @@ def _resolve_gpg(config: AppConfig, paths: AppPaths, audit: AuditLog) -> Detecte
                 trusted_inode=trust.inode if trust else None,
             )
         except GPGDetectionError as exc:
-            if exc.reason not in (
-                DetectionReason.USER_OVERRIDE_UNTRUSTED,
-                DetectionReason.HASH_MISMATCH,
-                DetectionReason.IDENTITY_MISMATCH,
-                DetectionReason.NOT_ROOT_OWNED,
-            ):
-                QMessageBox.critical(
-                    None,
+            if exc.reason not in interactive_reasons:
+                _fail_startup(
+                    audit,
                     "GnuPG not found",
                     "GPG Meister needs GnuPG installed on this computer, but none was found.\n\n"
                     f"Detail: {exc}",
                 )
-                audit.close()
-                sys.exit(1)
-
             if exc.path is None or exc.new_sha is None:
-                QMessageBox.critical(None, "GnuPG trust failed", str(exc))
-                audit.close()
-                sys.exit(1)
+                _fail_startup(audit, "GnuPG trust failed", str(exc))
 
             # For HASH/IDENTITY mismatch, re-prompt the user to re-trust the
             # binary; detect() already gave us the new hash and path.
-            mismatch = exc.reason in (DetectionReason.HASH_MISMATCH, DetectionReason.IDENTITY_MISMATCH)
-            old_sha = trust.sha256 if trust else None
+            config = _trust_and_pin_gpg(exc, config, paths, audit)
 
-            dlg = GpgTrustDialog(
-                exc.path,
-                exc.new_sha,
-                mismatch=mismatch,
-                old_sha=old_sha,
-            )
-            if not dlg.exec():
-                audit.close()
-                sys.exit(1)
 
-            # Re-run detect with the newly accepted hash so non-whitelisted
-            # binaries don't raise USER_OVERRIDE_UNTRUSTED again.
-            new_gpg = detect(
-                user_override_path=str(exc.path),
-                trusted_hash=exc.new_sha,
-                trusted_path=str(exc.path),
+def _trust_and_pin_gpg(
+    exc: GPGDetectionError, config: AppConfig, paths: AppPaths, audit: AuditLog
+) -> AppConfig:
+    """Show the trust dialog for the offending binary; pin and persist on accept.
+
+    Exits the application if the user declines.
+    """
+    from gpg_meister.models.config import GPGBinaryTrust
+    from gpg_meister.services import config_service
+    from gpg_meister.startup.gpg_detector import DetectionReason, detect
+    from gpg_meister.ui.gpg_trust_dialog import GpgTrustDialog
+
+    assert exc.path is not None and exc.new_sha is not None
+    trust = config.gpg_binary_trusted_hash
+    mismatch = exc.reason in (DetectionReason.HASH_MISMATCH, DetectionReason.IDENTITY_MISMATCH)
+    dlg = GpgTrustDialog(
+        exc.path,
+        exc.new_sha,
+        mismatch=mismatch,
+        old_sha=trust.sha256 if trust else None,
+    )
+    if not dlg.exec():
+        audit.close()
+        sys.exit(1)
+
+    # Re-run detect with the newly accepted hash so non-whitelisted
+    # binaries don't raise USER_OVERRIDE_UNTRUSTED again.
+    new_gpg = detect(
+        user_override_path=str(exc.path),
+        trusted_hash=exc.new_sha,
+        trusted_path=str(exc.path),
+    )
+    config = config.model_copy(
+        update={
+            "gpg_binary_trusted_hash": GPGBinaryTrust(
+                path=str(new_gpg.path),
+                sha256=new_gpg.sha256,
+                device=new_gpg.device,
+                inode=new_gpg.inode,
             )
-            config = config.model_copy(update={
-                "gpg_binary_trusted_hash": GPGBinaryTrust(
-                    path=str(new_gpg.path),
-                    sha256=new_gpg.sha256,
-                    device=new_gpg.device,
-                    inode=new_gpg.inode,
-                )
-            })
-            config_service.save(config, paths.config_file)
+        }
+    )
+    config_service.save(config, paths.config_file)
+    return config
 
 
 def _app_icon() -> QIcon:
