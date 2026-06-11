@@ -200,86 +200,132 @@ def detect(
     literal_whitelist = {Path(os.path.normpath(p)) for p in _platform_whitelist()}
 
     if user_override_path:
-        override = _canonicalise(Path(user_override_path))
-        _check_writability(override)
-        _check_parent_writability(override)
-        sha = _hash_file(override)
-        is_listed = override in literal_whitelist
-        device, inode = _identity(override)
-        if is_listed:
-            is_root_owned = _check_root_owned(override)
-            if not is_root_owned and sys.platform != "win32":
-                raise GPGDetectionError(
-                    DetectionReason.NOT_ROOT_OWNED,
-                    f"{override} is at a whitelisted path but is not owned by root — "
-                    "this may indicate binary substitution",
-                    path=override,
-                    new_sha=sha,
-                )
-            return DetectedGPG(
-                path=override,
-                sha256=sha,
-                is_whitelisted=True,
-                is_root_owned=is_root_owned,
-                device=device,
-                inode=inode,
-            )
-        # Outside the whitelist: require an explicit trust pin that matches.
-        if trusted_hash is None:
-            raise GPGDetectionError(
-                DetectionReason.USER_OVERRIDE_UNTRUSTED,
-                f"{override} is not in the standard whitelist and has no trusted hash",
-                path=override,
-                new_sha=sha,
-            )
-        if trusted_path is None:
-            raise GPGDetectionError(
-                DetectionReason.TRUST_PATH_MISMATCH,
-                f"{override} has a trusted hash but no trusted path binding",
-                path=override,
-                new_sha=sha,
-            )
-        trusted_canonical = _canonicalise(Path(trusted_path))
-        if trusted_canonical != override:
-            raise GPGDetectionError(
-                DetectionReason.TRUST_PATH_MISMATCH,
-                f"{override} does not match trusted path {trusted_canonical}",
-                path=override,
-                new_sha=sha,
-            )
-        if trusted_hash.lower() != sha.lower():
-            raise GPGDetectionError(
-                DetectionReason.HASH_MISMATCH,
-                f"{override} hash mismatch — refusing to execute",
-                path=override,
-                new_sha=sha,
-            )
+        return _detect_user_override(
+            Path(user_override_path),
+            literal_whitelist,
+            trusted_hash=trusted_hash,
+            trusted_path=trusted_path,
+            trusted_device=trusted_device,
+            trusted_inode=trusted_inode,
+        )
+    return _detect_from_whitelist(literal_whitelist)
 
-        # Verify identity (device/inode) if provided, to detect file substitution.
-        if trusted_device is not None and device is not None and device != trusted_device:
-            raise GPGDetectionError(
-                DetectionReason.IDENTITY_MISMATCH,
-                f"{override} device mismatch (trusted={trusted_device}, actual={device})",
-                path=override,
-                new_sha=sha,
-            )
-        if trusted_inode is not None and inode is not None and inode != trusted_inode:
-            raise GPGDetectionError(
-                DetectionReason.IDENTITY_MISMATCH,
-                f"{override} inode mismatch (trusted={trusted_inode}, actual={inode})",
-                path=override,
-                new_sha=sha,
-            )
 
-        return DetectedGPG(
-            path=override,
-            sha256=sha,
-            is_whitelisted=False,
-            is_root_owned=_check_root_owned(override),
-            device=device,
-            inode=inode,
+def _accept_whitelisted(path: Path, sha: str) -> DetectedGPG:
+    """Accept a binary at a whitelisted path; on POSIX it must be root-owned."""
+    device, inode = _identity(path)
+    is_root_owned = _check_root_owned(path)
+    if not is_root_owned and sys.platform != "win32":
+        raise GPGDetectionError(
+            DetectionReason.NOT_ROOT_OWNED,
+            f"{path} is at a whitelisted path but is not owned by root — "
+            "this may indicate binary substitution",
+            path=path,
+            new_sha=sha,
+        )
+    return DetectedGPG(
+        path=path,
+        sha256=sha,
+        is_whitelisted=True,
+        is_root_owned=is_root_owned,
+        device=device,
+        inode=inode,
+    )
+
+
+def _detect_user_override(
+    override_path: Path,
+    literal_whitelist: set[Path],
+    *,
+    trusted_hash: str | None,
+    trusted_path: str | None,
+    trusted_device: int | None,
+    trusted_inode: int | None,
+) -> DetectedGPG:
+    override = _canonicalise(override_path)
+    _check_writability(override)
+    _check_parent_writability(override)
+    sha = _hash_file(override)
+
+    if override in literal_whitelist:
+        return _accept_whitelisted(override, sha)
+
+    # Outside the whitelist: require an explicit trust pin that matches.
+    device, inode = _identity(override)
+    _verify_trust_pin(
+        override,
+        sha,
+        device=device,
+        inode=inode,
+        trusted_hash=trusted_hash,
+        trusted_path=trusted_path,
+        trusted_device=trusted_device,
+        trusted_inode=trusted_inode,
+    )
+    return DetectedGPG(
+        path=override,
+        sha256=sha,
+        is_whitelisted=False,
+        is_root_owned=_check_root_owned(override),
+        device=device,
+        inode=inode,
+    )
+
+
+def _verify_trust_pin(
+    override: Path,
+    sha: str,
+    *,
+    device: int | None,
+    inode: int | None,
+    trusted_hash: str | None,
+    trusted_path: str | None,
+    trusted_device: int | None,
+    trusted_inode: int | None,
+) -> None:
+    """Validate a non-whitelisted binary against the stored trust pin.
+
+    The pin must bind path, SHA-256 hash, and (when recorded) the file's
+    device/inode identity. Raises `GPGDetectionError` on any mismatch.
+    """
+
+    def _fail(reason: DetectionReason, message: str) -> GPGDetectionError:
+        return GPGDetectionError(reason, message, path=override, new_sha=sha)
+
+    if trusted_hash is None:
+        raise _fail(
+            DetectionReason.USER_OVERRIDE_UNTRUSTED,
+            f"{override} is not in the standard whitelist and has no trusted hash",
+        )
+    if trusted_path is None:
+        raise _fail(
+            DetectionReason.TRUST_PATH_MISMATCH,
+            f"{override} has a trusted hash but no trusted path binding",
+        )
+    trusted_canonical = _canonicalise(Path(trusted_path))
+    if trusted_canonical != override:
+        raise _fail(
+            DetectionReason.TRUST_PATH_MISMATCH,
+            f"{override} does not match trusted path {trusted_canonical}",
+        )
+    if trusted_hash.lower() != sha.lower():
+        raise _fail(
+            DetectionReason.HASH_MISMATCH,
+            f"{override} hash mismatch — refusing to execute",
+        )
+    if trusted_device is not None and device is not None and device != trusted_device:
+        raise _fail(
+            DetectionReason.IDENTITY_MISMATCH,
+            f"{override} device mismatch (trusted={trusted_device}, actual={device})",
+        )
+    if trusted_inode is not None and inode is not None and inode != trusted_inode:
+        raise _fail(
+            DetectionReason.IDENTITY_MISMATCH,
+            f"{override} inode mismatch (trusted={trusted_inode}, actual={inode})",
         )
 
+
+def _detect_from_whitelist(literal_whitelist: set[Path]) -> DetectedGPG:
     for entry in _platform_whitelist():
         if not entry.exists():
             continue
@@ -289,25 +335,7 @@ def detect(
             continue
         _check_writability(canonical)
         _check_parent_writability(canonical)
-        device, inode = _identity(canonical)
-        is_root_owned = _check_root_owned(canonical)
-        sha = _hash_file(canonical)
-        if not is_root_owned and sys.platform != "win32":
-            raise GPGDetectionError(
-                DetectionReason.NOT_ROOT_OWNED,
-                f"{canonical} is at a whitelisted path but is not owned by root — "
-                "this may indicate binary substitution",
-                path=canonical,
-                new_sha=sha,
-            )
-        return DetectedGPG(
-            path=canonical,
-            sha256=sha,
-            is_whitelisted=True,
-            is_root_owned=is_root_owned,
-            device=device,
-            inode=inode,
-        )
+        return _accept_whitelisted(canonical, _hash_file(canonical))
 
     raise GPGDetectionError(
         DetectionReason.NOT_FOUND,

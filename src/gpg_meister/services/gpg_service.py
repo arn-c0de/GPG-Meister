@@ -374,6 +374,101 @@ def _write_passphrase_pipe(fd: int, secret: bytearray) -> None:
             zero_mutable_buffer(secret)
 
 
+def _validated_passphrase_bytes(passphrase: SecureBytes | bytes | None) -> bytearray:
+    """Copy the passphrase into a mutable buffer, rejecting framing bytes.
+
+    NUL terminates many C string paths inside pinentry helpers; CR/LF would
+    prematurely close the ``--passphrase-fd`` line. The buffer is zeroed before
+    raising so no unwiped copy is left behind.
+    """
+    if passphrase is None:
+        return bytearray()
+    buf = (
+        bytearray(passphrase.view())
+        if isinstance(passphrase, SecureBytes)
+        else bytearray(passphrase)
+    )
+    for framing_byte in (0x00, 0x0A, 0x0D):
+        if framing_byte in buf:
+            zero_mutable_buffer(buf)
+            raise GPGValidationError("passphrase must not contain NUL or newline characters")
+    return buf
+
+
+class _GPGPipes:
+    """fd lifecycle for the optional status and passphrase pipes of one GPG run.
+
+    Child ends (``pass_read``, ``status_write``) are inherited by the subprocess
+    and closed in the parent right after spawn. Parent ends (``pass_write``,
+    ``status_read``) are handed off to the writer/drain threads via ``take_*()``,
+    which then own and close them. ``close_owned()`` closes whatever was not
+    handed off (the error paths) and is safe to call repeatedly.
+    """
+
+    def __init__(self, *, status: bool, passphrase: bool) -> None:
+        self.pass_read: int | None = None
+        self.pass_write: int | None = None
+        self.status_read: int | None = None
+        self.status_write: int | None = None
+        if status:
+            self.status_read, self.status_write = os.pipe()
+            os.set_inheritable(self.status_write, True)
+        if passphrase:
+            self.pass_read, self.pass_write = os.pipe()
+            os.set_inheritable(self.pass_read, True)
+
+    def child_fds(self) -> tuple[int, ...]:
+        return tuple(fd for fd in (self.pass_read, self.status_write) if fd is not None)
+
+    def close_child_ends(self) -> None:
+        if self.pass_read is not None:
+            os.close(self.pass_read)
+            self.pass_read = None
+        if self.status_write is not None:
+            os.close(self.status_write)
+            self.status_write = None
+
+    def take_status_read(self) -> int | None:
+        fd = self.status_read
+        self.status_read = None
+        return fd
+
+    def take_pass_write(self) -> int | None:
+        fd = self.pass_write
+        self.pass_write = None
+        return fd
+
+    def close_owned(self) -> None:
+        for fd in (self.pass_read, self.pass_write, self.status_read, self.status_write):
+            if fd is not None:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+        self.pass_read = self.pass_write = self.status_read = self.status_write = None
+
+
+def _start_status_reader(fd: int | None, buffer: bytearray) -> threading.Thread | None:
+    """Start the drain thread for GPG's status pipe; the thread owns ``fd``."""
+    if fd is None:
+        return None
+    thread = threading.Thread(
+        target=_drain_pipe,
+        args=(fd, buffer),
+        kwargs={"limit": _STATUS_BUF_LIMIT},
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def _start_passphrase_writer(fd: int | None, secret: bytearray) -> threading.Thread | None:
+    """Start the writer thread for ``--passphrase-fd``; the thread owns ``fd``."""
+    if fd is None:
+        return None
+    thread = threading.Thread(target=_write_passphrase_pipe, args=(fd, secret), daemon=True)
+    thread.start()
+    return thread
+
+
 class GPGService:
     """Encapsulates a configured GnuPG home and binary.
 
@@ -480,91 +575,39 @@ class GPGService:
         mistaken for a real status record by `_parse_status`.
         """
         self._assert_binary_not_swapped()
-        pass_read: int | None = None
-        pass_write: int | None = None
-        status_read: int | None = None
-        status_write: int | None = None
-        pass_bytes = bytearray()
-        pass_writer: threading.Thread | None = None
-        status_reader: threading.Thread | None = None
-        status_buf = bytearray()
+        pass_bytes = _validated_passphrase_bytes(passphrase)
+        pipes = _GPGPipes(status=status_fd, passphrase=passphrase is not None)
+
         cmd = self._base_cmd()
-        if status_fd:
-            status_read, status_write = os.pipe()
-            os.set_inheritable(status_write, True)
-            cmd.extend(["--status-fd", str(status_write)])
-        if passphrase is not None:
-            pass_bytes = (
-                bytearray(passphrase.view())
-                if isinstance(passphrase, SecureBytes)
-                else bytearray(passphrase)
-            )
-            # Reject framing bytes (NUL terminates many C string paths inside
-            # pinentry helpers; CR/LF would prematurely close the
-            # `--passphrase-fd` line) plus other ASCII control characters that
-            # have no legitimate place in a passphrase.
-            for _b in (0x00, 0x0A, 0x0D):
-                if _b in pass_bytes:
-                    raise GPGValidationError(
-                        "passphrase must not contain NUL or newline characters"
-                    )
+        if pipes.status_write is not None:
+            cmd.extend(["--status-fd", str(pipes.status_write)])
+        if pipes.pass_read is not None:
             reject_passphrase_in_argv(cmd, pass_bytes)
-            pass_read, pass_write = os.pipe()
-            os.set_inheritable(pass_read, True)
-            cmd.extend(["--passphrase-fd", str(pass_read)])
+            cmd.extend(["--passphrase-fd", str(pipes.pass_read)])
         cmd.extend(args)
         reject_passphrase_in_argv(cmd, pass_bytes)
-        inherited_fds: tuple[int, ...] = tuple(
-            fd for fd in (pass_read, status_write) if fd is not None
-        )
+
+        status_buf = bytearray()
+        pass_writer: threading.Thread | None = None
+        status_reader: threading.Thread | None = None
         try:
             proc = subprocess.Popen(  # noqa: S603
                 cmd,
                 stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                pass_fds=inherited_fds,
+                pass_fds=pipes.child_fds(),
                 env=_clean_env(),
                 close_fds=True,
             )
-            if pass_read is not None:
-                os.close(pass_read)
-                pass_read = None
-            if status_write is not None:
-                os.close(status_write)
-                status_write = None
-            if status_read is not None:
-                # Hand fd ownership to the drain thread, then forget it here so
-                # the finally block does not also try to close it.
-                status_reader = threading.Thread(
-                    target=_drain_pipe,
-                    args=(status_read, status_buf),
-                    kwargs={"limit": _STATUS_BUF_LIMIT},
-                    daemon=True,
-                )
-                status_read = None
-                status_reader.start()
-            if pass_write is not None:
-                # The writer thread owns the fd and zeroes pass_bytes after the
-                # write; the finally block re-zeroes as a backstop (idempotent).
-                pass_writer = threading.Thread(
-                    target=_write_passphrase_pipe,
-                    args=(pass_write, pass_bytes),
-                    daemon=True,
-                )
-                pass_write = None
-                pass_writer.start()
-            try:
-                stdout, stderr = proc.communicate(
-                    input=cast(bytes | None, input_data),
-                    timeout=self._config.timeout_seconds,
-                )
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                stdout, stderr = proc.communicate()
-                raise GPGProcessError(
-                    f"GPG operation timed out after {self._config.timeout_seconds}s"
-                ) from None
+            pipes.close_child_ends()
+            # take_*() hands fd ownership to each thread, so the finally block
+            # does not also try to close those fds. The writer thread zeroes
+            # pass_bytes after the write; the finally block re-zeroes as a
+            # backstop (idempotent).
+            status_reader = _start_status_reader(pipes.take_status_read(), status_buf)
+            pass_writer = _start_passphrase_writer(pipes.take_pass_write(), pass_bytes)
+            stdout, stderr = self._communicate(proc, input_data)
             if status_reader is not None:
                 status_reader.join(timeout=1.0)
             return _GPGRun(
@@ -575,24 +618,30 @@ class GPGService:
                 status=bytes(status_buf),
             )
         finally:
-            if pass_read is not None:
-                with contextlib.suppress(OSError):
-                    os.close(pass_read)
-            if pass_write is not None:
-                with contextlib.suppress(OSError):
-                    os.close(pass_write)
-            if status_read is not None:
-                with contextlib.suppress(OSError):
-                    os.close(status_read)
-            if status_write is not None:
-                with contextlib.suppress(OSError):
-                    os.close(status_write)
+            pipes.close_owned()
             if pass_writer is not None:
                 pass_writer.join(timeout=1.0)
             if status_reader is not None and status_reader.is_alive():
                 status_reader.join(timeout=1.0)
             if pass_bytes:
                 zero_mutable_buffer(pass_bytes)
+
+    def _communicate(
+        self,
+        proc: subprocess.Popen[bytes],
+        input_data: bytes | bytearray | memoryview | None,
+    ) -> tuple[bytes, bytes]:
+        try:
+            return proc.communicate(
+                input=cast(bytes | None, input_data),
+                timeout=self._config.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise GPGProcessError(
+                f"GPG operation timed out after {self._config.timeout_seconds}s"
+            ) from None
 
     # ------------------------------------------------------------------ inventory
 
