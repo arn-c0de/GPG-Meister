@@ -59,53 +59,68 @@ class GpgTrustDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
 
-        # Warning banner
-        banner = QFrame()
-        banner.setFrameShape(QFrame.Shape.StyledPanel)
-        banner_color = "#7a1f1f" if self._mismatch else "#7a4f1f"
-        banner.setStyleSheet(f"background-color: {banner_color}; border-radius: 4px; padding: 8px;")
-        banner_layout = QVBoxLayout(banner)
-        banner_layout.setContentsMargins(10, 8, 10, 8)
-
-        if self._mismatch:
-            headline = QLabel("⚠  GPG Binary Has Changed")
-            body_text = (
-                "The GPG binary you previously approved has a different SHA-256 fingerprint "
-                "than the one on disk. This can happen after a package update, but it could "
-                "also indicate that the binary was replaced by a third party.\n\n"
-                "Verify the new fingerprint independently before accepting."
-            )
-        else:
-            headline = QLabel("⚠  GPG Binary Outside Standard Whitelist")
-            body_text = (
-                "The configured GPG binary is not in the standard installation paths "
-                "for your platform. GPG Meister will not execute it without your explicit "
-                "approval.\n\n"
-                "Verify that this is a genuine GnuPG binary before accepting."
-            )
-
-        headline.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 13px;")
-        banner_layout.addWidget(headline)
-        layout.addWidget(banner)
+        headline, body_text = self._warning_text()
+        layout.addWidget(self._build_banner(headline))
 
         explanation = QLabel(body_text)
         explanation.setWordWrap(True)
         explanation.setStyleSheet("color: #dddddd;")
         layout.addWidget(explanation)
 
-        # Path
+        self._add_path_section(layout)
+        self._add_sha_section(layout)
+        self._add_buttons(layout)
+
+    def _warning_text(self) -> tuple[str, str]:
+        if self._mismatch:
+            return (
+                "⚠  GPG Binary Has Changed",
+                "The GPG binary you previously approved has a different SHA-256 fingerprint "
+                "than the one on disk. This can happen after a package update, but it could "
+                "also indicate that the binary was replaced by a third party.\n\n"
+                "Verify the new fingerprint independently before accepting.",
+            )
+        return (
+            "⚠  GPG Binary Outside Standard Whitelist",
+            "The configured GPG binary is not in the standard installation paths "
+            "for your platform. GPG Meister will not execute it without your explicit "
+            "approval.\n\n"
+            "Verify that this is a genuine GnuPG binary before accepting.",
+        )
+
+    def _build_banner(self, headline_text: str) -> QFrame:
+        banner = QFrame()
+        banner.setFrameShape(QFrame.Shape.StyledPanel)
+        banner_color = "#7a1f1f" if self._mismatch else "#7a4f1f"
+        banner.setStyleSheet(
+            f"background-color: {banner_color}; border-radius: 4px; padding: 8px;"
+        )
+        banner_layout = QVBoxLayout(banner)
+        banner_layout.setContentsMargins(10, 8, 10, 8)
+
+        headline = QLabel(headline_text)
+        headline.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 13px;")
+        banner_layout.addWidget(headline)
+        return banner
+
+    def _add_path_section(self, layout: QVBoxLayout) -> None:
         layout.addWidget(QLabel("<b>Binary path:</b>"))
         path_label = QLabel(str(self._path))
         path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        path_label.setStyleSheet("font-family: monospace; background: #1a1a1a; padding: 4px; border-radius: 3px;")
+        path_label.setStyleSheet(
+            "font-family: monospace; background: #1a1a1a; padding: 4px; border-radius: 3px;"
+        )
         path_label.setWordWrap(True)
         layout.addWidget(path_label)
 
-        # SHA-256
+    def _add_sha_section(self, layout: QVBoxLayout) -> None:
         if self._mismatch and self._old_sha:
             layout.addWidget(QLabel("<b>Previously trusted SHA-256:</b>"))
             old_box = self._sha_widget(self._old_sha, copyable=False)
-            old_box.setStyleSheet("font-family: monospace; background: #1a1a1a; color: #ff8888; padding: 4px; border-radius: 3px;")
+            old_box.setStyleSheet(
+                "font-family: monospace; background: #1a1a1a; color: #ff8888; "
+                "padding: 4px; border-radius: 3px;"
+            )
             layout.addWidget(old_box)
             layout.addWidget(QLabel("<b>New SHA-256 on disk:</b>"))
         else:
@@ -117,7 +132,8 @@ class GpgTrustDialog(QDialog):
         sha_display.setPlainText(_fmt_sha256(self._new_sha))
         sha_display.setFixedHeight(52)
         sha_display.setStyleSheet(
-            "font-family: monospace; background: #1a1a1a; color: #88ff88; padding: 4px; border-radius: 3px;"
+            "font-family: monospace; background: #1a1a1a; color: #88ff88; "
+            "padding: 4px; border-radius: 3px;"
         )
         sha_row.addWidget(sha_display, stretch=1)
 
@@ -127,7 +143,7 @@ class GpgTrustDialog(QDialog):
         sha_row.addWidget(copy_btn)
         layout.addLayout(sha_row)
 
-        # Buttons
+    def _add_buttons(self, layout: QVBoxLayout) -> None:
         buttons = QDialogButtonBox()
         accept_btn = buttons.addButton("Accept and pin", QDialogButtonBox.ButtonRole.AcceptRole)
         accept_btn.setStyleSheet("background-color: #5a1f1f; font-weight: bold;")

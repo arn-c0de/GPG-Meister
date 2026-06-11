@@ -346,28 +346,32 @@ def verify_chain(path: Path) -> tuple[bool, int]:
                         return False, count
                     expected_seq = seq + 1
                 prev_hash = hashlib.sha256(line_bytes).hexdigest()
+    if prev_hash is None:
+        return True, count
+    return _verify_tip(path, prev_hash, expected_seq), count
+
+
+def _verify_tip(path: Path, prev_hash: str, expected_seq: int) -> bool:
+    """Check the ``.tip`` sidecar against the walked chain head."""
     tip_path = path.with_name(path.name + ".tip")
-    if prev_hash is not None:
-        if not tip_path.exists():
-            # .tip was introduced in 1.0.4; logs written by earlier versions
-            # are tip-less but internally consistent — skip the tip check so
-            # an upgrade does not produce a spurious tamper warning.
-            _log.debug("verify_chain: no .tip file for %s (pre-1.0.4 log?)", path)
-            return True, count
-        try:
-            with _open_ro_nofollow(tip_path) as tf:
-                tip_raw = tf.read(256).decode("ascii", errors="replace").strip()
-        except OSError:
-            return False, count
-        tip_fields = tip_raw.split()
-        tip_hash = tip_fields[0] if tip_fields else ""
-        if len(tip_hash) != 64 or tip_hash != prev_hash:
-            return False, count
-        # If the tip records the last seq, it must match what we walked.
-        if (
-            len(tip_fields) > 1
-            and tip_fields[1].isdigit()
-            and int(tip_fields[1]) != expected_seq - 1
-        ):
-            return False, count
-    return True, count
+    if not tip_path.exists():
+        # .tip was introduced in 1.0.4; logs written by earlier versions
+        # are tip-less but internally consistent — skip the tip check so
+        # an upgrade does not produce a spurious tamper warning.
+        _log.debug("verify_chain: no .tip file for %s (pre-1.0.4 log?)", path)
+        return True
+    try:
+        with _open_ro_nofollow(tip_path) as tf:
+            tip_raw = tf.read(256).decode("ascii", errors="replace").strip()
+    except OSError:
+        return False
+    tip_fields = tip_raw.split()
+    tip_hash = tip_fields[0] if tip_fields else ""
+    if len(tip_hash) != 64 or tip_hash != prev_hash:
+        return False
+    # If the tip records the last seq, it must match what we walked.
+    return not (
+        len(tip_fields) > 1
+        and tip_fields[1].isdigit()
+        and int(tip_fields[1]) != expected_seq - 1
+    )
