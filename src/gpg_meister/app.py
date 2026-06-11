@@ -8,6 +8,7 @@ and exit without opening the main window.
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 if TYPE_CHECKING:
     from gpg_meister.models.config import AppConfig
     from gpg_meister.services.gpg_service import GPGService
+    from gpg_meister.services.key_service import KeyService
+    from gpg_meister.services.message_service import MessageService
+    from gpg_meister.services.vault_service import VaultService
+    from gpg_meister.startup.environment_check import CheckResult
     from gpg_meister.startup.gpg_detector import DetectedGPG
     from gpg_meister.storage.audit_log import AuditLog
     from gpg_meister.storage.metadata_store import MetadataStore
@@ -114,12 +119,58 @@ def _app_icon() -> QIcon:
 
 
 def main() -> None:
+    app = _create_application()
+    paths = _prepare_storage()
+    config = _load_config(paths)
+
+    _apply_appearance(app, config)
+    _setup_clipboard(config)
+    _install_locale(config)
+    _warn_if_audit_chain_broken(config, paths)
+
+    from gpg_meister.storage.audit_log import AuditLog
+
+    audit = AuditLog(paths.audit_log, hash_chain=config.audit.hash_chain)
+    gpg = _resolve_gpg(config, paths, audit)
+    audit.emit("gpg_binary_resolved", path=str(gpg.path), sha256=gpg.sha256)
+
+    check_result = _run_environment_checks(paths, gpg, audit)
+    services = _build_services(config, paths, gpg, audit)
+    window = _build_main_window(app, config, paths, services, check_result)
+
+    # Show first-launch wizard if the app keyring is empty.
+    if not services.gpg.list_keys():
+        from gpg_meister.ui.keys.first_launch_wizard import FirstLaunchWizard
+
+        wizard = FirstLaunchWizard(gpg.path, services.keys, parent=window)
+        wizard.exec()
+
+    window.show()
+
+    # §14.3 Backup-staleness reminder: defer to avoid blocking window appearance.
+    from PySide6.QtCore import QTimer
+
+    QTimer.singleShot(
+        0, lambda: _check_backup_staleness(services.gpg, services.metadata, window)
+    )
+
+    exit_code = app.exec()
+    services.metadata.close()
+    audit.close()
+    sys.exit(exit_code)
+
+
+def _create_application() -> QApplication:
     app = QApplication(sys.argv)
     app.setApplicationName("GPG Meister")
     app.setOrganizationName("GPG Meister")
     app.setWindowIcon(_app_icon())
     _remember_default_appearance(app)
+    return app
 
+
+def _prepare_storage() -> AppPaths:
+    """Resolve app directories, finish any pending factory reset, start logging."""
     from gpg_meister.storage.factory_reset import perform_pending_factory_reset
     from gpg_meister.storage.log_config import configure_logging
     from gpg_meister.storage.paths import resolve_paths
@@ -135,20 +186,20 @@ def main() -> None:
         QMessageBox.critical(None, "Factory reset failed", str(exc))
         sys.exit(1)
     configure_logging(log_file=paths.diagnostic_log)
+    return paths
 
-    from gpg_meister.i18n import install_translator, resolve_locale
+
+def _load_config(paths: AppPaths) -> AppConfig:
     from gpg_meister.services import config_service
-    from gpg_meister.startup.environment_check import EnvironmentCheckError, run_all_checks
-    from gpg_meister.storage.audit_log import AuditLog
-    from gpg_meister.ui.main_window import MainWindow
 
     try:
-        config = config_service.load(paths.config_file)
+        return config_service.load(paths.config_file)
     except config_service.ConfigServiceError as exc:
         QMessageBox.critical(None, "Config check failed", str(exc))
         sys.exit(1)
-    _apply_appearance(app, config)
 
+
+def _setup_clipboard(config: AppConfig) -> None:
     # Make the configured auto-clear delay the application-wide default and
     # ensure any copied secret is wiped from the clipboard on quit (M3).
     from gpg_meister.ui.clipboard import install_quit_handler, set_default_clear_seconds
@@ -156,28 +207,35 @@ def main() -> None:
     set_default_clear_seconds(config.clipboard_clear_seconds)
     install_quit_handler()
 
-    locale_code = resolve_locale(config.locale)
-    install_translator(locale_code)
 
+def _install_locale(config: AppConfig) -> None:
+    from gpg_meister.i18n import install_translator, resolve_locale
+
+    install_translator(resolve_locale(config.locale))
+
+
+def _warn_if_audit_chain_broken(config: AppConfig, paths: AppPaths) -> None:
     from gpg_meister.storage.audit_log import verify_chain
 
-    if config.audit.hash_chain and paths.audit_log.exists():
-        ok, count = verify_chain(paths.audit_log)
-        if not ok:
-            QMessageBox.warning(
-                None,
-                "Audit log integrity warning",
-                f"The audit log at {paths.audit_log} failed chain verification "
-                f"after {count} record(s). It may have been tampered with.",
-            )
+    if not (config.audit.hash_chain and paths.audit_log.exists()):
+        return
+    ok, count = verify_chain(paths.audit_log)
+    if not ok:
+        QMessageBox.warning(
+            None,
+            "Audit log integrity warning",
+            f"The audit log at {paths.audit_log} failed chain verification "
+            f"after {count} record(s). It may have been tampered with.",
+        )
 
-    audit = AuditLog(paths.audit_log, hash_chain=config.audit.hash_chain)
 
-    gpg = _resolve_gpg(config, paths, audit)
-
-    audit.emit("gpg_binary_resolved", path=str(gpg.path), sha256=gpg.sha256)
-
-    from gpg_meister.startup.environment_check import CheckSeverity
+def _run_environment_checks(paths: AppPaths, gpg: DetectedGPG, audit: AuditLog) -> CheckResult:
+    """Run all startup environment checks; exit on hard failures (severity ERROR)."""
+    from gpg_meister.startup.environment_check import (
+        CheckSeverity,
+        EnvironmentCheckError,
+        run_all_checks,
+    )
 
     try:
         check_result = run_all_checks(paths, gpg.path)
@@ -205,25 +263,28 @@ def main() -> None:
         swap_encrypted=str(check_result.swap_encrypted),
         warning_count=str(len(check_result.warnings)),
     )
+    return check_result
 
-    from gpg_meister.models.config import AppPage
+
+@dataclass(frozen=True)
+class _Services:
+    """The application's service layer, built once at startup."""
+
+    gpg: GPGService
+    keys: KeyService
+    messages: MessageService
+    vault: VaultService
+    metadata: MetadataStore
+
+
+def _build_services(
+    config: AppConfig, paths: AppPaths, gpg: DetectedGPG, audit: AuditLog
+) -> _Services:
     from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
     from gpg_meister.services.key_service import KeyService
     from gpg_meister.services.message_service import MessageService
     from gpg_meister.services.vault_service import VaultService
     from gpg_meister.storage.metadata_store import MetadataStore
-    from gpg_meister.ui.help.help_view import HelpView
-    from gpg_meister.ui.keys.key_list_view import KeyListView
-    from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
-    from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
-    from gpg_meister.ui.messages.encrypt_viewmodel import EncryptViewModel
-    from gpg_meister.ui.messages.messages_tab import MessagesTabView
-    from gpg_meister.ui.messages.sign_viewmodel import SignViewModel
-    from gpg_meister.ui.messages.verify_viewmodel import VerifyViewModel
-    from gpg_meister.ui.settings.settings_view import SettingsView
-    from gpg_meister.ui.settings.settings_viewmodel import SettingsViewModel
-    from gpg_meister.ui.vault.vault_export_viewmodel import VaultExportViewModel
-    from gpg_meister.ui.vault.vault_tab import VaultTabView
 
     metadata = MetadataStore(paths.metadata_db)
     gpg_svc = GPGService(
@@ -235,56 +296,79 @@ def main() -> None:
             trusted_inode=gpg.inode if not gpg.is_whitelisted else None,
         )
     )
-    key_svc = KeyService(gpg=gpg_svc, audit=audit, metadata=metadata)
-    msg_svc = MessageService(gpg=gpg_svc, audit=audit)
-    vault_svc = VaultService(gpg=gpg_svc, audit=audit, metadata=metadata)
+    return _Services(
+        gpg=gpg_svc,
+        keys=KeyService(gpg=gpg_svc, audit=audit, metadata=metadata),
+        messages=MessageService(gpg=gpg_svc, audit=audit),
+        vault=VaultService(gpg=gpg_svc, audit=audit, metadata=metadata),
+        metadata=metadata,
+    )
+
+
+def _build_main_window(
+    app: QApplication,
+    config: AppConfig,
+    paths: AppPaths,
+    services: _Services,
+    check_result: CheckResult,
+) -> MainWindow:
+    """Create the main window and wire all tabs and cross-tab signals."""
+    from gpg_meister.models.config import AppPage
+    from gpg_meister.ui.help.help_view import HelpView
+    from gpg_meister.ui.keys.key_list_view import KeyListView
+    from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
+    from gpg_meister.ui.main_window import MainWindow
+    from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
+    from gpg_meister.ui.messages.encrypt_viewmodel import EncryptViewModel
+    from gpg_meister.ui.messages.messages_tab import MessagesTabView
+    from gpg_meister.ui.messages.sign_viewmodel import SignViewModel
+    from gpg_meister.ui.messages.verify_viewmodel import VerifyViewModel
+    from gpg_meister.ui.settings.settings_view import SettingsView
+    from gpg_meister.ui.settings.settings_viewmodel import SettingsViewModel
+    from gpg_meister.ui.vault.vault_export_viewmodel import VaultExportViewModel
+    from gpg_meister.ui.vault.vault_tab import VaultTabView
 
     window = MainWindow()
     window.show_startup_results(check_result)
 
     key_vm = KeyListViewModel(
-        key_svc,
+        services.keys,
         require_delete_text_confirmation=config.require_delete_text_confirmation,
     )
-    key_view = KeyListView(key_vm)
-    window.install_tab(AppPage.KEYS, key_view)
+    window.install_tab(AppPage.KEYS, KeyListView(key_vm))
 
-    encrypt_vm = EncryptViewModel(msg_svc, key_svc)
-    decrypt_vm = DecryptViewModel(msg_svc)
-    sign_vm = SignViewModel(msg_svc, key_svc)
-    verify_vm = VerifyViewModel(msg_svc)
+    encrypt_vm = EncryptViewModel(services.messages, services.keys)
+    sign_vm = SignViewModel(services.messages, services.keys)
     messages_view = MessagesTabView(
         encrypt_vm,
-        decrypt_vm,
+        DecryptViewModel(services.messages),
         sign_vm,
-        verify_vm,
-        key_svc,
+        VerifyViewModel(services.messages),
+        services.keys,
         clipboard_clear_seconds=config.clipboard_clear_seconds,
     )
     window.install_tab(AppPage.MESSAGES, messages_view)
 
-    export_vm = VaultExportViewModel(vault_svc, key_svc)
+    export_vm = VaultExportViewModel(services.vault, services.keys)
     _wire_key_inventory_updates(key_vm, encrypt_vm, sign_vm, export_vm, messages_view)
-    vault_view = VaultTabView(export_vm, vault_svc)
-    window.install_tab(AppPage.VAULT, vault_view)
+    window.install_tab(AppPage.VAULT, VaultTabView(export_vm, services.vault))
 
     settings_vm = SettingsViewModel(config, paths)
-    settings_view = SettingsView(settings_vm)
 
     def _on_settings_saved() -> None:
+        from gpg_meister.ui.clipboard import set_default_clear_seconds
+
         cfg = settings_vm.config
         _apply_appearance(app, cfg)
         key_vm.set_require_delete_text_confirmation(cfg.require_delete_text_confirmation)
         set_default_clear_seconds(cfg.clipboard_clear_seconds)
 
     settings_vm.config_saved.connect(_on_settings_saved)
-    window.install_tab(AppPage.SETTINGS, settings_view)
+    window.install_tab(AppPage.SETTINGS, SettingsView(settings_vm))
     window.install_tab(AppPage.HELP, HelpView())
     window.set_current_page(config.last_open_page)
 
     def _persist_current_page(page_value: str) -> None:
-        from gpg_meister.models.config import AppPage
-
         try:
             page = AppPage(page_value)
         except ValueError:
@@ -295,29 +379,14 @@ def main() -> None:
 
     def _on_key_created(key: object) -> None:
         from gpg_meister.models.key_info import KeyInfo
+
         if isinstance(key, KeyInfo):
             uid = key.primary_user_id
             window.show_backup_reminder(uid)
-            metadata.upsert_key(key.fingerprint, label=uid)
+            services.metadata.upsert_key(key.fingerprint, label=uid)
 
     key_vm.key_created.connect(_on_key_created)
-
-    # Show first-launch wizard if the app keyring is empty.
-    if not gpg_svc.list_keys():
-        from gpg_meister.ui.keys.first_launch_wizard import FirstLaunchWizard
-        wizard = FirstLaunchWizard(gpg.path, key_svc, parent=window)
-        wizard.exec()
-
-    window.show()
-
-    # §14.3 Backup-staleness reminder: defer to avoid blocking window appearance.
-    from PySide6.QtCore import QTimer
-    QTimer.singleShot(0, lambda: _check_backup_staleness(gpg_svc, metadata, window))
-
-    exit_code = app.exec()
-    metadata.close()
-    audit.close()
-    sys.exit(exit_code)
+    return window
 
 
 def _wire_key_inventory_updates(
