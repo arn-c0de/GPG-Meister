@@ -151,6 +151,8 @@ class SignView(QWidget):
             copy_text(text)
 
     def _submit(self) -> None:
-        passphrase = self._passphrase.text()
+        # Pass the field's text accessor; the viewmodel reads it synchronously
+        # on the UI thread before the worker starts, so no plaintext copy
+        # lingers in a closure.
+        self._vm.submit(self._passphrase.text)
         self._passphrase.clear()
-        self._vm.submit(lambda: passphrase)

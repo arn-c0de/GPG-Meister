@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -45,12 +45,6 @@ def _fmt_date(dt: datetime | None) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
-def _is_expired(key: KeyInfo) -> bool:
-    if key.expires_at is None:
-        return False
-    return datetime.now(tz=UTC) >= key.expires_at
-
-
 class _RecipientCard(QFrame):
     """Displays trust details for a single recipient key (§14.2)."""
 
@@ -85,7 +79,7 @@ class _RecipientCard(QFrame):
             rev_label = QLabel("REVOKED")
             rev_label.setStyleSheet("color: #cc0000; font-weight: bold;")
             layout.addWidget(rev_label)
-        elif _is_expired(key):
+        elif key.is_expired:
             exp_label = QLabel("EXPIRED")
             exp_label.setStyleSheet("color: #cc0000; font-weight: bold;")
             layout.addWidget(exp_label)

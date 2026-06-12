@@ -190,8 +190,8 @@ def _build_header(
 def _serialise_manifest(manifest: VaultManifest) -> bytes:
     """Serialise the manifest to msgpack bytes.
 
-    `msgpack.packb` is invoked with `use_bin_type=True` and `datetime=True` so
-    datetimes round-trip without precision loss.
+    `model_dump(mode="json")` converts datetimes to ISO-8601 strings first, so
+    they round-trip without precision loss and without msgpack extension types.
     """
     obj = manifest.model_dump(mode="json")
     return msgpack.packb(obj, use_bin_type=True)  # type: ignore[no-any-return]
@@ -829,6 +829,12 @@ class VaultService:
             if len(frame.header.cipher.nonce) != NONCE_LEN:
                 raise VaultFormatError("vault nonce length mismatch")
             return _OpenedVault(manifest, src, plaintext, key_slices)
+        except VaultFormatError:
+            # The frame decrypted but its payload is malformed — record it like
+            # the other import failure modes so the audit trail stays complete.
+            zero_mutable_buffer(plaintext)
+            self._emit_import_failed(src, reason="payload")
+            raise
         except Exception:
             zero_mutable_buffer(plaintext)
             raise

@@ -152,7 +152,7 @@ def main() -> None:
     audit.emit("gpg_binary_resolved", path=str(gpg.path), sha256=gpg.sha256)
 
     check_result = _run_environment_checks(paths, gpg, audit)
-    services = _build_services(config, paths, gpg, audit)
+    services = _build_services(paths, gpg, audit)
     window = _build_main_window(app, config, paths, services, check_result)
 
     # Show first-launch wizard if the app keyring is empty.
@@ -294,9 +294,7 @@ class _Services:
     metadata: MetadataStore
 
 
-def _build_services(
-    config: AppConfig, paths: AppPaths, gpg: DetectedGPG, audit: AuditLog
-) -> _Services:
+def _build_services(paths: AppPaths, gpg: DetectedGPG, audit: AuditLog) -> _Services:
     from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
     from gpg_meister.services.key_service import KeyService
     from gpg_meister.services.message_service import MessageService
