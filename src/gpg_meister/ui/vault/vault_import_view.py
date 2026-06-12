@@ -168,6 +168,9 @@ class _PassphrasePage(QWizardPage):
     def passphrase(self) -> str:
         return self._pp_field.text()
 
+    def clear_passphrase(self) -> None:
+        self._pp_field.clear()
+
     def validatePage(self) -> bool:
         if self._validated:
             return True
@@ -376,6 +379,10 @@ class _ResultPage(QWizardPage):
 
         pp_raw_text = pp_page.passphrase().strip()
         pp_norm_secure, pp_raw_secure = _make_passphrase_pair(pp_raw_text)
+        # The passphrase is now held in SecureBytes; clear the input field
+        # immediately rather than from a worker callback, which could fire
+        # after the wizard (and the field) has been destroyed.
+        pp_page.clear_passphrase()
 
         self._log.setPlainText("Importing keys…")
         self._set_finish_enabled(False)
@@ -404,7 +411,6 @@ class _ResultPage(QWizardPage):
         w = Worker(_do)
         w.signals.result.connect(self._on_import_done)
         w.signals.error.connect(self._on_import_error)
-        w.signals.finished.connect(lambda: pp_page._pp_field.clear())
         w.signals.finished.connect(lambda: self._set_finish_enabled(True))
         QThreadPool.globalInstance().start(w)
 

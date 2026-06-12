@@ -167,13 +167,13 @@ class VaultExportView(QWidget):
         name_part = item.data(self._NAME_ROLE) or fp[-16:]
 
         if is_stub:
-            prefix = "☁ "  # ☁
+            prefix = "☁ "
             item.setForeground(_COLOR_STUB)
         elif unlocked:
-            prefix = "✓ "  # ✓
+            prefix = "✓ "
             item.setForeground(_COLOR_UNLOCKED)
         else:
-            prefix = "\U0001f512 "  # 🔒
+            prefix = "\U0001f512 "  # 🔒 (escaped: non-BMP literals trip some toolchains)
             item.setForeground(_COLOR_LOCKED)
 
         item.setText(prefix + name_part)
