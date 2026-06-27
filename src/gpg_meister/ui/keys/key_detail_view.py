@@ -51,11 +51,20 @@ class KeyDetailView(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+
         form = QFormLayout()
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self._add_key_facts(form)
+        self._add_context_fields(form)
+        layout.addLayout(form)
 
-        uid_text = "\n".join(self._key.user_ids) or "—"
-        uid_label = QLabel(uid_text)
+        self._add_public_key_section(layout)
+        self._add_buttons(layout)
+        self._set_edit_mode(False)
+
+    def _add_key_facts(self, form: QFormLayout) -> None:
+        """Read-only properties of the key: identity, dates, trust, status."""
+        uid_label = QLabel("\n".join(self._key.user_ids) or "—")
         uid_label.setTextFormat(Qt.TextFormat.PlainText)
         uid_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
@@ -63,25 +72,16 @@ class KeyDetailView(QDialog):
         )
         form.addRow("User IDs:", uid_label)
 
-        fp_widget = FingerprintLabel(self._key.fingerprint)
-        form.addRow("Fingerprint:", fp_widget)
-
+        form.addRow("Fingerprint:", FingerprintLabel(self._key.fingerprint))
         form.addRow("Algorithm:", QLabel(self._key.algorithm.value))
         form.addRow("Key length:", QLabel(str(self._key.length)))
         form.addRow("Created:", QLabel(self._key.created_at.strftime("%Y-%m-%d")))
+        form.addRow("Expires:", self._expiry_label())
 
-        if self._key.expires_at:
-            exp_str = self._key.expires_at.strftime("%Y-%m-%d")
-            expired = datetime.now(tz=UTC) >= self._key.expires_at
-            exp_label = QLabel(exp_str + (" (expired)" if expired else ""))
-            if expired:
-                exp_label.setStyleSheet("color: #cc0000;")
-        else:
-            exp_label = QLabel("Does not expire")
-        form.addRow("Expires:", exp_label)
-
-        has_priv_label = QLabel("Yes — private key available" if self._key.has_private_key else "No")
-        form.addRow("Private key:", has_priv_label)
+        form.addRow(
+            "Private key:",
+            QLabel("Yes — private key available" if self._key.has_private_key else "No"),
+        )
 
         trust_text, trust_style = _TRUST_LABELS.get(
             self._key.trust, ("Unknown", "color: #666666")
@@ -95,6 +95,18 @@ class KeyDetailView(QDialog):
             revoked_label.setStyleSheet("color: #cc0000; font-weight: bold;")
             form.addRow("", revoked_label)
 
+    def _expiry_label(self) -> QLabel:
+        if not self._key.expires_at:
+            return QLabel("Does not expire")
+        exp_str = self._key.expires_at.strftime("%Y-%m-%d")
+        expired = datetime.now(tz=UTC) >= self._key.expires_at
+        label = QLabel(exp_str + (" (expired)" if expired else ""))
+        if expired:
+            label.setStyleSheet("color: #cc0000;")
+        return label
+
+    def _add_context_fields(self, form: QFormLayout) -> None:
+        """User-editable context metadata (label, platform, purpose, notes)."""
         self._label_input = QLineEdit(self._key.label)
         self._platform_input = QLineEdit(self._key.platform)
         self._purpose_input = QLineEdit(self._key.purpose)
@@ -107,8 +119,7 @@ class KeyDetailView(QDialog):
         form.addRow("Purpose:", self._purpose_input)
         form.addRow("Notes:", self._notes_input)
 
-        layout.addLayout(form)
-
+    def _add_public_key_section(self, layout: QVBoxLayout) -> None:
         export_btn = ClipboardButton("Copy Public Key")
         export_btn.sensitive_copy.connect(lambda: None)
         export_btn.clicked.connect(self._copy_public_key)
@@ -118,9 +129,12 @@ class KeyDetailView(QDialog):
         self._armor_view.setReadOnly(True)
         self._armor_view.setFont(monospace_font())
         self._armor_view.setMaximumHeight(120)
-        self._armor_view.setPlaceholderText("Public key will appear here after clicking Copy Public Key")
+        self._armor_view.setPlaceholderText(
+            "Public key will appear here after clicking Copy Public Key"
+        )
         layout.addWidget(self._armor_view)
 
+    def _add_buttons(self, layout: QVBoxLayout) -> None:
         self._btn_edit = QPushButton("Edit")
         self._btn_edit.clicked.connect(self._toggle_edit_mode)
 
@@ -132,8 +146,6 @@ class KeyDetailView(QDialog):
         buttons.addButton(self._btn_save, QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-
-        self._set_edit_mode(False)
 
     def _copy_public_key(self) -> None:
         fp = self._key.fingerprint

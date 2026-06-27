@@ -97,7 +97,7 @@ def reject_passphrase_in_argv(argv: list[str], passphrase: bytes | bytearray | m
     needle = passphrase
     for item in argv:
         item_bytes = item.encode("utf-8", errors="ignore") if isinstance(item, str) else item
-        if passphrase and isinstance(item_bytes, bytes) and needle in item_bytes:
+        if isinstance(item_bytes, bytes) and needle in item_bytes:
             raise GPGValidationError(
                 "passphrase bytes appeared in subprocess argv — refusing to call GPG"
             )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QMouseEvent
@@ -43,12 +43,6 @@ def _fmt_date(dt: datetime | None) -> str:
     if dt is None:
         return "—"
     return dt.strftime("%Y-%m-%d")
-
-
-def _is_expired(key: KeyInfo) -> bool:
-    if key.expires_at is None:
-        return False
-    return datetime.now(tz=UTC) >= key.expires_at
 
 
 class _KeyTableWidget(QTableWidget):
@@ -150,7 +144,7 @@ class KeyListView(QWidget):
             )
             self._table.setItem(row, _COL_TRUST, read_only_cell(key.trust.value))
 
-            if key.is_revoked or _is_expired(key):
+            if key.is_revoked or key.is_expired:
                 for col in range(_TOTAL_COLS):
                     item = self._table.item(row, col)
                     if item:

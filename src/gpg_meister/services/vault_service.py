@@ -37,6 +37,7 @@ from gpg_meister.models.kdf_params import (
     KDFParams,
     high_memory_params,
 )
+from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.models.vault import (
     MAX_VAULT_ARMOR_LENGTH,
     NONCE_LEN,
@@ -62,6 +63,7 @@ from gpg_meister.security.vault_format import (
     LENGTH_FIELD,
     MAX_CIPHERTEXT_SIZE,
     MAX_HEADER_SIZE,
+    UnpackedFrame,
 )
 from gpg_meister.security.vault_format import pack as vault_pack
 from gpg_meister.security.vault_format import unpack as vault_unpack
@@ -188,8 +190,8 @@ def _build_header(
 def _serialise_manifest(manifest: VaultManifest) -> bytes:
     """Serialise the manifest to msgpack bytes.
 
-    `msgpack.packb` is invoked with `use_bin_type=True` and `datetime=True` so
-    datetimes round-trip without precision loss.
+    `model_dump(mode="json")` converts datetimes to ISO-8601 strings first, so
+    they round-trip without precision loss and without msgpack extension types.
     """
     obj = manifest.model_dump(mode="json")
     return msgpack.packb(obj, use_bin_type=True)  # type: ignore[no-any-return]
@@ -305,26 +307,7 @@ def _rebuild_legacy_segmented_payload(payload: bytearray) -> tuple[VaultManifest
         if not isinstance(manifest_obj, dict):
             raise VaultFormatError("legacy manifest is not a msgpack map")
 
-        # Extract key material (as bytes) from the raw map before validation.
-        raw_keys = manifest_obj.get(b"keys", [])
-        if not isinstance(raw_keys, list):
-            raise VaultFormatError("legacy manifest 'keys' is not a list")
-        for key_entry in raw_keys:
-            if not isinstance(key_entry, dict):
-                raise VaultFormatError("legacy manifest key entry is not a map")
-            if b"public_key_armored" not in key_entry:
-                continue
-            pub = key_entry.pop(b"public_key_armored")
-            priv = key_entry.pop(b"private_key_armored", None)
-            if not isinstance(pub, bytes):
-                raise VaultFormatError("legacy public key armor is not bytes")
-            if priv is not None and not isinstance(priv, bytes):
-                raise VaultFormatError("legacy private key armor is not bytes")
-            fp_raw = key_entry.get(b"fingerprint")
-            fp = fp_raw.decode("utf-8") if isinstance(fp_raw, bytes) else fp_raw
-            if not isinstance(fp, str):
-                raise VaultFormatError("legacy manifest key entry missing fingerprint")
-            collected_material.append((fp, pub, priv))
+        _pop_legacy_key_material(manifest_obj, collected_material)
 
         # Now decode the remaining (armor-free) metadata to str for pydantic.
         decoded_obj = _legacy_bytes_to_str(manifest_obj)
@@ -334,28 +317,9 @@ def _rebuild_legacy_segmented_payload(payload: bytearray) -> tuple[VaultManifest
         manifest = VaultManifest.model_validate(decoded_obj)
 
         if collected_material:
-            # Reconstruct segmented payload in-memory so the rest of the
-            # logic (which expects slices into plaintext) works unchanged.
-            manifest_bytes = _serialise_manifest(manifest)
-            manifest_len = len(manifest_bytes)
-            new_payload: bytearray | None = None
-            try:
-                new_payload = bytearray(_U32.pack(manifest_len))
-                new_payload.extend(manifest_bytes)
-                for fp, pub, priv in collected_material:
-                    _append_key_material(
-                        new_payload, fingerprint=fp, public_key=pub, private_key=priv
-                    )
-                # Update the original payload bytearray in-place.
-                zero_mutable_buffer(payload)
-                payload.clear()
-                payload.extend(new_payload)
-            finally:
-                _zero_bytes_object(manifest_bytes)
-                if new_payload is not None:
-                    zero_mutable_buffer(new_payload)
-            # Reuse the manifest-bytes length captured above as the key-stream offset.
-            return manifest, _U32.size + manifest_len
+            return manifest, _replace_with_segmented_payload(
+                payload, manifest, collected_material
+            )
         # Segmented-but-no-prefix (if it ever existed).
         return manifest, stream.tell()
     except VaultFormatError:
@@ -370,6 +334,65 @@ def _rebuild_legacy_segmented_payload(payload: bytearray) -> tuple[VaultManifest
             if _priv is not None:
                 _zero_bytes_object(_priv)
         collected_material.clear()
+
+
+def _pop_legacy_key_material(
+    manifest_obj: dict[object, object],
+    out: list[tuple[str, bytes, bytes | None]],
+) -> None:
+    """Pop key armor (as zeroable ``bytes``) out of the raw map before validation.
+
+    Appends into ``out`` so the caller can wipe everything collected so far even
+    when a later entry turns out to be malformed.
+    """
+    raw_keys = manifest_obj.get(b"keys", [])
+    if not isinstance(raw_keys, list):
+        raise VaultFormatError("legacy manifest 'keys' is not a list")
+    for key_entry in raw_keys:
+        if not isinstance(key_entry, dict):
+            raise VaultFormatError("legacy manifest key entry is not a map")
+        if b"public_key_armored" not in key_entry:
+            continue
+        pub = key_entry.pop(b"public_key_armored")
+        priv = key_entry.pop(b"private_key_armored", None)
+        if not isinstance(pub, bytes):
+            raise VaultFormatError("legacy public key armor is not bytes")
+        if priv is not None and not isinstance(priv, bytes):
+            raise VaultFormatError("legacy private key armor is not bytes")
+        fp_raw = key_entry.get(b"fingerprint")
+        fp = fp_raw.decode("utf-8") if isinstance(fp_raw, bytes) else fp_raw
+        if not isinstance(fp, str):
+            raise VaultFormatError("legacy manifest key entry missing fingerprint")
+        out.append((fp, pub, priv))
+
+
+def _replace_with_segmented_payload(
+    payload: bytearray,
+    manifest: VaultManifest,
+    collected_material: list[tuple[str, bytes, bytes | None]],
+) -> int:
+    """Rebuild ``payload`` in place into the modern segmented form.
+
+    Returns the key-stream offset (one past the manifest segment) so the
+    caller's slice walk works unchanged.
+    """
+    manifest_bytes = _serialise_manifest(manifest)
+    manifest_len = len(manifest_bytes)
+    new_payload: bytearray | None = None
+    try:
+        new_payload = bytearray(_U32.pack(manifest_len))
+        new_payload.extend(manifest_bytes)
+        for fp, pub, priv in collected_material:
+            _append_key_material(new_payload, fingerprint=fp, public_key=pub, private_key=priv)
+        # Update the original payload bytearray in-place.
+        zero_mutable_buffer(payload)
+        payload.clear()
+        payload.extend(new_payload)
+    finally:
+        _zero_bytes_object(manifest_bytes)
+        if new_payload is not None:
+            zero_mutable_buffer(new_payload)
+    return _U32.size + manifest_len
 
 
 def _deserialise_segmented_payload(
@@ -392,35 +415,44 @@ def _deserialise_segmented_payload(
 
     view = memoryview(payload)
     key_slices: dict[str, _KeySlice] = {}
-    for _entry in manifest.keys:
-        if offset + _FINGERPRINT_BYTES > len(view):
-            raise VaultFormatError("vault key stream is truncated")
-        fingerprint = bytes(view[offset : offset + _FINGERPRINT_BYTES]).hex().upper()
-        offset += _FINGERPRINT_BYTES
-        public_len, offset = _read_u32(view, offset)
-        if public_len < 1 or public_len > MAX_VAULT_ARMOR_LENGTH:
-            raise VaultFormatError("public key segment length is invalid")
-        public_start = offset
-        public_end = offset + public_len
-        if public_end > len(view):
-            raise VaultFormatError("public key segment is truncated")
-        offset = public_end
-        private_len, offset = _read_u32(view, offset)
-        if private_len > MAX_VAULT_ARMOR_LENGTH:
-            raise VaultFormatError("private key segment length is invalid")
-        private_start = offset
-        private_end = offset + private_len
-        if private_end > len(view):
-            raise VaultFormatError("private key segment is truncated")
-        offset = private_end
-        if fingerprint != _entry.fingerprint:
-            raise VaultFormatError("key stream fingerprint order mismatch")
-        if _entry.has_private_key and private_len < 1:
-            raise VaultFormatError("private key entry is missing private key material")
-        key_slices[fingerprint] = _KeySlice(public_start, public_end, private_start, private_end)
+    for entry in manifest.keys:
+        key_slice, offset = _read_key_slice(view, offset, entry)
+        key_slices[entry.fingerprint] = key_slice
     if offset != len(view):
         raise VaultFormatError("vault key stream has trailing data")
     return manifest, key_slices
+
+
+def _read_key_slice(
+    view: memoryview, offset: int, entry: VaultKeyEntry
+) -> tuple[_KeySlice, int]:
+    """Walk one key's segment (fingerprint + public + private) and validate it."""
+    if offset + _FINGERPRINT_BYTES > len(view):
+        raise VaultFormatError("vault key stream is truncated")
+    fingerprint = bytes(view[offset : offset + _FINGERPRINT_BYTES]).hex().upper()
+    offset += _FINGERPRINT_BYTES
+
+    public_len, offset = _read_u32(view, offset)
+    if public_len < 1 or public_len > MAX_VAULT_ARMOR_LENGTH:
+        raise VaultFormatError("public key segment length is invalid")
+    public_start, public_end = offset, offset + public_len
+    if public_end > len(view):
+        raise VaultFormatError("public key segment is truncated")
+    offset = public_end
+
+    private_len, offset = _read_u32(view, offset)
+    if private_len > MAX_VAULT_ARMOR_LENGTH:
+        raise VaultFormatError("private key segment length is invalid")
+    private_start, private_end = offset, offset + private_len
+    if private_end > len(view):
+        raise VaultFormatError("private key segment is truncated")
+    offset = private_end
+
+    if fingerprint != entry.fingerprint:
+        raise VaultFormatError("key stream fingerprint order mismatch")
+    if entry.has_private_key and private_len < 1:
+        raise VaultFormatError("private key entry is missing private key material")
+    return _KeySlice(public_start, public_end, private_start, private_end), offset
 
 
 def _validate_import_kdf(params: KDFParams) -> None:
@@ -432,6 +464,67 @@ def _validate_import_kdf(params: KDFParams) -> None:
         or params.parallelism > MAX_IMPORT_PARALLELISM
     ):
         raise VaultFormatError("vault KDF parameters exceed import safety limits")
+
+
+def _acquire_write_lock(target_path: Path) -> FileLock:
+    try:
+        lock = FileLock(target_path, exclusive=True, timeout=5.0)
+        lock.acquire()
+        return lock
+    except FileLockTimeoutError as exc:
+        raise VaultServiceError(f"another process is writing to {target_path}") from exc
+
+
+def _encrypt_payload(
+    plaintext: bytearray,
+    master_passphrase: SecureBytes,
+    *,
+    params: KDFParams,
+    cipher: CipherAlgorithm,
+) -> bytes:
+    """Derive the vault key and pack ``plaintext`` into an encrypted binary frame.
+
+    ``plaintext`` is zeroed as soon as the ciphertext exists.
+    """
+    salt = generate_salt(params.salt_len)
+    nonce = generate_nonce()
+    header = _build_header(cipher=cipher, salt=salt, nonce=nonce, params=params)
+
+    with derive_key(master_passphrase, salt, params) as vault_key:
+        frame, header_bytes = vault_pack(header, b"")
+        ciphertext = aead_encrypt(
+            plaintext=plaintext,
+            key=vault_key,
+            nonce=nonce,
+            associated_data=header_bytes,
+            cipher=cipher,
+        )
+        zero_mutable_buffer(plaintext)
+        # Repack with the real ciphertext now that we have it. The header
+        # bytes are deterministic, so the second pack yields the same
+        # AAD bytes used during encryption.
+        frame, _ = vault_pack(header, ciphertext)
+    return frame
+
+
+def _write_vault_files(target_path: Path, frame: bytes) -> str:
+    """Atomically write the vault frame and its SHA-256 sidecar; return the digest."""
+    atomic_write_bytes(target_path, frame, mode=0o600)
+    sha = hashlib.sha256(frame).hexdigest()
+    atomic_write_bytes(
+        target_path.with_name(target_path.name + ".sha256"),
+        f"{sha}  {target_path.name}\n".encode(),
+        mode=0o600,
+    )
+    return sha
+
+
+def _read_vault_bytes(src: Path) -> bytes:
+    with FileLock(src, exclusive=False, timeout=5.0), src.open("rb") as fh:
+        data = fh.read(MAX_VAULT_FRAME_SIZE + 1)
+    if len(data) > MAX_VAULT_FRAME_SIZE:
+        raise VaultServiceError("vault file is too large")
+    return data
 
 
 def _read_sidecar_digest(sidecar: Path) -> str:
@@ -501,14 +594,7 @@ class VaultService:
         target_path = target_path.resolve()
         ensure_dir(target_path.parent)
 
-        try:
-            lock = FileLock(target_path, exclusive=True, timeout=5.0)
-            lock.acquire()
-        except FileLockTimeoutError as exc:
-            raise VaultServiceError(
-                f"another process is writing to {target_path}"
-            ) from exc
-
+        lock = _acquire_write_lock(target_path)
         try:
             collected = self._collect_entries(fps, gpg_passphrases)
             entries = tuple(item.entry for item in collected)
@@ -521,33 +607,8 @@ class VaultService:
                 keys=entries,
             )
             plaintext = _serialise_segmented_payload(collected, manifest)
-
-            salt = generate_salt(params.salt_len)
-            nonce = generate_nonce()
-            header = _build_header(cipher=cipher, salt=salt, nonce=nonce, params=params)
-
-            with derive_key(master_passphrase, salt, params) as vault_key:
-                frame, header_bytes = vault_pack(header, b"")
-                ciphertext = aead_encrypt(
-                    plaintext=plaintext,
-                    key=vault_key,
-                    nonce=nonce,
-                    associated_data=header_bytes,
-                    cipher=cipher,
-                )
-                zero_mutable_buffer(plaintext)
-                # Repack with the real ciphertext now that we have it. The header
-                # bytes are deterministic, so the second pack yields the same
-                # AAD bytes used during encryption.
-                frame, _ = vault_pack(header, ciphertext)
-
-            atomic_write_bytes(target_path, frame, mode=0o600)
-            sha = hashlib.sha256(frame).hexdigest()
-            atomic_write_bytes(
-                target_path.with_name(target_path.name + ".sha256"),
-                f"{sha}  {target_path.name}\n".encode(),
-                mode=0o600,
-            )
+            frame = _encrypt_payload(plaintext, master_passphrase, params=params, cipher=cipher)
+            sha = _write_vault_files(target_path, frame)
 
             self._audit.emit(
                 "vault_created",
@@ -578,72 +639,66 @@ class VaultService:
     def _collect_entries(
         self, fingerprints: tuple[str, ...], gpg_passphrases: dict[str, SecureBytes]
     ) -> tuple[_CollectedEntry, ...]:
-        entries: list[_CollectedEntry] = []
-        for fp in fingerprints:
-            try:
-                key = self._gpg.find_key(fp)
-            except GPGKeyNotFoundError as exc:
-                raise VaultServiceError(f"key {fp} not in keyring") from exc
+        return tuple(self._collect_entry(fp, gpg_passphrases) for fp in fingerprints)
 
-            public_armored = self._gpg.export_public_key(fp)
-            public_key = public_armored.encode("utf-8")
+    def _collect_entry(
+        self, fp: str, gpg_passphrases: dict[str, SecureBytes]
+    ) -> _CollectedEntry:
+        try:
+            key = self._gpg.find_key(fp)
+        except GPGKeyNotFoundError as exc:
+            raise VaultServiceError(f"key {fp} not in keyring") from exc
 
-            # Smartcard stubs cannot have their private parts exported; skip them.
-            has_private = key.has_private_key and not key.is_stub
+        public_key = self._gpg.export_public_key(fp).encode("utf-8")
+        private_key = self._export_private_for_vault(fp, key, gpg_passphrases)
+        has_private = private_key is not None
 
-            if has_private:
-                key_pw = gpg_passphrases.get(fp)
-                if key_pw is None:
-                    raise VaultServiceError(
-                        f"no passphrase provided for private key {fp[-16:]}"
-                    )
-                try:
-                    private_key = self._gpg.export_private_key(fp, key_pw).encode("utf-8")
-                    self._audit.emit(
-                        "key_exported_private",
-                        outcome=OUTCOME_OK,
-                        fingerprint=fp,
-                    )
-                except GPGPassphraseError as exc:
-                    if "67108875" in str(exc):
-                        private_key = None
-                        has_private = False
-                        self._audit.emit(
-                            "key_exported_public",
-                            outcome=OUTCOME_OK,
-                            fingerprint=fp,
-                            is_stub="True",
-                            reason="smartcard_export_unsupported",
-                        )
-                    else:
-                        raise
-            else:
-                self._audit.emit(
-                    "key_exported_public",
-                    outcome=OUTCOME_OK,
-                    fingerprint=fp,
-                    is_stub=str(key.is_stub),
-                )
+        entry = VaultKeyEntry(
+            fingerprint=fp,
+            user_ids=key.user_ids,
+            has_private_key=has_private,
+            is_stub=key.is_stub or (not has_private and key.has_private_key),
+            created_at=key.created_at,
+            expires_at=key.expires_at,
+        )
+        return _CollectedEntry(entry=entry, public_key=public_key, private_key=private_key)
 
-            if not has_private:
-                private_key = None
+    def _export_private_for_vault(
+        self, fp: str, key: KeyInfo, gpg_passphrases: dict[str, SecureBytes]
+    ) -> bytes | None:
+        """Export the private key armor, or None for public-only keys.
 
-            entry = VaultKeyEntry(
+        Smartcard stubs cannot have their private parts exported and are
+        skipped up front; GPG error 67108875 at export time means the same and
+        downgrades the key to public-only.
+        """
+        if not key.has_private_key or key.is_stub:
+            self._audit.emit(
+                "key_exported_public",
+                outcome=OUTCOME_OK,
                 fingerprint=fp,
-                user_ids=key.user_ids,
-                has_private_key=has_private,
-                is_stub=key.is_stub or (not has_private and key.has_private_key),
-                created_at=key.created_at,
-                expires_at=key.expires_at,
+                is_stub=str(key.is_stub),
             )
-            entries.append(
-                _CollectedEntry(
-                    entry=entry,
-                    public_key=public_key,
-                    private_key=private_key,
-                )
+            return None
+
+        key_pw = gpg_passphrases.get(fp)
+        if key_pw is None:
+            raise VaultServiceError(f"no passphrase provided for private key {fp[-16:]}")
+        try:
+            private_key = self._gpg.export_private_key(fp, key_pw).encode("utf-8")
+        except GPGPassphraseError as exc:
+            if "67108875" not in str(exc):
+                raise
+            self._audit.emit(
+                "key_exported_public",
+                outcome=OUTCOME_OK,
+                fingerprint=fp,
+                is_stub="True",
+                reason="smartcard_export_unsupported",
             )
-        return tuple(entries)
+            return None
+        self._audit.emit("key_exported_private", outcome=OUTCOME_OK, fingerprint=fp)
+        return private_key
 
     # --------------------------------------------------------------------- open
 
@@ -704,32 +759,7 @@ class VaultService:
             for entry in opened.manifest.keys:
                 if entry.fingerprint not in wanted:
                     continue
-                armored = opened.key_material(entry.fingerprint)
-                try:
-                    results = self._gpg.import_key(armored)
-                except Exception as exc:
-                    self._audit.emit(
-                        "key_imported",
-                        outcome=OUTCOME_FAILED,
-                        fingerprint=entry.fingerprint,
-                        reason=type(exc).__name__,
-                    )
-                    raise
-                finally:
-                    armored.release()
-                # Remove any smuggled keys that were not in the user's selection.
-                extra = set(results) - {entry.fingerprint}
-                for smuggled_fp in extra:
-                    remove_smuggled_key(
-                        self._gpg, self._audit, smuggled_fp, including_secret=True
-                    )
-                self._audit.emit(
-                    "key_imported",
-                    outcome=OUTCOME_OK,
-                    fingerprint=entry.fingerprint,
-                    has_private_key=entry.has_private_key,
-                )
-                if entry.fingerprint in results:
+                if self._import_entry(opened, entry):
                     imported.append(entry.fingerprint)
 
             self._audit.emit(
@@ -744,6 +774,33 @@ class VaultService:
 
     # ----------------------------------------------------------------- internal
 
+    def _import_entry(self, opened: _OpenedVault, entry: VaultKeyEntry) -> bool:
+        """Import one vault entry into the keyring; True if its key landed."""
+        armored = opened.key_material(entry.fingerprint)
+        try:
+            results = self._gpg.import_key(armored)
+        except Exception as exc:
+            self._audit.emit(
+                "key_imported",
+                outcome=OUTCOME_FAILED,
+                fingerprint=entry.fingerprint,
+                reason=type(exc).__name__,
+            )
+            raise
+        finally:
+            armored.release()
+
+        # Remove any smuggled keys that were not in the user's selection.
+        for smuggled_fp in set(results) - {entry.fingerprint}:
+            remove_smuggled_key(self._gpg, self._audit, smuggled_fp, including_secret=True)
+        self._audit.emit(
+            "key_imported",
+            outcome=OUTCOME_OK,
+            fingerprint=entry.fingerprint,
+            has_private_key=entry.has_private_key,
+        )
+        return entry.fingerprint in results
+
     def _open(
         self,
         *,
@@ -755,72 +812,74 @@ class VaultService:
         if not src.exists():
             raise VaultServiceError(f"vault file does not exist: {src}")
 
-        with FileLock(src, exclusive=False, timeout=5.0), src.open("rb") as fh:
-            data = fh.read(MAX_VAULT_FRAME_SIZE + 1)
-        if len(data) > MAX_VAULT_FRAME_SIZE:
-            raise VaultServiceError("vault file is too large")
-
+        data = _read_vault_bytes(src)
         try:
             frame = vault_unpack(data)
         except VaultFormatError:
-            self._audit.emit(
-                "vault_import_failed",
-                outcome=OUTCOME_FAILED,
-                path=str(src),
-                reason="format",
-            )
+            self._emit_import_failed(src, reason="format")
             raise
 
+        plaintext = self._decrypt_frame(frame, master_passphrase, src)
+        try:
+            if not skip_checksum:
+                self._verify_sidecar(src, data)
+            manifest, key_slices = _deserialise_segmented_payload(plaintext)
+            # NONCE_LEN sanity check defends against header tampering that survives the
+            # AEAD (it should never happen — AAD covers everything — but it's cheap).
+            if len(frame.header.cipher.nonce) != NONCE_LEN:
+                raise VaultFormatError("vault nonce length mismatch")
+            return _OpenedVault(manifest, src, plaintext, key_slices)
+        except VaultFormatError:
+            # The frame decrypted but its payload is malformed — record it like
+            # the other import failure modes so the audit trail stays complete.
+            zero_mutable_buffer(plaintext)
+            self._emit_import_failed(src, reason="payload")
+            raise
+        except Exception:
+            zero_mutable_buffer(plaintext)
+            raise
+
+    def _decrypt_frame(
+        self, frame: UnpackedFrame, master_passphrase: SecureBytes, src: Path
+    ) -> bytearray:
+        """Derive the vault key and decrypt the frame into a zeroable buffer."""
         kdf_params = frame.header.kdf.to_params()
         _validate_import_kdf(kdf_params)
-        salt = frame.header.kdf.salt
-        nonce = frame.header.cipher.nonce
-        cipher = frame.header.cipher.algorithm
 
-        with derive_key(master_passphrase, salt, kdf_params) as vault_key:
+        with derive_key(master_passphrase, frame.header.kdf.salt, kdf_params) as vault_key:
             try:
                 plaintext_bytes = aead_decrypt(
                     ciphertext=frame.ciphertext,
                     key=vault_key,
-                    nonce=nonce,
+                    nonce=frame.header.cipher.nonce,
                     associated_data=frame.header_bytes,
-                    cipher=cipher,
+                    cipher=frame.header.cipher.algorithm,
                 )
             except DecryptionError:
-                self._audit.emit(
-                    "vault_import_failed",
-                    outcome=OUTCOME_FAILED,
-                    path=str(src),
-                    reason="decryption",
-                )
+                self._emit_import_failed(src, reason="decryption")
                 raise
 
         plaintext = bytearray(plaintext_bytes)
         _zero_bytes_object(plaintext_bytes)
+        return plaintext
 
-        try:
-            # Verify the sidecar (best-effort — missing sidecar is fine, mismatch warns).
-            sidecar = src.with_name(src.name + ".sha256")
-            if sidecar.exists() and not skip_checksum:
-                expected = _read_sidecar_digest(sidecar)
-                actual = hashlib.sha256(data).hexdigest().lower()
-                if not hmac.compare_digest(expected, actual):
-                    self._audit.emit(
-                        "vault_import_failed",
-                        outcome=OUTCOME_FAILED,
-                        path=str(src),
-                        reason="checksum",
-                    )
-                    raise VaultChecksumMismatchError(
-                        f"vault checksum mismatch: expected {expected[:16]}…"
-                    )
+    def _verify_sidecar(self, src: Path, data: bytes) -> None:
+        """Check the .sha256 sidecar — best-effort: a missing sidecar is fine."""
+        sidecar = src.with_name(src.name + ".sha256")
+        if not sidecar.exists():
+            return
+        expected = _read_sidecar_digest(sidecar)
+        actual = hashlib.sha256(data).hexdigest().lower()
+        if not hmac.compare_digest(expected, actual):
+            self._emit_import_failed(src, reason="checksum")
+            raise VaultChecksumMismatchError(
+                f"vault checksum mismatch: expected {expected[:16]}…"
+            )
 
-            manifest, key_slices = _deserialise_segmented_payload(plaintext)
-            # NONCE_LEN sanity check defends against header tampering that survives the
-            # AEAD (it should never happen — AAD covers everything — but it's cheap).
-            if len(nonce) != NONCE_LEN:
-                raise VaultFormatError("vault nonce length mismatch")
-            return _OpenedVault(manifest, src, plaintext, key_slices)
-        except Exception:
-            zero_mutable_buffer(plaintext)
-            raise
+    def _emit_import_failed(self, src: Path, *, reason: str) -> None:
+        self._audit.emit(
+            "vault_import_failed",
+            outcome=OUTCOME_FAILED,
+            path=str(src),
+            reason=reason,
+        )
