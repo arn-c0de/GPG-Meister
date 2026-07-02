@@ -22,9 +22,13 @@ def main() -> int:
     if not ts_files:
         raise SystemExit("no .ts translation files found")
 
-    lrelease = ROOT / ".venv" / "bin" / "pyside6-lrelease"
+    import os
+    if os.name == 'nt':
+        lrelease = ROOT / ".venv" / "Scripts" / "pyside6-lrelease.exe"
+    else:
+        lrelease = ROOT / ".venv" / "bin" / "pyside6-lrelease"
     if not lrelease.exists():
-        raise SystemExit("missing .venv/bin/pyside6-lrelease; run `uv sync --extra dev` first")
+        raise SystemExit(f"missing {lrelease.relative_to(ROOT)}; run `uv sync --extra dev` first")
 
     for ts_path in ts_files:
         _assert_complete(ts_path)
