@@ -61,7 +61,7 @@
     </message>
     <message>
         <source>Caps Lock is on</source>
-        <translation>Verrouillage majuscule activé</translation>
+        <translation>Verrouillage des majuscules activé</translation>
     </message>
 </context>
 

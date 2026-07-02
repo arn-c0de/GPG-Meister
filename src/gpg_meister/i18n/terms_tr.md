@@ -26,4 +26,4 @@ and documentation. Translators must use these exact terms in their translations.
 |---|---|
 | **Vault** | An encrypted backup file containing one or more GPG key pairs. Used to transfer keys between devices or store an offline backup. (Turkish: **Kasa**) |
 | **Vault master passphrase** | The passphrase that protects a vault file. Different from (and should not be the same as) the GPG key passphrase. (Turkish: **Kasa ana parolası**) |
-| **Keyring** | The local collection of GPG keys managed by this application. Stored in the application's dedicated GnuPG home directory. (Turkish: **Anahtarlık**)
+| **Keyring** | The local collection of GPG keys managed by this application. Stored in the application's dedicated GnuPG home directory. (Turkish: **Anahtarlık**) |

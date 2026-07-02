@@ -26,4 +26,4 @@ and documentation. Translators must use these exact terms in their translations.
 |---|---|
 | **Vault** | An encrypted backup file containing one or more GPG key pairs. Used to transfer keys between devices or store an offline backup. (Spanish: **Bóveda**) |
 | **Vault master passphrase** | The passphrase that protects a vault file. Different from (and should not be the same as) the GPG key passphrase. (Spanish: **Frase de contraseña maestra de la bóveda**) |
-| **Keyring** | The local collection of GPG keys managed by this application. Stored in the application's dedicated GnuPG home directory. (Spanish: **Anillo de claves**)
+| **Keyring** | The local collection of GPG keys managed by this application. Stored in the application's dedicated GnuPG home directory. (Spanish: **Anillo de claves**) |
