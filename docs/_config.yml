@@ -1,0 +1,11 @@
+# Jekyll configuration for the GPG Meister documentation site.
+# Built and deployed by .github/workflows/pages.yml via GitHub Actions.
+title: GPG Meister
+description: Local-first GPG desktop app — documentation
+theme: jekyll-theme-cayman
+
+# The site is served from /<repo>/ on github.io; leave baseurl empty because
+# actions/configure-pages injects the correct value at build time.
+
+exclude:
+  - _config.yml
