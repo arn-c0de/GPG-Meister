@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.models.message import SignResult
 from gpg_meister.ui.messages.sign_viewmodel import SignViewModel
-from gpg_meister.ui.qt_helpers import busy_bar, error_label
+from gpg_meister.ui.qt_helpers import busy_bar, error_label, signing_key_label
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
 
@@ -45,10 +45,17 @@ class SignView(QWidget):
         key_row.addWidget(self._key_combo, stretch=1)
         layout.addLayout(key_row)
 
-        layout.addWidget(QLabel("Passphrase:"))
+        self._passphrase_label = QLabel("Passphrase:")
+        layout.addWidget(self._passphrase_label)
         self._passphrase = PassphraseField(show_strength=False)
         self._passphrase.setPlaceholderText("Passphrase for the signing key…")
         layout.addWidget(self._passphrase)
+
+        self._card_hint = QLabel()
+        self._card_hint.setWordWrap(True)
+        self._card_hint.setStyleSheet("color: #006666;")
+        self._card_hint.hide()
+        layout.addWidget(self._card_hint)
 
         layout.addWidget(QLabel("Message to sign:"))
         self._data = QTextEdit()
@@ -103,12 +110,28 @@ class SignView(QWidget):
     def _on_keys_loaded(self, keys: list[KeyInfo]) -> None:
         self._key_combo.clear()
         for key in keys:
-            self._key_combo.addItem(key.display_label, key)
+            self._key_combo.addItem(signing_key_label(key), key)
 
     def _on_key_changed(self, idx: int) -> None:
         key = self._key_combo.itemData(idx)
         self._vm.set_fingerprint(key.fingerprint if isinstance(key, KeyInfo) else "")
+        self._update_credential_prompt(key if isinstance(key, KeyInfo) else None)
         self._update_button()
+
+    def _update_credential_prompt(self, key: KeyInfo | None) -> None:
+        """Ask for a card PIN when the chosen signing key lives on a token."""
+        if key is None or not key.is_on_smartcard:
+            self._passphrase_label.setText("Passphrase:")
+            self._passphrase.setPlaceholderText("Passphrase for the signing key…")
+            self._card_hint.hide()
+            return
+        self._passphrase_label.setText("Card PIN:")
+        self._passphrase.setPlaceholderText(f"PIN of {key.storage_label}…")
+        self._card_hint.setText(
+            f"This key is held on {key.storage_label}. Plug the token in, enter its PIN, "
+            "and touch it if it asks for confirmation."
+        )
+        self._card_hint.show()
 
     def _on_passphrase_changed(self) -> None:
         self._vm.set_passphrase_non_empty(bool(self._passphrase.text()))

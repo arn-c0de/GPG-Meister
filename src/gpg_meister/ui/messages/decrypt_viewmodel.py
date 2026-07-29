@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 
 from gpg_meister.models.message import DecryptResult
 from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.message_service import MessageService
+from gpg_meister.services.smartcard_service import CardSyncResult, SmartcardService
 from gpg_meister.ui.operation_viewmodel import OperationViewModel
+from gpg_meister.ui.worker import Worker
 
 
 class DecryptViewModel(OperationViewModel):
@@ -20,16 +22,35 @@ class DecryptViewModel(OperationViewModel):
     operation_succeeded   Carries the DecryptResult after successful decryption.
     operation_failed      Human-readable error string.
     loading_changed       True while the background worker is running.
+    card_changed          Latest smartcard probe, so the view can ask for a PIN
+                          instead of a passphrase when a token key is involved.
     """
+
+    card_changed: Signal = Signal(object)
 
     def __init__(
         self,
         message_service: MessageService,
+        smartcard_service: SmartcardService | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._svc = message_service
+        self._smartcard = smartcard_service
         self._ciphertext = ""
+
+    def refresh_card(self) -> None:
+        """Probe the token in the background; failures stay silent (see key list)."""
+        if self._smartcard is None:
+            self.card_changed.emit(None)
+            return
+        worker = Worker(self._smartcard.sync)
+        worker.signals.result.connect(self._on_card_result)
+        self._pool.start(worker)
+
+    def _on_card_result(self, result: object) -> None:
+        if isinstance(result, CardSyncResult):
+            self.card_changed.emit(result)
 
     def set_ciphertext(self, text: str) -> None:
         self._ciphertext = text

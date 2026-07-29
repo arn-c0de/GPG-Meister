@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, QThreadPool, Signal
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.key_service import KeyService
+from gpg_meister.services.smartcard_service import CardSyncResult, SmartcardService
 from gpg_meister.ui.worker import Worker
 
 
@@ -20,22 +21,27 @@ class KeyListViewModel(QObject):
     operation_failed    Human-readable error string.
     key_created         Emitted after a successful create; carries the new KeyInfo.
                         The main window listens to this to show the backup banner.
+    card_changed        Carries the CardSyncResult of the last smartcard probe
+                        (or None when no smartcard service is configured).
     """
 
     keys_changed: Signal = Signal(list)
     loading_changed: Signal = Signal(bool)
     operation_failed: Signal = Signal(str)
     key_created: Signal = Signal(object)
+    card_changed: Signal = Signal(object)
 
     def __init__(
         self,
         key_service: KeyService,
         *,
         require_delete_text_confirmation: bool = True,
+        smartcard_service: SmartcardService | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._svc = key_service
+        self._smartcard = smartcard_service
         self._pool = QThreadPool.globalInstance()
         self._keys: list[KeyInfo] = []
         self._require_delete_text_confirmation = require_delete_text_confirmation
@@ -51,6 +57,27 @@ class KeyListViewModel(QObject):
         w.signals.error.connect(self._on_error)
         w.signals.finished.connect(self._on_finished)
         self._pool.start(w)
+
+    @property
+    def smartcard_service(self) -> SmartcardService | None:
+        return self._smartcard
+
+    def refresh_card(self) -> None:
+        """Probe the smartcard in the background and emit ``card_changed``.
+
+        Silent by design: a missing reader or an unplugged token is a normal
+        state for this panel, not an error worth interrupting the user with.
+        """
+        if self._smartcard is None:
+            self.card_changed.emit(None)
+            return
+        worker = Worker(self._smartcard.sync)
+        worker.signals.result.connect(self._on_card_result)
+        self._pool.start(worker)
+
+    def _on_card_result(self, result: object) -> None:
+        if isinstance(result, CardSyncResult):
+            self.card_changed.emit(result)
 
     @property
     def require_delete_text_confirmation(self) -> bool:

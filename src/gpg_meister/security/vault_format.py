@@ -3,7 +3,7 @@
 Layout (planv2.md §6.1):
 
     [4 bytes]  Magic: b"GPGV"
-    [1 byte ]  Major version: 0x02
+    [1 byte ]  Major version: 0x02 (passphrase-derived key) or 0x03 (key slots)
     [4 bytes]  Header JSON length, big-endian uint32
     [N bytes]  Header JSON, UTF-8  (passed verbatim as AAD by vault_service)
     [4 bytes]  Ciphertext length, big-endian uint32
@@ -19,10 +19,11 @@ from dataclasses import dataclass
 from pydantic import ValidationError
 
 from gpg_meister.models.vault import (
-    VAULT_FORMAT_VERSION as _MODEL_VAULT_FORMAT_VERSION,
+    SUPPORTED_VAULT_VERSIONS,
+    VaultHeader,
 )
 from gpg_meister.models.vault import (
-    VaultHeader,
+    VAULT_FORMAT_VERSION as _MODEL_VAULT_FORMAT_VERSION,
 )
 from gpg_meister.security.errors import VaultFormatError
 
@@ -51,8 +52,12 @@ def header_to_canonical_json(header: VaultHeader) -> bytes:
 
     The byte form is stable across platforms and python versions, which is essential
     because these bytes are fed verbatim into the AEAD as associated data.
+
+    Unset optional fields are omitted rather than written as ``null``, so a
+    passphrase-only (v2) header serialises to exactly the bytes it did before
+    key slots were introduced.
     """
-    obj = header.model_dump(mode="json")
+    obj = header.model_dump(mode="json", exclude_none=True)
     return json.dumps(
         obj,
         ensure_ascii=False,
@@ -76,7 +81,7 @@ def pack(header: VaultHeader, ciphertext: bytes) -> tuple[bytes, bytes]:
 
     frame = (
         MAGIC
-        + bytes([VAULT_FORMAT_VERSION])
+        + bytes([header.version])
         + struct.pack(">I", len(header_bytes))
         + header_bytes
         + struct.pack(">I", len(ciphertext))
@@ -99,9 +104,10 @@ def unpack(data: bytes) -> UnpackedFrame:
         raise VaultFormatError("magic bytes do not match — not a GPG Meister vault")
 
     version = data[MAGIC_LEN]
-    if version != VAULT_FORMAT_VERSION:
+    if version not in SUPPORTED_VAULT_VERSIONS:
         raise VaultFormatError(
-            f"unsupported vault version: {version} (expected {VAULT_FORMAT_VERSION})"
+            f"unsupported vault version: {version} "
+            f"(expected one of {', '.join(str(v) for v in SUPPORTED_VAULT_VERSIONS)})"
         )
 
     (header_len,) = struct.unpack(">I", data[MAGIC_LEN + VERSION_LEN : HEADER_OFFSET])
@@ -123,6 +129,11 @@ def unpack(data: bytes) -> UnpackedFrame:
         header = VaultHeader.model_validate(header_obj)
     except ValidationError as exc:
         raise VaultFormatError(f"header fields are invalid: {exc}") from exc
+
+    if header.version != version:
+        raise VaultFormatError(
+            f"frame version {version} does not match header version {header.version}"
+        )
 
     (ct_len,) = struct.unpack(">I", data[header_end : header_end + LENGTH_FIELD])
     if ct_len == 0 or ct_len > MAX_CIPHERTEXT_SIZE:

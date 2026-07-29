@@ -11,6 +11,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QLabel, QProgressBar, QTableWidgetItem
 
+from gpg_meister.models.key_info import KeyInfo
+
 _MONOSPACE_CANDIDATES = ("Cascadia Code", "Fira Code", "Consolas", "Courier New", "Monospace")
 
 
@@ -43,6 +45,17 @@ def error_label(*, word_wrap: bool = True) -> QLabel:
         lbl.setWordWrap(True)
     lbl.hide()
     return lbl
+
+
+def signing_key_label(key: KeyInfo) -> str:
+    """Picker label for a private key, flagging the ones held on a token.
+
+    Which device a signing key lives on changes what the user has to do (plug in
+    the token, type a PIN, maybe touch it), so it belongs in the choice itself.
+    """
+    if key.is_on_smartcard:
+        return f"{key.display_label} — {key.storage_label}"
+    return key.display_label
 
 
 def busy_bar() -> QProgressBar:

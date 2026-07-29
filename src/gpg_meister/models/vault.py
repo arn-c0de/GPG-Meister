@@ -11,7 +11,7 @@ import base64
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from gpg_meister.models.kdf_params import (
     MAX_SALT_LEN,
@@ -26,8 +26,20 @@ from gpg_meister.models.kdf_params import (
 from gpg_meister.models.key_info import FINGERPRINT_LENGTH, normalise_fingerprint
 
 VAULT_FORMAT_TAG = "GPGMEISTER_VAULT"
+# Version 2: the AEAD key is derived straight from the master passphrase.
+# Version 3: the AEAD key is random and wrapped once per unlock method ("key
+# slot") — a passphrase slot plus one slot per smartcard/OpenPGP key. Vaults are
+# only written as v3 when a second unlock method was requested, so a
+# passphrase-only vault stays byte-compatible with older releases.
 VAULT_FORMAT_VERSION = 2
+VAULT_FORMAT_VERSION_SLOTS = 3
+SUPPORTED_VAULT_VERSIONS = (VAULT_FORMAT_VERSION, VAULT_FORMAT_VERSION_SLOTS)
 NONCE_LEN = 12
+MAX_VAULT_KEY_SLOTS = 8
+# A wrapped file key is 48 bytes for a passphrase slot; an armored PGP message
+# holding 32 bytes is well under 4 KiB even for large RSA keys.
+MAX_WRAPPED_KEY_LENGTH = 16 * 1024
+MAX_VAULT_SLOT_LABEL_LENGTH = 128
 MAX_VAULT_KEYS = 1024
 MAX_VAULT_USER_IDS = 16
 MAX_VAULT_USER_ID_LENGTH = 512
@@ -109,6 +121,87 @@ class KDFFields(BaseModel):
         )
 
 
+class VaultSlotType(StrEnum):
+    """How a key slot hands back the vault's file key."""
+
+    PASSPHRASE = "passphrase"  # noqa: S105 - a slot kind, not a credential
+    OPENPGP = "openpgp"
+
+
+class VaultKeySlot(BaseModel):
+    """One unlock method for a v3 vault: a wrapped copy of the file key.
+
+    ``PASSPHRASE`` slots hold an AEAD-wrapped key with their own KDF salt and
+    nonce. ``OPENPGP`` slots hold an armored PGP message addressed to a GPG key —
+    for a smartcard key that message can only be opened with the token plugged
+    in and its PIN entered, which is what makes a YubiKey a vault unlock method.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    type: VaultSlotType
+    wrapped_key_b64: str
+    kdf: KDFFields | None = None
+    nonce_b64: str | None = None
+    fingerprint: str | None = None
+    label: str = Field(default="", max_length=MAX_VAULT_SLOT_LABEL_LENGTH)
+
+    @field_validator("wrapped_key_b64")
+    @classmethod
+    def _validate_wrapped(cls, value: str) -> str:
+        try:
+            raw = base64.b64decode(value, validate=True)
+        except ValueError as exc:
+            raise ValueError("wrapped_key_b64 must be valid base64") from exc
+        if not raw:
+            raise ValueError("wrapped key must not be empty")
+        if len(raw) > MAX_WRAPPED_KEY_LENGTH:
+            raise ValueError("wrapped key is too large")
+        return value
+
+    @field_validator("nonce_b64")
+    @classmethod
+    def _validate_nonce(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            raw = base64.b64decode(value, validate=True)
+        except ValueError as exc:
+            raise ValueError("nonce_b64 must be valid base64") from exc
+        if len(raw) != NONCE_LEN:
+            raise ValueError(f"nonce must decode to {NONCE_LEN} bytes")
+        return value
+
+    @field_validator("fingerprint")
+    @classmethod
+    def _validate_fingerprint(cls, value: str | None) -> str | None:
+        return None if value is None else normalise_fingerprint(value)
+
+    @model_validator(mode="after")
+    def _validate_slot_shape(self) -> VaultKeySlot:
+        if self.type is VaultSlotType.PASSPHRASE:
+            if self.kdf is None or self.nonce_b64 is None:
+                raise ValueError("a passphrase slot needs KDF parameters and a nonce")
+            if self.fingerprint is not None:
+                raise ValueError("a passphrase slot must not carry a key fingerprint")
+        else:
+            if self.fingerprint is None:
+                raise ValueError("an OpenPGP slot needs the recipient fingerprint")
+            if self.kdf is not None or self.nonce_b64 is not None:
+                raise ValueError("an OpenPGP slot must not carry KDF parameters")
+        return self
+
+    @property
+    def wrapped_key(self) -> bytes:
+        return base64.b64decode(self.wrapped_key_b64, validate=True)
+
+    @property
+    def nonce(self) -> bytes:
+        if self.nonce_b64 is None:
+            raise ValueError("this slot has no nonce")
+        return base64.b64decode(self.nonce_b64, validate=True)
+
+
 class VaultHeader(BaseModel):
     """The unencrypted vault header. Bytes form is AAD-bound to the AEAD tag."""
 
@@ -116,8 +209,13 @@ class VaultHeader(BaseModel):
 
     format: str = Field(default=VAULT_FORMAT_TAG)
     version: int = Field(default=VAULT_FORMAT_VERSION)
-    kdf: KDFFields
+    # v2 derives the AEAD key from the passphrase with these parameters; v3
+    # leaves this unset and carries one wrapped key per slot instead. Fields that
+    # are None are omitted from the canonical JSON, so a v2 header keeps exactly
+    # the bytes it had before key slots existed.
+    kdf: KDFFields | None = None
     cipher: CipherParams
+    key_slots: tuple[VaultKeySlot, ...] | None = Field(default=None, max_length=MAX_VAULT_KEY_SLOTS)
 
     @field_validator("format")
     @classmethod
@@ -129,9 +227,30 @@ class VaultHeader(BaseModel):
     @field_validator("version")
     @classmethod
     def _validate_version(cls, value: int) -> int:
-        if value != VAULT_FORMAT_VERSION:
+        if value not in SUPPORTED_VAULT_VERSIONS:
             raise ValueError(f"unsupported vault version: {value}")
         return value
+
+    @model_validator(mode="after")
+    def _validate_version_shape(self) -> VaultHeader:
+        if self.version == VAULT_FORMAT_VERSION:
+            if self.kdf is None:
+                raise ValueError("a version 2 vault header needs KDF parameters")
+            if self.key_slots is not None:
+                raise ValueError("key slots require vault version 3")
+            return self
+        if not self.key_slots:
+            raise ValueError("a version 3 vault header needs at least one key slot")
+        if self.kdf is not None:
+            raise ValueError("a version 3 vault header derives no key from the header KDF")
+        return self
+
+    @property
+    def uses_key_slots(self) -> bool:
+        return bool(self.key_slots)
+
+    def slots_of(self, slot_type: VaultSlotType) -> tuple[VaultKeySlot, ...]:
+        return tuple(slot for slot in (self.key_slots or ()) if slot.type is slot_type)
 
 
 class VaultKeyEntry(BaseModel):

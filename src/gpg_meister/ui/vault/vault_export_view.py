@@ -49,6 +49,7 @@ class VaultExportView(QWidget):
         self._build_unlock_section(layout)
         self._build_path_section(layout)
         self._build_passphrase_section(layout)
+        self._build_token_unlock_section(layout)
 
         btn_row = QHBoxLayout()
         self._btn_export = QPushButton("Create Vault")
@@ -137,8 +138,49 @@ class VaultExportView(QWidget):
         pp_box.setMinimumHeight(200)
         layout.addWidget(pp_box)
 
+    def _build_token_unlock_section(self, layout: QVBoxLayout) -> None:
+        """Optional second way into the finished vault: a hardware token."""
+        self._token_box = QGroupBox("Also unlock with a smartcard (optional)")
+        token_layout = QVBoxLayout(self._token_box)
+        hint = QLabel(
+            "Tick a token key to store a second copy of the vault key for it. The vault "
+            "can then be opened either with the master passphrase above or with that "
+            "token and its PIN. The passphrase always keeps working, so losing the token "
+            "never locks you out of your backup."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #666666;")
+        token_layout.addWidget(hint)
+        self._token_list = QListWidget()
+        self._token_list.setMaximumHeight(80)
+        token_layout.addWidget(self._token_list)
+        self._token_box.hide()
+        layout.addWidget(self._token_box)
+
+    def _populate_token_unlock(self, keys: list[KeyInfo]) -> None:
+        self._token_list.clear()
+        card_keys = [key for key in keys if key.is_on_smartcard]
+        self._token_box.setVisible(bool(card_keys))
+        for key in card_keys:
+            item = QListWidgetItem(f"{key.storage_label} · {key.display_label}")
+            item.setData(Qt.ItemDataRole.UserRole, key.fingerprint)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            self._token_list.addItem(item)
+        self._on_token_selection_changed()
+
+    def _on_token_selection_changed(self) -> None:
+        fingerprints = [
+            item.data(Qt.ItemDataRole.UserRole)
+            for index in range(self._token_list.count())
+            if (item := self._token_list.item(index)) is not None
+            and item.checkState() is Qt.CheckState.Checked
+        ]
+        self._vm.set_unlock_keys([fp for fp in fingerprints if fp])
+
     def _connect_signals(self) -> None:
         self._vm.keys_loaded.connect(self._on_keys_loaded)
+        self._token_list.itemChanged.connect(lambda _item: self._on_token_selection_changed())
         self._vm.loading_changed.connect(self._on_loading)
         self._vm.operation_succeeded.connect(self._on_success)
         self._vm.operation_failed.connect(self._on_error)
@@ -160,6 +202,8 @@ class VaultExportView(QWidget):
     # The display name is stored in this data role so prefix changes never
     # corrupt it (the previous approach sliced it back out of the item text).
     _NAME_ROLE = Qt.ItemDataRole.UserRole + 2
+    # Where the key's private half lives, e.g. "YubiKey 12345678".
+    _STORAGE_ROLE = Qt.ItemDataRole.UserRole + 3
 
     def _refresh_item_text(
         self, item: QListWidgetItem, fp: str, *, unlocked: bool, is_stub: bool
@@ -210,8 +254,10 @@ class VaultExportView(QWidget):
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, key.fingerprint)
             item.setData(Qt.ItemDataRole.UserRole + 1, key.is_stub)
+            item.setData(self._STORAGE_ROLE, key.storage_label)
             self._init_item_name(item, key)
             self._key_list.addItem(item)
+        self._populate_token_unlock(keys)
 
     # -------------------------------------------------------------- selection
 
@@ -232,8 +278,10 @@ class VaultExportView(QWidget):
         self._active_fp = fp
         uid_text = item.text()[2:]  # strip prefix
         if is_stub:
+            device = item.data(self._STORAGE_ROLE) or "a smartcard"
             self._unlock_label.setText(
-                f"☁ {uid_text}\n(Smartcard key — public part only, no passphrase needed.)"
+                f"☁ {uid_text}\n(Private key stays on {device} — the vault stores the "
+                "public part only, so no passphrase is needed.)"
             )
             self._unlock_pp.setEnabled(False)
             self._btn_unlock.setEnabled(False)

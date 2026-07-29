@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from gpg_meister.services.gpg_service import GPGService
     from gpg_meister.services.key_service import KeyService
     from gpg_meister.services.message_service import MessageService
+    from gpg_meister.services.smartcard_service import SmartcardService
     from gpg_meister.services.vault_service import VaultService
     from gpg_meister.startup.environment_check import CheckResult
     from gpg_meister.startup.gpg_detector import DetectedGPG, GPGDetectionError
@@ -291,6 +292,7 @@ class _Services:
     keys: KeyService
     messages: MessageService
     vault: VaultService
+    smartcard: SmartcardService
     metadata: MetadataStore
 
 
@@ -298,6 +300,7 @@ def _build_services(paths: AppPaths, gpg: DetectedGPG, audit: AuditLog) -> _Serv
     from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
     from gpg_meister.services.key_service import KeyService
     from gpg_meister.services.message_service import MessageService
+    from gpg_meister.services.smartcard_service import SmartcardService
     from gpg_meister.services.vault_service import VaultService
     from gpg_meister.storage.metadata_store import MetadataStore
 
@@ -316,6 +319,7 @@ def _build_services(paths: AppPaths, gpg: DetectedGPG, audit: AuditLog) -> _Serv
         keys=KeyService(gpg=gpg_svc, audit=audit, metadata=metadata),
         messages=MessageService(gpg=gpg_svc, audit=audit),
         vault=VaultService(gpg=gpg_svc, audit=audit, metadata=metadata),
+        smartcard=SmartcardService(gpg=gpg_svc, audit=audit),
         metadata=metadata,
     )
 
@@ -349,6 +353,7 @@ def _build_main_window(
     key_vm = KeyListViewModel(
         services.keys,
         require_delete_text_confirmation=config.require_delete_text_confirmation,
+        smartcard_service=services.smartcard,
     )
     window.install_tab(AppPage.KEYS, KeyListView(key_vm))
 
@@ -356,7 +361,7 @@ def _build_main_window(
     sign_vm = SignViewModel(services.messages, services.keys)
     messages_view = MessagesTabView(
         encrypt_vm,
-        DecryptViewModel(services.messages),
+        DecryptViewModel(services.messages, services.smartcard),
         sign_vm,
         VerifyViewModel(services.messages),
         services.keys,

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gpg_meister.models.key_info import KeyInfo, TrustLevel
+from gpg_meister.models.key_info import KeyInfo, KeyStorage, TrustLevel
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.ui.qt_helpers import monospace_font
 from gpg_meister.ui.widgets.clipboard_button import ClipboardButton
@@ -32,6 +32,14 @@ _TRUST_LABELS: dict[TrustLevel, tuple[str, str]] = {
     TrustLevel.NEVER: ("Never trusted", "color: #cc0000"),
     TrustLevel.UNKNOWN: ("Unknown — not verified", "color: #666666"),
 }
+
+
+def _private_key_text(key: KeyInfo) -> str:
+    if key.storage is KeyStorage.SMARTCARD:
+        return f"Yes — uses {key.storage_label}, unlocked with the card PIN"
+    if key.storage is KeyStorage.OFFLINE:
+        return "Known, but the secret key is not stored on this computer"
+    return "Yes — private key available" if key.has_private_key else "No"
 
 
 class KeyDetailView(QDialog):
@@ -78,10 +86,17 @@ class KeyDetailView(QDialog):
         form.addRow("Created:", QLabel(self._key.created_at.strftime("%Y-%m-%d")))
         form.addRow("Expires:", self._expiry_label())
 
-        form.addRow(
-            "Private key:",
-            QLabel("Yes — private key available" if self._key.has_private_key else "No"),
-        )
+        form.addRow("Private key:", QLabel(_private_key_text(self._key)))
+
+        storage_label = QLabel(self._key.storage_label)
+        storage_label.setTextFormat(Qt.TextFormat.PlainText)
+        if self._key.is_on_smartcard:
+            storage_label.setStyleSheet("color: #006666; font-weight: bold;")
+            storage_label.setToolTip(
+                "Decrypting or signing with this key needs the token plugged in "
+                "and its PIN — what the device holds cannot leave it."
+            )
+        form.addRow("Stored on:", storage_label)
 
         trust_text, trust_style = _TRUST_LABELS.get(
             self._key.trust, ("Unknown", "color: #666666")

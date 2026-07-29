@@ -55,6 +55,9 @@ class VaultExportViewModel(QObject):
         self._unlocked_fps: set[str] = set()
         # Loaded key info for stub detection (fp → KeyInfo).
         self._key_map: dict[str, KeyInfo] = {}
+        # Keys that may open the finished vault in addition to the master
+        # passphrase — in practice the encryption key on a hardware token.
+        self._unlock_fps: list[str] = []
 
     # ------------------------------------------------------------------ loading
 
@@ -89,6 +92,14 @@ class VaultExportViewModel(QObject):
             if key and key.is_stub and fp not in self._unlocked_fps:
                 self._unlocked_fps.add(fp)
                 self.key_unlock_state_changed.emit(fp, True)
+
+    def set_unlock_keys(self, fingerprints: list[str]) -> None:
+        """Choose extra keys (tokens) that may open the vault later."""
+        self._unlock_fps = list(fingerprints)
+
+    @property
+    def unlock_keys(self) -> list[str]:
+        return list(self._unlock_fps)
 
     def set_target_path(self, path: Path | None) -> None:
         self._target_path = path
@@ -158,6 +169,7 @@ class VaultExportViewModel(QObject):
         fps = list(self._selected_fps)
         target = self._target_path
         desc = self._description
+        unlock_fps = list(self._unlock_fps)
 
         from gpg_meister.security.password_policy import normalise_passphrase
         _master_raw = normalise_passphrase(self._master_passphrase.strip()).encode()
@@ -189,6 +201,7 @@ class VaultExportViewModel(QObject):
                     gpg_passphrases=gpg_pps,
                     fingerprints=fps,
                     description=desc,
+                    unlock_key_fingerprints=unlock_fps,
                 )
 
         w = Worker(_do)

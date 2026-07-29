@@ -2,6 +2,59 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.5] - 2026-07-29
+
+Smartcard release: hardware tokens (YubiKey, Nitrokey, and other OpenPGP cards)
+can now hold the keys GPG Meister works with, and can act as a second way to
+unlock a vault backup.
+
+### Added
+
+**Smartcard-held keys**
+
+- Keys whose private half lives on a token are recognised and labelled
+  throughout the UI. A new **Storage** column on the Keys tab shows the device
+  (`YubiKey 12345678`), with `Local`, `Public only`, and `Secret key elsewhere`
+  for the other cases; the key details dialog and the signing-key pickers show
+  the same information.
+- Decrypting and signing with a card key ask for the **card PIN** instead of a
+  passphrase, with the field, placeholder, and hint changing accordingly. The
+  PIN travels the existing hardened path — `SecureBytes` to an app-owned pipe to
+  `--passphrase-fd`, never in `argv` — because loopback pinentry lets gpg-agent
+  ask us for the card PIN just as it asks for a passphrase.
+- New **Smartcard** panel on the Keys tab shows the inserted card (device,
+  serial, cardholder, reader, remaining PIN attempts) and the keys in its three
+  slots, and links them into the app's isolated keyring. Slots whose public key
+  is missing locally are called out, with the card's key URL when it has one.
+- Card-specific failures are now distinguished from passphrase failures: an
+  unplugged token or unavailable reader says so and asks for the token, and a
+  rejected PIN warns that cards lock themselves after a few attempts.
+
+**Vaults unlockable by a smartcard**
+
+- A vault can now be created with a token as an additional unlock method. Such
+  vaults use format **version 3**: the payload is encrypted with a random file
+  key that is wrapped once per unlock method ("key slot") — one slot for the
+  master passphrase, one per selected token key. Opening the vault needs either.
+- The master passphrase slot is always written, so a lost or broken token can
+  never orphan a backup.
+- The vault import wizard offers "Smartcard PIN" as an unlock method when the
+  file advertises one. Which methods a vault supports is read from its header
+  alone, before any credential is entered.
+- Vaults created without a token keep format version 2, byte-for-byte as before,
+  so they remain readable by earlier releases.
+
+### Fixed
+
+- Field 15 of GnuPG's secret-key listing was read as "token serial" when it is
+  in fact overloaded: `+` (secret key present locally), `#` (not available
+  here), or a serial. Local keys were consequently flagged as stubs in the
+  secret listing.
+- The token serial is now carried into the public key listing as well, so
+  smartcard-backed keys are recognisable everywhere instead of only in the
+  secret listing. A serial that appears on a subkey (the common layout: offline
+  primary, encryption subkey on the card) is attributed to its primary key.
+
 ## [1.0.4] - 2026-05-29
 
 Security and quality release following a full multi-angle audit. No remotely

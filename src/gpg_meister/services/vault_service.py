@@ -19,7 +19,7 @@ import hashlib
 import hmac
 import io
 import struct
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,13 +40,18 @@ from gpg_meister.models.kdf_params import (
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.models.vault import (
     MAX_VAULT_ARMOR_LENGTH,
+    MAX_VAULT_KEY_SLOTS,
+    MAX_VAULT_SLOT_LABEL_LENGTH,
     NONCE_LEN,
+    VAULT_FORMAT_VERSION_SLOTS,
     CipherAlgorithm,
     CipherParams,
     KDFFields,
     VaultHeader,
     VaultKeyEntry,
+    VaultKeySlot,
     VaultManifest,
+    VaultSlotType,
 )
 from gpg_meister.security.aead import decrypt as aead_decrypt
 from gpg_meister.security.aead import encrypt as aead_encrypt
@@ -67,7 +72,20 @@ from gpg_meister.security.vault_format import (
 )
 from gpg_meister.security.vault_format import pack as vault_pack
 from gpg_meister.security.vault_format import unpack as vault_unpack
-from gpg_meister.services.errors import GPGKeyNotFoundError, GPGPassphraseError, ServiceError
+from gpg_meister.security.vault_keyslots import (
+    file_key_from_bytes,
+    generate_file_key,
+    openpgp_slot,
+    unwrap_with_passphrase,
+    wrap_with_passphrase,
+)
+from gpg_meister.services.errors import (
+    GPGCardError,
+    GPGKeyNotFoundError,
+    GPGPassphraseError,
+    GPGProcessError,
+    ServiceError,
+)
 from gpg_meister.services.gpg_service import GPGService
 from gpg_meister.services.key_service import remove_smuggled_key
 from gpg_meister.services.validation import validate_fingerprint
@@ -118,6 +136,27 @@ class VaultPreview:
     app_version: str
     description: str
     keys: tuple[VaultKeyEntry, ...]
+
+
+@dataclass(frozen=True)
+class VaultUnlockSlot:
+    """One advertised unlock method of a vault file."""
+
+    fingerprint: str
+    label: str
+
+
+@dataclass(frozen=True)
+class VaultUnlockInfo:
+    """Which credentials open a vault — readable without decrypting anything."""
+
+    version: int
+    accepts_passphrase: bool
+    smartcard_slots: tuple[VaultUnlockSlot, ...] = ()
+
+    @property
+    def accepts_smartcard(self) -> bool:
+        return bool(self.smartcard_slots)
 
 
 @dataclass(frozen=True)
@@ -507,6 +546,86 @@ def _encrypt_payload(
     return frame
 
 
+def _encrypt_payload_with_slots(
+    plaintext: bytearray,
+    master_passphrase: SecureBytes,
+    *,
+    params: KDFParams,
+    cipher: CipherAlgorithm,
+    wrap_for_keys: Callable[[SecureBytes], tuple[VaultKeySlot, ...]],
+) -> bytes:
+    """Encrypt ``plaintext`` under a random file key wrapped into several slots.
+
+    The passphrase slot is always written first: it is the fallback that keeps a
+    lost or broken token from taking the backup with it. ``wrap_for_keys`` adds
+    the OpenPGP slots (one per smartcard key) and is injected so this function
+    stays free of the GPG subprocess.
+
+    ``plaintext`` is zeroed as soon as the ciphertext exists.
+    """
+    nonce = generate_nonce()
+    with generate_file_key() as file_key:
+        slots = (
+            wrap_with_passphrase(file_key, master_passphrase, params=params, cipher=cipher),
+            *wrap_for_keys(file_key),
+        )
+        if len(slots) > MAX_VAULT_KEY_SLOTS:
+            raise VaultServiceError("too many unlock methods for one vault")
+        header = VaultHeader(
+            version=VAULT_FORMAT_VERSION_SLOTS,
+            cipher=CipherParams(
+                algorithm=cipher,
+                nonce_b64=base64.b64encode(nonce).decode("ascii"),
+            ),
+            key_slots=slots,
+        )
+        _frame, header_bytes = vault_pack(header, b"")
+        ciphertext = aead_encrypt(
+            plaintext=plaintext,
+            key=file_key,
+            nonce=nonce,
+            associated_data=header_bytes,
+            cipher=cipher,
+        )
+        zero_mutable_buffer(plaintext)
+        frame, _ = vault_pack(header, ciphertext)
+    return frame
+
+
+def _unwrap_passphrase_slot(
+    header: VaultHeader,
+    master_passphrase: SecureBytes,
+    *,
+    cipher: CipherAlgorithm,
+) -> SecureBytes:
+    """Recover a v3 vault's file key from the first passphrase slot that opens.
+
+    Slots are tried in order; a slot whose KDF parameters are outside the import
+    safety limits is skipped rather than allowed to allocate on our behalf.
+    """
+    slots = header.slots_of(VaultSlotType.PASSPHRASE)
+    if not slots:
+        raise VaultServiceError("this vault cannot be opened with a passphrase")
+    last_error: Exception | None = None
+    for slot in slots:
+        if slot.kdf is None:
+            continue
+        slot_params = slot.kdf.to_params()
+        try:
+            _validate_import_kdf(slot_params)
+            return unwrap_with_passphrase(
+                slot, master_passphrase, params=slot_params, cipher=cipher
+            )
+        except (DecryptionError, VaultFormatError) as exc:
+            last_error = exc
+    raise last_error or DecryptionError("no key slot accepted this passphrase")
+
+
+def _unlock_slot_label(key: KeyInfo) -> str:
+    """Human label stored with an OpenPGP slot, e.g. ``YubiKey 12345678 · Alice``."""
+    return f"{key.storage_label} · {key.primary_user_id}"[:MAX_VAULT_SLOT_LABEL_LENGTH]
+
+
 def _write_vault_files(target_path: Path, frame: bytes) -> str:
     """Atomically write the vault frame and its SHA-256 sidecar; return the digest."""
     atomic_write_bytes(target_path, frame, mode=0o600)
@@ -566,12 +685,19 @@ class VaultService:
         created_by: str = "",
         cipher: CipherAlgorithm = CipherAlgorithm.CHACHA20_POLY1305,
         kdf_params: KDFParams | None = None,
+        unlock_key_fingerprints: Sequence[str] = (),
     ) -> VaultDescriptor:
         """Build a vault from the supplied key fingerprints.
 
         `gpg_passphrases` maps each fingerprint to its GPG passphrase.
         Stub (smartcard) keys that have no private key to export do not need
         an entry in the dict.
+
+        `unlock_key_fingerprints` names GPG keys — typically the encryption key
+        on a YubiKey — that may open the finished vault in addition to the master
+        passphrase. Supplying any switches the file to format version 3, where a
+        random payload key is wrapped once per unlock method. The master
+        passphrase always stays valid so a lost token cannot orphan the backup.
 
         Order of operations (planv2.md §4.6):
           1. Acquire an exclusive file lock on the target.
@@ -587,6 +713,7 @@ class VaultService:
         fps = tuple(validate_fingerprint(fp) for fp in fingerprints)
         if not fps:
             raise VaultServiceError("at least one key fingerprint is required")
+        unlock_fps = tuple(validate_fingerprint(fp) for fp in unlock_key_fingerprints)
 
         params = kdf_params or high_memory_params()
         target_path = Path(target_path)
@@ -607,7 +734,18 @@ class VaultService:
                 keys=entries,
             )
             plaintext = _serialise_segmented_payload(collected, manifest)
-            frame = _encrypt_payload(plaintext, master_passphrase, params=params, cipher=cipher)
+            if unlock_fps:
+                frame = _encrypt_payload_with_slots(
+                    plaintext,
+                    master_passphrase,
+                    params=params,
+                    cipher=cipher,
+                    wrap_for_keys=lambda file_key: self._wrap_for_keys(file_key, unlock_fps),
+                )
+            else:
+                frame = _encrypt_payload(
+                    plaintext, master_passphrase, params=params, cipher=cipher
+                )
             sha = _write_vault_files(target_path, frame)
 
             self._audit.emit(
@@ -617,6 +755,7 @@ class VaultService:
                 key_count=len(entries),
                 cipher=cipher.value,
                 sha256=sha,
+                unlock_key_count=len(unlock_fps),
             )
             if self._metadata is not None:
                 self._metadata.add_vault_record(
@@ -702,21 +841,46 @@ class VaultService:
 
     # --------------------------------------------------------------------- open
 
+    def unlock_info(self, source_path: Path) -> VaultUnlockInfo:
+        """Report how a vault can be unlocked, without touching its contents.
+
+        Only the (unencrypted, AAD-bound) header is parsed, so the import view
+        can offer "unlock with your token" before any credential is entered.
+        """
+        src = Path(source_path).resolve()
+        if not src.exists():
+            raise VaultServiceError(f"vault file does not exist: {src}")
+        frame = vault_unpack(_read_vault_bytes(src))
+        header = frame.header
+        if not header.uses_key_slots:
+            return VaultUnlockInfo(version=header.version, accepts_passphrase=True)
+        return VaultUnlockInfo(
+            version=header.version,
+            accepts_passphrase=bool(header.slots_of(VaultSlotType.PASSPHRASE)),
+            smartcard_slots=tuple(
+                VaultUnlockSlot(fingerprint=slot.fingerprint or "", label=slot.label)
+                for slot in header.slots_of(VaultSlotType.OPENPGP)
+            ),
+        )
+
     def preview(
         self,
         *,
         source_path: Path,
-        master_passphrase: SecureBytes,
+        master_passphrase: SecureBytes | None = None,
+        smartcard_pin: SecureBytes | None = None,
         skip_checksum: bool = False,
     ) -> VaultPreview:
         """Decrypt the manifest and return a read-only preview.
 
         The local keyring is *not* modified — use `import_keys` to commit a
-        subset of the preview into the keyring.
+        subset of the preview into the keyring. Supply either the master
+        passphrase or, for a vault with a smartcard slot, the card PIN.
         """
         opened = self._open(
             source_path=source_path,
             master_passphrase=master_passphrase,
+            smartcard_pin=smartcard_pin,
             skip_checksum=skip_checksum,
         )
         try:
@@ -734,7 +898,8 @@ class VaultService:
         self,
         *,
         source_path: Path,
-        master_passphrase: SecureBytes,
+        master_passphrase: SecureBytes | None = None,
+        smartcard_pin: SecureBytes | None = None,
         fingerprints: Iterable[str] | None = None,
         skip_checksum: bool = False,
     ) -> list[str]:
@@ -746,6 +911,7 @@ class VaultService:
         opened = self._open(
             source_path=source_path,
             master_passphrase=master_passphrase,
+            smartcard_pin=smartcard_pin,
             skip_checksum=skip_checksum,
         )
         try:
@@ -805,9 +971,12 @@ class VaultService:
         self,
         *,
         source_path: Path,
-        master_passphrase: SecureBytes,
+        master_passphrase: SecureBytes | None = None,
+        smartcard_pin: SecureBytes | None = None,
         skip_checksum: bool = False,
     ) -> _OpenedVault:
+        if master_passphrase is None and smartcard_pin is None:
+            raise VaultServiceError("a master passphrase or a smartcard PIN is required")
         src = Path(source_path).resolve()
         if not src.exists():
             raise VaultServiceError(f"vault file does not exist: {src}")
@@ -819,7 +988,9 @@ class VaultService:
             self._emit_import_failed(src, reason="format")
             raise
 
-        plaintext = self._decrypt_frame(frame, master_passphrase, src)
+        plaintext = self._decrypt_frame(
+            frame, master_passphrase, src, smartcard_pin=smartcard_pin
+        )
         try:
             if not skip_checksum:
                 self._verify_sidecar(src, data)
@@ -840,13 +1011,15 @@ class VaultService:
             raise
 
     def _decrypt_frame(
-        self, frame: UnpackedFrame, master_passphrase: SecureBytes, src: Path
+        self,
+        frame: UnpackedFrame,
+        master_passphrase: SecureBytes | None,
+        src: Path,
+        *,
+        smartcard_pin: SecureBytes | None = None,
     ) -> bytearray:
-        """Derive the vault key and decrypt the frame into a zeroable buffer."""
-        kdf_params = frame.header.kdf.to_params()
-        _validate_import_kdf(kdf_params)
-
-        with derive_key(master_passphrase, frame.header.kdf.salt, kdf_params) as vault_key:
+        """Recover the vault key and decrypt the frame into a zeroable buffer."""
+        with self._vault_key(frame, master_passphrase, smartcard_pin, src) as vault_key:
             try:
                 plaintext_bytes = aead_decrypt(
                     ciphertext=frame.ciphertext,
@@ -862,6 +1035,98 @@ class VaultService:
         plaintext = bytearray(plaintext_bytes)
         _zero_bytes_object(plaintext_bytes)
         return plaintext
+
+    def _vault_key(
+        self,
+        frame: UnpackedFrame,
+        master_passphrase: SecureBytes | None,
+        smartcard_pin: SecureBytes | None,
+        src: Path,
+    ) -> SecureBytes:
+        """Return the payload key for this frame, whichever way it is protected.
+
+        A v2 vault derives it from the passphrase. A v3 vault unwraps it from a
+        key slot: the smartcard slots when a PIN was supplied, the passphrase
+        slots otherwise.
+        """
+        header = frame.header
+        if not header.uses_key_slots:
+            if header.kdf is None:  # pragma: no cover - the model forbids this
+                raise VaultFormatError("vault header is missing KDF parameters")
+            if master_passphrase is None:
+                raise VaultServiceError(
+                    "this vault predates smartcard unlocking — enter its master passphrase"
+                )
+            kdf_params = header.kdf.to_params()
+            _validate_import_kdf(kdf_params)
+            return derive_key(master_passphrase, header.kdf.salt, kdf_params)
+
+        if smartcard_pin is not None:
+            return self._unwrap_openpgp_slot(header, smartcard_pin, src)
+        if master_passphrase is None:  # pragma: no cover - guarded in _open
+            raise VaultServiceError("a master passphrase or a smartcard PIN is required")
+        try:
+            return _unwrap_passphrase_slot(
+                header, master_passphrase, cipher=header.cipher.algorithm
+            )
+        except DecryptionError:
+            self._emit_import_failed(src, reason="decryption")
+            raise
+
+    def _unwrap_openpgp_slot(
+        self, header: VaultHeader, smartcard_pin: SecureBytes, src: Path
+    ) -> SecureBytes:
+        """Open the first OpenPGP slot the token accepts and return the file key."""
+        slots = header.slots_of(VaultSlotType.OPENPGP)
+        if not slots:
+            raise VaultServiceError(
+                "this vault has no smartcard unlock method — open it with its master passphrase"
+            )
+        last_error: Exception | None = None
+        for slot in slots:
+            try:
+                plaintext, _signer, _status, _decrypted_with = self._gpg.decrypt(
+                    slot.wrapped_key, passphrase=smartcard_pin
+                )
+            except (GPGCardError, GPGPassphraseError, GPGProcessError) as exc:
+                last_error = exc
+                continue
+            return file_key_from_bytes(plaintext)
+        self._emit_import_failed(src, reason="smartcard")
+        raise last_error or DecryptionError("no smartcard key slot could be opened")
+
+    def _wrap_for_keys(
+        self, file_key: SecureBytes, fingerprints: Sequence[str]
+    ) -> tuple[VaultKeySlot, ...]:
+        """Seal the file key to each additional unlock key (usually a token key)."""
+        slots: list[VaultKeySlot] = []
+        for fp in fingerprints:
+            key = self._gpg.find_key(fp)
+            if key.is_revoked:
+                raise VaultServiceError("a revoked key cannot be used to unlock a vault")
+            if key.is_expired:
+                raise VaultServiceError("an expired key cannot be used to unlock a vault")
+            raw = file_key.to_bytes()
+            try:
+                armored = self._gpg.encrypt(
+                    raw,
+                    recipient_fingerprints=[fp],
+                    # The user picked one of their own keys out of the local
+                    # keyring, so the ownertrust of that key is not a meaningful
+                    # gate here — an untrusted-but-selected key would otherwise
+                    # make the vault unopenable by the token that holds it.
+                    always_trust=True,
+                )
+            finally:
+                _zero_bytes_object(raw)
+            slots.append(
+                openpgp_slot(
+                    armored.encode("utf-8"),
+                    fingerprint=key.fingerprint,
+                    label=_unlock_slot_label(key),
+                )
+            )
+        return tuple(slots)
 
     def _verify_sidecar(self, src: Path, data: bytes) -> None:
         """Check the .sha256 sidecar — best-effort: a missing sidecar is fine."""

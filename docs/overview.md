@@ -33,6 +33,7 @@ graph TD
 - [Storage Layer](storage.md) explains local files, SQLite metadata, atomic writes, locks, logs, and permissions.
 - [UI Layer](ui.md) explains the MVVM-style UI structure and background workers.
 - [Startup Checks and GPG Detection](startup.md) explains startup checks and GPG binary trust detection.
+- [Smartcards and YubiKeys](smartcard.md) explains card-held keys, PIN handling, and token-unlockable vaults.
 - [Plan vs Current Code](plan-vs-code.md) compares `planv2.md` with the current implementation.
 
 ## Architecture Map

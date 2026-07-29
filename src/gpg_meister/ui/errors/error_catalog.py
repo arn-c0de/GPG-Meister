@@ -165,6 +165,27 @@ _ENTRIES: tuple[CatalogEntry, ...] = (
         help_section="troubleshooting",
     ),
     CatalogEntry(
+        "smartcard_not_available",
+        title="No smartcard found",
+        message=(
+            "No smartcard could be reached. Plug in your YubiKey (or other OpenPGP token), "
+            "wait until the computer recognises it, and try again."
+        ),
+        actions=("retry", "cancel"),
+        help_section="troubleshooting",
+    ),
+    CatalogEntry(
+        "smartcard_pin_rejected",
+        title="Smartcard PIN rejected",
+        message=(
+            "The smartcard refused this PIN. Cards lock themselves after a few wrong "
+            "attempts — check the remaining attempts in the smartcard panel on the Keys "
+            "tab before trying again."
+        ),
+        actions=("retry", "cancel"),
+        help_section="troubleshooting",
+    ),
+    CatalogEntry(
         "unexpected_error",
         title="Something went wrong",
         message=(
@@ -210,6 +231,8 @@ def message_for_exception(exc: BaseException) -> str:
         "VaultFormatError": "vault_format_error",
         "VaultChecksumMismatchError": "vault_checksum_mismatch",
         "GPGKeyNotFoundError": "key_not_found",
+        "GPGCardError": "smartcard_not_available",
+        "GPGCardPinError": "smartcard_pin_rejected",
         "ConfigServiceError": "config_error",
         "GPGProcessError": "gpg_operation_failed",
         "GPGPassphraseError": "gpg_operation_failed",

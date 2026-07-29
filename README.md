@@ -4,7 +4,7 @@
   <img src="logo.png" alt="GPG Meister Logo" width="140">
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.0.4-1f6feb)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.5-1f6feb)](CHANGELOG.md)
 [![Architecture](https://img.shields.io/badge/architecture-MVVM-1f6feb)](#tech)
 [![UI](https://img.shields.io/badge/UI-Qt%206-0A7EA4)](#tech)
 [![Runtime](https://img.shields.io/badge/runtime-local--first-2ea043)](#security)
@@ -31,6 +31,7 @@ GPG Meister is a local-first desktop application built on GnuPG. It gives users 
   <img src="images/GPG-MEISTER-decrypt-page.png" alt="Decryption" width="600">
 - **Encrypted vault backups**: Export and import encrypted key vaults for backup or transfer.
   <img src="images/GPG-MEISTER-vault.png" alt="Vault Management" width="600">
+- **Smartcard / YubiKey support**: Use keys held on a YubiKey, Nitrokey, or other OpenPGP card to decrypt and sign with the card PIN instead of a passphrase, see at a glance which device holds each key, and optionally add a token as a second way to unlock a vault.
 - **Built-in help**: Use the integrated help pages and glossary for common GPG concepts.
   <img src="images/GPG-MEISTER-help-page.png" alt="Help Page" width="600">
 - **Local-first workflow**: Keep cryptographic operations and metadata on your own machine.

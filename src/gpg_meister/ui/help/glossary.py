@@ -53,6 +53,24 @@ TERMS: dict[str, str] = {
         "the vault payload and authenticates it together with the header, so any "
         "tampering — including header modifications — is detected before decryption."
     ),
+    "Smartcard / YubiKey": (
+        "A hardware token that stores private keys and performs decryption and "
+        "signing on the device itself. The private key never leaves the token, so "
+        "it cannot be copied off your computer. Operations need the token plugged "
+        "in plus its PIN, and some tokens also require a physical touch."
+    ),
+    "Card PIN": (
+        "The secret that unlocks a smartcard — usually digits, and not the same as "
+        "a key passphrase. Enter it where GPG Meister asks for a passphrase when the "
+        "key lives on a token. Cards block themselves after a few wrong attempts; the "
+        "remaining tries are shown in the smartcard panel on the Keys tab."
+    ),
+    "Key slot": (
+        "One way to unlock a vault. A vault always has a master-passphrase slot and "
+        "may carry additional slots for smartcards: each slot holds its own encrypted "
+        "copy of the vault key, so any one of them opens the file and the passphrase "
+        "keeps working even if a token is lost."
+    ),
     "Keyring": (
         "The GPG Meister keyring is a dedicated, isolated GnuPG home directory "
         "separate from your system ~/.gnupg. Operations here never affect your "

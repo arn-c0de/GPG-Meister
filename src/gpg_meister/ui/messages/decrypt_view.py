@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QHideEvent
+from PySide6.QtGui import QHideEvent, QShowEvent
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from gpg_meister.models.message import DecryptResult
+from gpg_meister.services.smartcard_service import CardSyncResult
 from gpg_meister.ui.clipboard import copy_text
 from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
 from gpg_meister.ui.qt_helpers import busy_bar, error_label
@@ -63,7 +64,15 @@ class DecryptView(QWidget):
         hint.setStyleSheet("color: #666666;")
         layout.addWidget(hint)
 
-        layout.addWidget(QLabel("Passphrase:"))
+        # Shown only once a smartcard-backed key is in play, so the passphrase
+        # field stops looking like the wrong place to type a PIN.
+        self._card_hint = QLabel()
+        self._card_hint.setWordWrap(True)
+        self._card_hint.hide()
+        layout.addWidget(self._card_hint)
+
+        self._passphrase_label = QLabel("Passphrase:")
+        layout.addWidget(self._passphrase_label)
         self._passphrase = PassphraseField(show_strength=False)
         self._passphrase.setPlaceholderText("Optional: passphrase for the private key…")
         layout.addWidget(self._passphrase)
@@ -102,6 +111,7 @@ class DecryptView(QWidget):
         self._vm.loading_changed.connect(self._on_loading)
         self._vm.operation_succeeded.connect(self._on_success)
         self._vm.operation_failed.connect(self._on_error)
+        self._vm.card_changed.connect(self._on_card_changed)
 
         self._ciphertext.textChanged.connect(self._on_input_changed)
         self._passphrase.passphrase_changed.connect(self._on_passphrase_changed)
@@ -170,6 +180,39 @@ class DecryptView(QWidget):
     def _on_error(self, msg: str) -> None:
         self._error_label.setText(msg)
         self._error_label.show()
+        # A failure is the moment a pulled-out token matters most; re-probe so
+        # the hint reflects reality before the user retries.
+        self._vm.refresh_card()
+
+    def _on_card_changed(self, result: object) -> None:
+        """Relabel the credential field when a token key can decrypt this message."""
+        if not isinstance(result, CardSyncResult) or not result.keys:
+            self._card_hint.hide()
+            self._passphrase_label.setText("Passphrase:")
+            self._passphrase.setPlaceholderText("Optional: passphrase for the private key…")
+            return
+
+        names = ", ".join(sorted({key.storage_label for key in result.keys}))
+        if result.card is None:
+            self._card_hint.setText(
+                f"A key in your keyring lives on {names}. Plug the token in before "
+                "decrypting a message addressed to it."
+            )
+            self._card_hint.setStyleSheet("color: #cc6600;")
+        else:
+            self._card_hint.setText(
+                f"{result.card.display_name} connected. For a message addressed to it, "
+                "type the card PIN below instead of a passphrase, then touch the token "
+                "if it asks."
+            )
+            self._card_hint.setStyleSheet("color: #006600;")
+        self._card_hint.show()
+        self._passphrase_label.setText("Passphrase or card PIN:")
+        self._passphrase.setPlaceholderText("Passphrase for the private key, or the card PIN…")
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._vm.refresh_card()
 
     def _clear(self) -> None:
         self._ciphertext.clear()

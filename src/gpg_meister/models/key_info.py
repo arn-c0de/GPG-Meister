@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from gpg_meister.models.smartcard import card_label
+
 FINGERPRINT_LENGTH = 40
 _FINGERPRINT_CHARS = set("0123456789ABCDEF")
 
@@ -40,6 +42,24 @@ class TrustLevel(StrEnum):
     ULTIMATE = "ultimate"
 
 
+class KeyStorage(StrEnum):
+    """Where the *private* half of a key actually lives.
+
+    ``SMARTCARD`` means at least one part of the key lives on a hardware token
+    (YubiKey, Nitrokey, OpenPGP card): using it needs the token plugged in and
+    its PIN, and the part held on the device can never be exported. Whether the
+    *primary* key is also on the token is a separate question — ``is_stub``
+    answers that, and it is what decides exportability.
+    ``OFFLINE`` is GnuPG's other kind of stub — a secret key it knows about but
+    does not have here (an offline primary, or a card it has not learned yet).
+    """
+
+    PUBLIC_ONLY = "public_only"
+    LOCAL = "local"
+    SMARTCARD = "smartcard"
+    OFFLINE = "offline"
+
+
 class KeyInfo(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", str_strip_whitespace=True)
 
@@ -53,6 +73,12 @@ class KeyInfo(BaseModel):
     is_revoked: bool = False
     has_private_key: bool = False
     is_stub: bool = False
+    # Token serial (OpenPGP AID) reported by GnuPG for a smartcard-backed key;
+    # empty for keys whose secret material is stored locally.
+    card_serial: str = ""
+    # Fingerprints of this key's subkeys. A smartcard names the *subkey* in each
+    # of its slots, so matching a card against the keyring needs these.
+    subkey_fingerprints: tuple[str, ...] = ()
     trust: TrustLevel = TrustLevel.UNKNOWN
     label: str = ""
     purpose: str = ""
@@ -80,6 +106,37 @@ class KeyInfo(BaseModel):
     def primary_user_id(self) -> str:
         """First user ID, falling back to the short fingerprint when there is none."""
         return self.user_ids[0] if self.user_ids else self.short_fingerprint
+
+    @property
+    def storage(self) -> KeyStorage:
+        """Where the private half of this key lives (card, disk, or nowhere)."""
+        if self.card_serial:
+            return KeyStorage.SMARTCARD
+        if self.is_stub:
+            return KeyStorage.OFFLINE
+        if self.has_private_key:
+            return KeyStorage.LOCAL
+        return KeyStorage.PUBLIC_ONLY
+
+    @property
+    def all_fingerprints(self) -> tuple[str, ...]:
+        """This key's own fingerprint plus its subkeys'."""
+        return (self.fingerprint, *self.subkey_fingerprints)
+
+    @property
+    def is_on_smartcard(self) -> bool:
+        """True when unlocking this key needs a hardware token plus its PIN."""
+        return self.storage is KeyStorage.SMARTCARD
+
+    @property
+    def storage_label(self) -> str:
+        """Column/badge text: ``YubiKey 12345678``, ``Local``, ``Public only``."""
+        return {
+            KeyStorage.SMARTCARD: card_label(self.card_serial),
+            KeyStorage.OFFLINE: "Secret key elsewhere",
+            KeyStorage.LOCAL: "Local",
+            KeyStorage.PUBLIC_ONLY: "Public only",
+        }[self.storage]
 
     @property
     def display_label(self) -> str:

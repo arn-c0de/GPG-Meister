@@ -27,7 +27,7 @@ from gpg_meister.models.key_info import KeyInfo, TrustLevel
 from gpg_meister.models.message import EncryptResult
 from gpg_meister.ui.clipboard import copy_text
 from gpg_meister.ui.messages.encrypt_viewmodel import EncryptViewModel
-from gpg_meister.ui.qt_helpers import busy_bar, error_label, monospace_font
+from gpg_meister.ui.qt_helpers import busy_bar, error_label, monospace_font, signing_key_label
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
 _TRUST_LABELS: dict[TrustLevel, tuple[str, str]] = {
@@ -236,10 +236,9 @@ class EncryptView(QWidget):
         self._sign_combo.clear()
         self._sign_combo.addItem("(none)", None)
         for key in keys:
-            label = key.display_label
-            self._recip_combo.addItem(label, key)
+            self._recip_combo.addItem(key.display_label, key)
             if key.has_private_key:
-                self._sign_combo.addItem(label, key)
+                self._sign_combo.addItem(signing_key_label(key), key)
 
     def _add_recipient(self) -> None:
         idx = self._recip_combo.currentIndex()
@@ -278,9 +277,14 @@ class EncryptView(QWidget):
             self._sign_passphrase.clear()
 
     def _on_sign_key_changed(self, idx: int) -> None:
+        key = self._sign_combo.itemData(idx)
+        self._sign_passphrase.setPlaceholderText(
+            f"PIN of {key.storage_label}…"
+            if isinstance(key, KeyInfo) and key.is_on_smartcard
+            else "Signing key passphrase…"
+        )
         if not self._sign_box.isChecked():
             return
-        key = self._sign_combo.itemData(idx)
         if isinstance(key, KeyInfo):
             self._vm.set_sign_with(key.fingerprint)
         else:

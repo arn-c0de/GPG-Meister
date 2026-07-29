@@ -7,6 +7,9 @@ Hardened against the most common subprocess pitfalls (planv2.md §4.5, §5.6):
   passphrase bytes.
 - `--batch --pinentry-mode loopback` is mandatory so GPG never tries to spawn an
   external Pinentry, which would block our subprocess waiting for terminal input.
+  Smartcard PINs travel the same path: with loopback pinentry, gpg-agent asks us
+  for the card PIN and it is answered from `--passphrase-fd`, so a YubiKey PIN
+  never touches an external process either.
 - `--homedir` is always set explicitly so we never touch the user's `~/.gnupg/`
   keyring.
 - Passphrases are written as bytes to an app-owned pipe created with `os.pipe()`
@@ -40,6 +43,8 @@ from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo, TrustLevel
 from gpg_meister.models.message import SignatureStatus
 from gpg_meister.security.secure_bytes import SecureBytes, zero_mutable_buffer
 from gpg_meister.services.errors import (
+    GPGCardError,
+    GPGCardPinError,
     GPGKeyNotFoundError,
     GPGPassphraseError,
     GPGProcessError,
@@ -159,6 +164,24 @@ def _algorithm_from_gpg(numeric: str) -> KeyAlgorithm:
     return _ALGORITHM_MAP.get(numeric, KeyAlgorithm.UNKNOWN)
 
 
+# Field 15 of a `sec`/`ssb` record (doc/DETAILS) is overloaded: "+" means the
+# secret key is stored on this computer, "#" means it is not available here
+# (offline primary or an unlearned stub), and anything else is the serial number
+# of the token holding it.
+_SECRET_AVAILABLE = "+"  # noqa: S105 - a GnuPG status marker, not a credential
+_SECRET_UNAVAILABLE = "#"  # noqa: S105 - a GnuPG status marker, not a credential
+
+
+def _token_state(raw: str) -> tuple[str, bool]:
+    """Split field 15 into ``(card_serial, is_stub)``."""
+    value = raw.strip()
+    if not value or value == _SECRET_AVAILABLE:
+        return "", False
+    if value == _SECRET_UNAVAILABLE:
+        return "", True
+    return value, True
+
+
 def _to_key_info(entry: dict[str, Any]) -> KeyInfo:
     fingerprint = entry.get("fingerprint", "")
     uids_raw = entry.get("uids", [])
@@ -167,8 +190,11 @@ def _to_key_info(entry: dict[str, Any]) -> KeyInfo:
     expires_raw = entry.get("expires") or ""
     expires = int(expires_raw) if expires_raw and expires_raw.isdigit() else 0
 
-    # Field 15 in colons format is the S/N of a token (smartcard).
-    is_stub = bool(entry.get("token_sn"))
+    primary_serial, is_stub = _token_state(str(entry.get("token_sn") or ""))
+    card_serial = primary_serial or str(entry.get("card_sn") or "")
+    subkeys = tuple(
+        str(fpr).upper() for fpr in entry.get("subkeys", []) if isinstance(fpr, str) and fpr
+    )
 
     return KeyInfo(
         fingerprint=fingerprint,
@@ -181,6 +207,8 @@ def _to_key_info(entry: dict[str, Any]) -> KeyInfo:
         is_revoked=str(entry.get("trust", "")) == "r",
         has_private_key="sec" in entry.get("type", "") if isinstance(entry.get("type"), str) else False,
         is_stub=is_stub,
+        card_serial=card_serial,
+        subkey_fingerprints=subkeys,
         trust=_trust_from_gpg(str(entry.get("trust", "-"))[:1] or "-"),
     )
 
@@ -216,12 +244,16 @@ def _hash_binary(path: Path) -> str | None:
 def _parse_colons_keys(data: bytes) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
+    # `fpr` records describe whichever key record preceded them, so the parser
+    # has to remember whether that was the primary key or one of its subkeys.
+    in_subkey = False
     for raw_line in _decode_output(data).splitlines():
         fields = raw_line.split(":")
         if not fields:
             continue
         rec_type = fields[0]
         if rec_type in {"pub", "sec"}:
+            in_subkey = False
             current = {
                 "type": rec_type,
                 "trust": fields[1] if len(fields) > 1 else "",
@@ -230,11 +262,30 @@ def _parse_colons_keys(data: bytes) -> list[dict[str, Any]]:
                 "date": fields[5] if len(fields) > 5 else "",
                 "expires": fields[6] if len(fields) > 6 else "",
                 "uids": [],
+                "subkeys": [],
                 "token_sn": fields[14] if len(fields) > 14 else "",
+                "card_sn": _token_state(fields[14] if len(fields) > 14 else "")[0],
             }
             rows.append(current)
+        elif rec_type in {"ssb", "sub"} and current is not None:
+            in_subkey = True
+            # A card-backed key usually keeps its primary offline and only the
+            # subkeys on the token, so the token S/N shows up on the `ssb` line.
+            # It identifies the device for the whole key, but it says nothing
+            # about the primary key's own availability — `token_sn` (the primary
+            # record's field 15) stays the authority on that, so a key whose
+            # primary is still on disk remains exportable.
+            token_sn = fields[14] if len(fields) > 14 else ""
+            if not current.get("card_sn"):
+                current["card_sn"] = _token_state(token_sn)[0]
         elif rec_type == "fpr" and current is not None and len(fields) > 9:
-            current.setdefault("fingerprint", fields[9])
+            if in_subkey:
+                # A smartcard reports the fingerprint of the *subkey* in each of
+                # its slots, so those have to be recorded to recognise a card's
+                # keys in the keyring at all.
+                current.setdefault("subkeys", []).append(fields[9])
+            else:
+                current.setdefault("fingerprint", fields[9])
         elif rec_type == "uid" and current is not None and len(fields) > 9:
             uid = fields[9]
             if uid:
@@ -307,6 +358,70 @@ def _evaluate_signature(
         # assert validity rather than fail open.
         return SignatureStatus.ERROR, signer_fp, signed_at
     return SignatureStatus.NONE, None, None
+
+
+# GnuPG's CARDCTRL status codes (doc/DETAILS) that mean "we cannot talk to a
+# card right now": 1 = please insert one, 5 = none available, 6 = no reader.
+_CARDCTRL_MISSING = {"1", "5", "6"}
+
+# stderr fragments GnuPG/scdaemon produce for the same situation. Matched
+# case-insensitively against the combined status+stderr text.
+_CARD_MISSING_MARKERS: tuple[str, ...] = (
+    "no such device",
+    "card not present",
+    "no openpgp card",
+    "openpgp card not available",
+    "card removed",
+    "selecting card failed",
+    "no card reader",
+    "card error",
+)
+
+_CARD_PIN_MARKERS: tuple[str, ...] = (
+    "bad pin",
+    "wrong pin",
+    "invalid pin",
+    "pin blocked",
+    "card is permanently locked",
+    "chv retry counter",
+)
+
+
+def _card_diagnosis(
+    records: Iterable[Sequence[str]],
+    combined_text: str,
+) -> tuple[type[GPGCardError], str] | None:
+    """Classify a failed run as a card problem, or return ``None``.
+
+    Card failures are separated from passphrase failures because the remedy is
+    different — plug the token in (or stop retrying a blocked PIN) rather than
+    retype a passphrase.
+    """
+    lowered = combined_text.lower()
+    if any(marker in lowered for marker in _CARD_PIN_MARKERS):
+        return GPGCardPinError, (
+            "the smartcard PIN was rejected — check the remaining attempts before retrying"
+        )
+    for record in records:
+        if len(record) > 1 and record[0] == "CARDCTRL" and record[1] in _CARDCTRL_MISSING:
+            return GPGCardError, "no smartcard is available — insert your token and try again"
+    if any(marker in lowered for marker in _CARD_MISSING_MARKERS):
+        return GPGCardError, "no smartcard is available — insert your token and try again"
+    return None
+
+
+def _raise_for_card_failure(
+    records: Iterable[Sequence[str]],
+    combined_text: str,
+    *,
+    operation: str,
+) -> None:
+    """Raise the matching card error when a failed run blames the token."""
+    diagnosis = _card_diagnosis(records, combined_text)
+    if diagnosis is None:
+        return
+    error_type, reason = diagnosis
+    raise error_type(f"{operation} failed: {reason}")
 
 
 def _decryption_fingerprint(records: Iterable[Sequence[str]]) -> str | None:
@@ -645,11 +760,18 @@ class GPGService:
 
     # ------------------------------------------------------------------ inventory
 
-    def _secret_fingerprints(self) -> set[str]:
+    def _secret_storage(self) -> dict[str, KeyInfo]:
+        """Map every secret-key fingerprint to the parsed secret-listing entry.
+
+        The public listing carries no token information at all, so where a key's
+        private half lives (local disk vs. hardware token) can only be learned
+        from the secret listing — hence this single cross-reference.
+        """
         proc = self._run_gpg(["--with-colons", "--fingerprint", "--list-secret-keys"])
         _require_ok(proc, "failed to list secret keys")
         rows: Iterable[dict[str, Any]] = _parse_colons_keys(proc.stdout)
-        return {str(r.get("fingerprint", "")).upper() for r in rows if r.get("fingerprint")}
+        infos = (_to_key_info(row) for row in rows if row.get("fingerprint"))
+        return {info.fingerprint: info for info in infos}
 
     def list_keys(self, *, secret: bool = False) -> list[KeyInfo]:
         args = ["--with-colons", "--fingerprint", "--list-secret-keys" if secret else "--list-keys"]
@@ -657,15 +779,44 @@ class GPGService:
         _require_ok(proc, f"failed to list {'secret ' if secret else ''}keys")
         rows = _parse_colons_keys(proc.stdout)
         # A secret listing implies every row has a private key; for a public
-        # listing we cross-reference the secret fingerprints once.
-        secret_fps: set[str] = set() if secret else self._secret_fingerprints()
+        # listing we cross-reference the secret keys once, carrying over where
+        # the private half lives so smartcard-backed keys stay recognisable
+        # there too.
+        secret_keys: dict[str, KeyInfo] = {} if secret else self._secret_storage()
         infos: list[KeyInfo] = []
         for row in rows:
             info = _to_key_info(row)
-            if secret or info.fingerprint in secret_fps:
+            if secret:
                 info = info.model_copy(update={"has_private_key": True})
+            elif info.fingerprint in secret_keys:
+                secret_info = secret_keys[info.fingerprint]
+                info = info.model_copy(
+                    update={
+                        "has_private_key": True,
+                        "is_stub": secret_info.is_stub,
+                        "card_serial": secret_info.card_serial,
+                    }
+                )
             infos.append(info)
         return infos
+
+    # ----------------------------------------------------------------- smartcard
+
+    def card_status(self) -> str:
+        """Return raw ``gpg --card-status --with-colons`` output for the token.
+
+        Running this also makes GnuPG "learn" the inserted card: it creates the
+        secret-key stubs in our own homedir for every card key whose public key
+        is already in the keyring, which is what makes decrypt/sign work here.
+        """
+        proc = self._run_gpg(["--card-status", "--with-colons"], status_fd=True)
+        if proc.returncode != 0:
+            combined = _decode_output(proc.status) + "\n" + _decode_output(proc.stderr)
+            _raise_for_card_failure(_parse_status(proc.status), combined, operation="card status")
+            raise GPGCardError(
+                f"could not read the smartcard: {_decode_output(proc.stderr)[:200]}"
+            )
+        return _decode_output(proc.stdout)
 
     def find_key(self, fingerprint: str) -> KeyInfo:
         fp = validate_fingerprint(fingerprint)
@@ -865,6 +1016,12 @@ class GPGService:
         if proc.returncode != 0:
             combined = (status_text + "\n" + stderr_text).lower()
             detail = (stderr_text or status_text)[:200]
+            # A smartcard-backed key fails with "no secret key" too when the
+            # token is simply unplugged; classify that before the passphrase
+            # branch so the user is told to insert it.
+            _raise_for_card_failure(
+                _parse_status(proc.status), combined, operation="decryption"
+            )
             if "bad_passphrase" in combined or "bad passphrase" in combined or "no secret key" in combined:
                 raise GPGPassphraseError(f"decryption failed: {detail}")
             raise GPGProcessError(f"decryption failed: {detail}")
@@ -891,7 +1048,13 @@ class GPGService:
             status_fd=True,
         )
         if proc.returncode != 0 or not proc.stdout:
-            raise GPGProcessError(f"signing failed: {_decode_output(proc.stderr)[:200]}")
+            stderr_text = _decode_output(proc.stderr)
+            _raise_for_card_failure(
+                _parse_status(proc.status),
+                _decode_output(proc.status) + "\n" + stderr_text,
+                operation="signing",
+            )
+            raise GPGProcessError(f"signing failed: {stderr_text[:200]}")
         return _decode_output(proc.stdout)
 
     def verify(

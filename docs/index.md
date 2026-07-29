@@ -20,6 +20,7 @@ cryptography runs on your machine via GnuPG; nothing is sent to a server.
 - [UI](ui.md) — the view / view-model layer
 - [Storage](storage.md) — how data is persisted
 - [Security](security.md) — trust model and security boundaries
+- [Smartcards and YubiKeys](smartcard.md) — card-held keys, PIN handling, token-unlockable vaults
 
 ## Development
 

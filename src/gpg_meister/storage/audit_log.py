@@ -62,6 +62,8 @@ ALLOWED_EVENTS: Final[frozenset[str]] = frozenset(
         "message_signed",
         "message_decrypted",
         "message_decrypt_failed",
+        "smartcard_detected",
+        "smartcard_keys_synced",
         "vault_created",
         "vault_imported",
         "vault_import_failed",

@@ -30,3 +30,16 @@ class GPGValidationError(GPGServiceError):
 
 class GPGProcessError(GPGServiceError):
     """The GPG subprocess returned a non-zero status or unparseable output."""
+
+
+class GPGCardError(GPGServiceError):
+    """A smartcard (YubiKey / OpenPGP card) operation could not be completed.
+
+    Raised when the token is not plugged in, the reader is unavailable, or the
+    card refused the PIN. Distinct from ``GPGPassphraseError`` because the fix
+    is different: insert the token rather than retype a passphrase.
+    """
+
+
+class GPGCardPinError(GPGCardError):
+    """The card PIN was wrong or the card is blocked after too many attempts."""

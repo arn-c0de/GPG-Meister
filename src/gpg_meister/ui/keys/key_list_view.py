@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
+    QLabel,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -18,7 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gpg_meister.models.key_info import KeyInfo
+from gpg_meister.models.key_info import KeyInfo, KeyStorage
+from gpg_meister.services.smartcard_service import CardSyncResult
 from gpg_meister.ui.keys.key_create_view import KeyCreateDialog
 from gpg_meister.ui.keys.key_detail_view import KeyDetailView
 from gpg_meister.ui.keys.key_list_viewmodel import KeyListViewModel
@@ -31,12 +33,27 @@ _COL_ALGO = 2
 _COL_FP = 3
 _COL_CREATED = 4
 _COL_EXPIRES = 5
-_COL_HAS_PRIV = 6
+_COL_STORAGE = 6
 _COL_TRUST = 7
 
 _STAR_ON = "★"
 _STAR_OFF = "☆"
 _TOTAL_COLS = 8
+
+# Tooltip per storage kind — the column text alone ("YubiKey 12345678") does not
+# say what it implies for the user.
+_STORAGE_TOOLTIPS: dict[KeyStorage, str] = {
+    KeyStorage.SMARTCARD: (
+        "This key lives on a hardware token. Plug it in and enter its PIN to decrypt "
+        "or sign; whatever the device holds can never be exported off it."
+    ),
+    KeyStorage.LOCAL: "The private key is stored on this computer, protected by its passphrase.",
+    KeyStorage.OFFLINE: (
+        "GnuPG knows this secret key but does not have it here — it is on another "
+        "machine, or on a token that has not been linked yet."
+    ),
+    KeyStorage.PUBLIC_ONLY: "Public key only — you can encrypt to it and verify its signatures.",
+}
 
 
 def _fmt_date(dt: datetime | None) -> str:
@@ -65,6 +82,7 @@ class KeyListView(QWidget):
         self._build_ui()
         self._connect_signals()
         self._vm.refresh()
+        self._vm.refresh_card()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -76,17 +94,25 @@ class KeyListView(QWidget):
         self._btn_import = QPushButton("Import Public Key…")
         self._btn_delete = QPushButton("Delete…")
         self._btn_delete.setEnabled(False)
+        self._btn_smartcard = QPushButton("Smartcard…")
+        self._btn_smartcard.setToolTip("Inspect and link an inserted YubiKey or OpenPGP card")
+        self._btn_smartcard.setVisible(self._vm.smartcard_service is not None)
         self._btn_refresh = QPushButton("Refresh")
         toolbar.addWidget(self._btn_create)
         toolbar.addWidget(self._btn_import)
         toolbar.addWidget(self._btn_delete)
+        toolbar.addWidget(self._btn_smartcard)
         toolbar.addStretch()
+        self._card_status = QLabel()
+        self._card_status.setStyleSheet("color: #666666;")
+        self._card_status.setVisible(self._vm.smartcard_service is not None)
+        toolbar.addWidget(self._card_status)
         toolbar.addWidget(self._btn_refresh)
         layout.addLayout(toolbar)
 
         self._table = _KeyTableWidget(0, _TOTAL_COLS)
         self._table.setHorizontalHeaderLabels(
-            ["", "User ID", "Algorithm", "Fingerprint", "Created", "Expires", "Private", "Trust"]
+            ["", "User ID", "Algorithm", "Fingerprint", "Created", "Expires", "Storage", "Trust"]
         )
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -96,7 +122,7 @@ class KeyListView(QWidget):
         hh.setSectionResizeMode(_COL_FAV, QHeaderView.ResizeMode.Fixed)
         hh.resizeSection(_COL_FAV, 28)
         hh.setSectionResizeMode(_COL_UID, QHeaderView.ResizeMode.Stretch)
-        for col in (_COL_ALGO, _COL_FP, _COL_CREATED, _COL_EXPIRES, _COL_HAS_PRIV, _COL_TRUST):
+        for col in (_COL_ALGO, _COL_FP, _COL_CREATED, _COL_EXPIRES, _COL_STORAGE, _COL_TRUST):
             hh.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self._table.verticalHeader().hide()
         layout.addWidget(self._table, stretch=1)
@@ -111,11 +137,13 @@ class KeyListView(QWidget):
         self._vm.keys_changed.connect(self._on_keys_changed)
         self._vm.loading_changed.connect(self._on_loading)
         self._vm.operation_failed.connect(self._on_error)
+        self._vm.card_changed.connect(self._on_card_changed)
 
         self._btn_create.clicked.connect(self._open_create_dialog)
         self._btn_import.clicked.connect(self._open_import_dialog)
         self._btn_delete.clicked.connect(self._delete_selected)
-        self._btn_refresh.clicked.connect(self._vm.refresh)
+        self._btn_smartcard.clicked.connect(self._open_smartcard_dialog)
+        self._btn_refresh.clicked.connect(self._refresh_all)
 
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
         self._table.doubleClicked.connect(self._open_detail)
@@ -139,9 +167,11 @@ class KeyListView(QWidget):
             self._table.setItem(row, _COL_FP, read_only_cell(key.fingerprint[-16:]))
             self._table.setItem(row, _COL_CREATED, read_only_cell(_fmt_date(key.created_at)))
             self._table.setItem(row, _COL_EXPIRES, read_only_cell(_fmt_date(key.expires_at)))
-            self._table.setItem(
-                row, _COL_HAS_PRIV, read_only_cell("yes" if key.has_private_key else "")
-            )
+            storage_item = read_only_cell(key.storage_label)
+            storage_item.setToolTip(_STORAGE_TOOLTIPS.get(key.storage, ""))
+            if key.is_on_smartcard:
+                storage_item.setForeground(Qt.GlobalColor.darkCyan)
+            self._table.setItem(row, _COL_STORAGE, storage_item)
             self._table.setItem(row, _COL_TRUST, read_only_cell(key.trust.value))
 
             if key.is_revoked or key.is_expired:
@@ -198,6 +228,37 @@ class KeyListView(QWidget):
         dlg.exec()
         self._vm.refresh()
 
+    def _refresh_all(self) -> None:
+        self._vm.refresh()
+        self._vm.refresh_card()
+
+    def _open_smartcard_dialog(self) -> None:
+        smartcard = self._vm.smartcard_service
+        if smartcard is None:
+            return
+        from gpg_meister.ui.keys.smartcard_view import SmartcardDialog
+
+        dlg = SmartcardDialog(smartcard, self._vm._svc, parent=self)
+        dlg.keyring_changed.connect(self._vm.refresh)
+        dlg.exec()
+        self._refresh_all()
+
+    def _on_card_changed(self, result: object) -> None:
+        if not isinstance(result, CardSyncResult):
+            self._card_status.clear()
+            return
+        if result.card is None:
+            self._card_status.setText("No smartcard")
+            self._card_status.setToolTip("No YubiKey or OpenPGP card is currently readable.")
+            self._card_status.setStyleSheet("color: #666666;")
+            return
+        self._card_status.setText(f"{result.card.display_name} connected")
+        self._card_status.setToolTip(
+            "Keys held on this token are marked in the Storage column. "
+            "Unlock them with the card PIN instead of a passphrase."
+        )
+        self._card_status.setStyleSheet("color: #006600;")
+
     def _delete_selected(self) -> None:
         key = self._selected_key()
         if key is None:
@@ -219,11 +280,19 @@ class KeyListView(QWidget):
             self._vm.request_delete(key.fingerprint, including_secret=False)
 
     def _confirm_delete(self, key: KeyInfo, title: str) -> bool:
+        # Deleting a card-backed key only drops the local stub; the token keeps
+        # the key material, so say so rather than let "permanently" mislead.
+        note = (
+            f"\n\nThis removes only the local reference — the key stays on "
+            f"{key.storage_label} and can be linked again."
+            if key.is_on_smartcard
+            else ""
+        )
         if not self._vm.require_delete_text_confirmation:
             answer = QMessageBox.question(
                 self,
                 title,
-                f"Permanently delete key {key.fingerprint[-16:]}?",
+                f"Permanently delete key {key.fingerprint[-16:]}?{note}",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -232,7 +301,7 @@ class KeyListView(QWidget):
         confirmation, ok = QInputDialog.getText(
             self,
             title,
-            f"Type DELETE to permanently remove key {key.fingerprint[-16:]}.",
+            f"Type DELETE to permanently remove key {key.fingerprint[-16:]}.{note}",
         )
         return ok and confirmation.strip().upper() == self._DELETE_CONFIRM_TEXT
 
