@@ -57,6 +57,7 @@ def _create_vault(
     *,
     backup_fp: str,
     unlock_fps: list[str],
+    with_passphrase: bool = True,
 ) -> None:
     with (
         SecureBytes.from_bytes(MASTER) as master,
@@ -64,7 +65,7 @@ def _create_vault(
     ):
         vault_service.create(
             target_path=target,
-            master_passphrase=master,
+            master_passphrase=master if with_passphrase else None,
             gpg_passphrases={backup_fp: gpgpw},
             fingerprints=[backup_fp],
             description="token-protected backup",
@@ -183,6 +184,50 @@ def test_open_without_any_credential_is_refused(
 
     with pytest.raises(VaultServiceError):
         vault_service.preview(source_path=target)
+
+
+def test_token_only_vault_carries_no_passphrase_slot(
+    tmp_path: Path, isolated_gpg: GPGService, vault_service: VaultService
+) -> None:
+    backup_fp = _make_key(isolated_gpg, email="alice@example.org", passphrase=KEY_PASSPHRASE)
+    unlock_fp = _make_key(isolated_gpg, email="token@example.org", passphrase=UNLOCK_PASSPHRASE)
+    target = tmp_path / "token-only.gpgvault"
+
+    _create_vault(
+        vault_service,
+        target,
+        backup_fp=backup_fp,
+        unlock_fps=[unlock_fp],
+        with_passphrase=False,
+    )
+
+    info = vault_service.unlock_info(target)
+    assert info.accepts_smartcard
+    assert not info.accepts_passphrase
+
+    with SecureBytes.from_bytes(UNLOCK_PASSPHRASE) as pin:
+        preview = vault_service.preview(source_path=target, smartcard_pin=pin)
+    assert [key.fingerprint for key in preview.keys] == [backup_fp]
+
+    with SecureBytes.from_bytes(MASTER) as master, pytest.raises(VaultServiceError):
+        vault_service.preview(source_path=target, master_passphrase=master)
+
+
+def test_a_vault_with_no_unlock_method_at_all_is_refused(
+    tmp_path: Path, isolated_gpg: GPGService, vault_service: VaultService
+) -> None:
+    backup_fp = _make_key(isolated_gpg, email="alice@example.org", passphrase=KEY_PASSPHRASE)
+
+    with (
+        SecureBytes.from_bytes(KEY_PASSPHRASE) as gpgpw,
+        pytest.raises(VaultServiceError),
+    ):
+        vault_service.create(
+            target_path=tmp_path / "impossible.gpgvault",
+            master_passphrase=None,
+            gpg_passphrases={backup_fp: gpgpw},
+            fingerprints=[backup_fp],
+        )
 
 
 def test_tampering_with_a_key_slot_breaks_the_vault(

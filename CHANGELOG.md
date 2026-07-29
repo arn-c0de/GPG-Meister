@@ -30,14 +30,34 @@ unlock a vault backup.
   unplugged token or unavailable reader says so and asks for the token, and a
   rejected PIN warns that cards lock themselves after a few attempts.
 
+**Card management**
+
+- The smartcard panel can now change the user or admin PIN, unblock a locked
+  user PIN with the admin PIN, move an existing private key onto the card, and
+  generate a fresh key set on the device.
+- These drive GnuPG's interactive editors through `--command-fd`, answering
+  prompts **by keyword** rather than position, so a script that no longer matches
+  a GnuPG version cannot answer the wrong question — notably "Replace existing
+  keys?". An unscripted prompt aborts the run and reports which prompt was
+  asked. `--batch` is dropped for these runs (GnuPG refuses its editors under
+  it); loopback pinentry is kept, so PINs still never leave an app-owned pipe.
+- Destructive actions are gated twice: the service refuses an occupied slot
+  unless the caller passes an explicit overwrite flag, and the dialogs only pass
+  it after the user types `REPLACE`. Moving a key also requires typing `MOVE`,
+  since GnuPG leaves only a stub behind. Generating on-card keeps GnuPG's
+  off-card backup of the encryption key on by default.
+- Not verified against physical hardware — see `docs/smartcard.md`.
+
 **Vaults unlockable by a smartcard**
 
 - A vault can now be created with a token as an additional unlock method. Such
   vaults use format **version 3**: the payload is encrypted with a random file
   key that is wrapped once per unlock method ("key slot") — one slot for the
   master passphrase, one per selected token key. Opening the vault needs either.
-- The master passphrase slot is always written, so a lost or broken token can
-  never orphan a backup.
+- The master passphrase slot is written by default, so a lost or broken token
+  cannot orphan a backup. Ticking *Token only* omits it, producing a vault the
+  token alone can open; the option becomes available only once a token key is
+  selected, and states plainly that losing the token destroys the backup.
 - The vault import wizard offers "Smartcard PIN" as an unlock method when the
   file advertises one. Which methods a vault supports is read from its header
   alone, before any credential is entered.

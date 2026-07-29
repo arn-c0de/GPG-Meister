@@ -10,6 +10,11 @@ Hardened against the most common subprocess pitfalls (planv2.md §4.5, §5.6):
   Smartcard PINs travel the same path: with loopback pinentry, gpg-agent asks us
   for the card PIN and it is answered from `--passphrase-fd`, so a YubiKey PIN
   never touches an external process either.
+  The one exception is `run_prompt_script`, which drives GnuPG's interactive
+  editors (`--card-edit`, `--edit-key`) — GnuPG refuses those under `--batch`.
+  It keeps loopback pinentry (so still no external Pinentry) and answers every
+  prompt from an app-owned `--command-fd` pipe; see that method for the rules
+  that keep an unscripted prompt from being answered by accident.
 - `--homedir` is always set explicitly so we never touch the user's `~/.gnupg/`
   keyring.
 - Passphrases are written as bytes to an app-owned pipe created with `os.pipe()`
@@ -42,6 +47,7 @@ from typing import Any, cast
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo, TrustLevel
 from gpg_meister.models.message import SignatureStatus
 from gpg_meister.security.secure_bytes import SecureBytes, zero_mutable_buffer
+from gpg_meister.services.card_scripts import PromptScript
 from gpg_meister.services.errors import (
     GPGCardError,
     GPGCardPinError,
@@ -561,6 +567,93 @@ class _GPGPipes:
         self.pass_read = self.pass_write = self.status_read = self.status_write = None
 
 
+@dataclass
+class PromptRun:
+    """Result of an interactive editor run driven by a :class:`PromptScript`."""
+
+    returncode: int
+    stdout: bytes
+    stderr: bytes
+    status: bytes
+    # The first prompt the script had no answer for, if any. Its presence means
+    # the run was aborted rather than completed.
+    unanswered_prompt: str | None = None
+
+    def status_records(self) -> list[list[str]]:
+        """The `[GNUPG:]` records GnuPG emitted, split into fields."""
+        return _parse_status(self.status)
+
+
+# GnuPG announces a prompt as `[GNUPG:] GET_LINE <keyword>` (also GET_BOOL for
+# yes/no questions and GET_HIDDEN for secrets).
+_PROMPT_PREFIXES = ("GET_LINE", "GET_BOOL", "GET_HIDDEN")
+
+
+def _answer_prompts(
+    status_fd: int,
+    command_fd: int,
+    script: PromptScript,
+    transcript: bytearray,
+    outcome: dict[str, str],
+) -> None:
+    """Answer GnuPG's prompts from ``script`` until the status stream ends.
+
+    Runs on a worker thread and owns both fds. A prompt the script cannot answer
+    stops the conversation: the command pipe is closed, which makes GnuPG abort
+    the operation rather than proceed on a guess. The offending keyword is
+    reported through ``outcome`` so the user can be told what was asked.
+    """
+    buffer = bytearray()
+    answering = True
+    try:
+        while True:
+            chunk = os.read(status_fd, 4096)
+            if not chunk:
+                return
+            if len(transcript) + len(chunk) <= _STATUS_BUF_LIMIT:
+                transcript.extend(chunk)
+            buffer.extend(chunk)
+            while b"\n" in buffer:
+                line, _, rest = bytes(buffer).partition(b"\n")
+                buffer = bytearray(rest)
+                if not answering:
+                    continue
+                keyword = _prompt_keyword(line)
+                if keyword is None:
+                    continue
+                answer = script.take(keyword)
+                if answer is None:
+                    outcome.setdefault("unanswered", keyword)
+                    answering = False
+                    with contextlib.suppress(OSError):
+                        os.close(command_fd)
+                    continue
+                try:
+                    _write_all(command_fd, answer + b"\n")
+                finally:
+                    if isinstance(answer, bytes):
+                        del answer
+    except OSError:
+        return
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(status_fd)
+        if answering:
+            with contextlib.suppress(OSError):
+                os.close(command_fd)
+
+
+def _prompt_keyword(line: bytes) -> str | None:
+    """Extract the prompt keyword from one `[GNUPG:]` status line."""
+    text = line.decode("utf-8", errors="replace").strip()
+    if not text.startswith("[GNUPG:] "):
+        return None
+    parts = text.removeprefix("[GNUPG:] ").split()
+    if len(parts) < 2 or parts[0] not in _PROMPT_PREFIXES:
+        return None
+    return parts[1]
+
+
 def _start_status_reader(fd: int | None, buffer: bytearray) -> threading.Thread | None:
     """Start the drain thread for GPG's status pipe; the thread owns ``fd``."""
     if fd is None:
@@ -801,6 +894,80 @@ class GPGService:
         return infos
 
     # ----------------------------------------------------------------- smartcard
+
+    def run_prompt_script(self, args: Sequence[str], script: PromptScript) -> PromptRun:
+        """Drive an interactive GnuPG editor (`--card-edit`, `--edit-key`).
+
+        GnuPG announces each prompt on the status pipe and reads the answer from
+        a second, app-owned pipe passed as ``--command-fd``; the answers come
+        from ``script``, keyed by prompt. Secrets therefore never appear in
+        ``argv`` — same guarantee as the passphrase pipe — and a prompt the
+        script does not cover aborts the run instead of being guessed at.
+
+        ``--batch`` is deliberately dropped here: GnuPG refuses its editors in
+        batch mode. Loopback pinentry is kept, so no external Pinentry is
+        spawned; the PIN prompts arrive on the command pipe like every other
+        answer.
+        """
+        self._assert_binary_not_swapped()
+
+        status_read, status_write = os.pipe()
+        command_read, command_write = os.pipe()
+        os.set_inheritable(status_write, True)
+        os.set_inheritable(command_read, True)
+
+        cmd = [
+            str(self._config.binary_path),
+            "--homedir",
+            str(self._config.home_dir),
+            "--pinentry-mode",
+            "loopback",
+            "--status-fd",
+            str(status_write),
+            "--command-fd",
+            str(command_read),
+            *args,
+        ]
+
+        transcript = bytearray()
+        outcome: dict[str, str] = {}
+        responder: threading.Thread | None = None
+        try:
+            proc = subprocess.Popen(  # noqa: S603
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                pass_fds=(status_write, command_read),
+                env=_clean_env(),
+                close_fds=True,
+            )
+            os.close(status_write)
+            os.close(command_read)
+            status_write = command_read = -1
+            responder = threading.Thread(
+                target=_answer_prompts,
+                args=(status_read, command_write, script, transcript, outcome),
+                daemon=True,
+            )
+            responder.start()
+            status_read = command_write = -1
+            stdout, stderr = self._communicate(proc, None)
+            responder.join(timeout=2.0)
+            return PromptRun(
+                returncode=proc.returncode,
+                stdout=stdout or b"",
+                stderr=stderr or b"",
+                status=bytes(transcript),
+                unanswered_prompt=outcome.get("unanswered"),
+            )
+        finally:
+            for fd in (status_read, status_write, command_read, command_write):
+                if fd >= 0:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+            if responder is not None and responder.is_alive():
+                responder.join(timeout=1.0)
 
     def card_status(self) -> str:
         """Return raw ``gpg --card-status --with-colons`` output for the token.

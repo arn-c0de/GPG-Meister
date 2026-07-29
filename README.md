@@ -31,7 +31,7 @@ GPG Meister is a local-first desktop application built on GnuPG. It gives users 
   <img src="images/GPG-MEISTER-decrypt-page.png" alt="Decryption" width="600">
 - **Encrypted vault backups**: Export and import encrypted key vaults for backup or transfer.
   <img src="images/GPG-MEISTER-vault.png" alt="Vault Management" width="600">
-- **Smartcard / YubiKey support**: Use keys held on a YubiKey, Nitrokey, or other OpenPGP card to decrypt and sign with the card PIN instead of a passphrase, see at a glance which device holds each key, and optionally add a token as a second way to unlock a vault.
+- **Smartcard / YubiKey support**: Use keys held on a YubiKey, Nitrokey, or other OpenPGP card to decrypt and sign with the card PIN instead of a passphrase, see at a glance which device holds each key, manage the card itself (PIN change and unblock, move a key onto the card, generate keys on it), and optionally add a token as a way to unlock a vault. See [Smartcards and YubiKeys](docs/smartcard.md).
 - **Built-in help**: Use the integrated help pages and glossary for common GPG concepts.
   <img src="images/GPG-MEISTER-help-page.png" alt="Help Page" width="600">
 - **Local-first workflow**: Keep cryptographic operations and metadata on your own machine.

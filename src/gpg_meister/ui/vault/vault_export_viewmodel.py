@@ -58,6 +58,9 @@ class VaultExportViewModel(QObject):
         # Keys that may open the finished vault in addition to the master
         # passphrase — in practice the encryption key on a hardware token.
         self._unlock_fps: list[str] = []
+        # True once the user has explicitly accepted a token-only vault, which
+        # has no passphrase to fall back on.
+        self._token_only = False
 
     # ------------------------------------------------------------------ loading
 
@@ -100,6 +103,20 @@ class VaultExportViewModel(QObject):
     @property
     def unlock_keys(self) -> list[str]:
         return list(self._unlock_fps)
+
+    def set_token_only(self, token_only: bool) -> None:
+        """Drop the master-passphrase slot, making the token the only way in."""
+        self._token_only = token_only
+
+    @property
+    def token_only(self) -> bool:
+        """True when the vault will carry no passphrase slot at all.
+
+        Only ever true while at least one token key is selected — a vault with
+        neither would be unopenable, so the flag falls back to False rather than
+        letting a stale tick-box produce one.
+        """
+        return self._token_only and bool(self._unlock_fps)
 
     def set_target_path(self, path: Path | None) -> None:
         self._target_path = path
@@ -157,7 +174,9 @@ class VaultExportViewModel(QObject):
     def can_submit(self) -> bool:
         if not self._selected_fps or self._target_path is None:
             return False
-        if not self._master_passphrase or self._master_passphrase != self._confirm_passphrase:
+        if not self.token_only and (
+            not self._master_passphrase or self._master_passphrase != self._confirm_passphrase
+        ):
             return False
         return all(self.is_key_unlocked(fp) for fp in self._selected_fps)
 
@@ -172,9 +191,12 @@ class VaultExportViewModel(QObject):
         unlock_fps = list(self._unlock_fps)
 
         from gpg_meister.security.password_policy import normalise_passphrase
-        _master_raw = normalise_passphrase(self._master_passphrase.strip()).encode()
-        master_secure = SecureBytes.from_bytes(_master_raw)
-        _zero_bytes_object(_master_raw)
+
+        master_secure: SecureBytes | None = None
+        if not self.token_only:
+            _master_raw = normalise_passphrase(self._master_passphrase.strip()).encode()
+            master_secure = SecureBytes.from_bytes(_master_raw)
+            _zero_bytes_object(_master_raw)
         self._master_passphrase = ""
         self._confirm_passphrase = ""
 
@@ -190,7 +212,8 @@ class VaultExportViewModel(QObject):
         self._unlocked_fps.difference_update(fps)
 
         def _do() -> VaultDescriptor:
-            with master_secure as master_pp, contextlib.ExitStack() as stack:
+            with contextlib.ExitStack() as stack:
+                master_pp = stack.enter_context(master_secure) if master_secure else None
                 gpg_pps: dict[str, SecureBytes] = {
                     fp: stack.enter_context(pw)
                     for fp, pw in gpg_secure.items()

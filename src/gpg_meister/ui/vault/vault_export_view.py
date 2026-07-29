@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -136,6 +137,7 @@ class VaultExportView(QWidget):
         self._pp_mismatch.setStyleSheet("color: #cc0000;")
         pp_layout.addWidget(self._pp_mismatch)
         pp_box.setMinimumHeight(200)
+        self._pp_box = pp_box
         layout.addWidget(pp_box)
 
     def _build_token_unlock_section(self, layout: QVBoxLayout) -> None:
@@ -154,6 +156,20 @@ class VaultExportView(QWidget):
         self._token_list = QListWidget()
         self._token_list.setMaximumHeight(80)
         token_layout.addWidget(self._token_list)
+
+        self._token_only_check = QCheckBox("Token only — do not add a master passphrase")
+        self._token_only_check.setEnabled(False)
+        token_layout.addWidget(self._token_only_check)
+        self._token_only_warning = QLabel(
+            "Without a passphrase slot the ticked token is the only way into this vault. "
+            "If it is lost, broken, or wiped, the backup is gone for good — keep a second "
+            "token or an independent backup."
+        )
+        self._token_only_warning.setWordWrap(True)
+        self._token_only_warning.setStyleSheet("color: #cc0000; font-weight: bold;")
+        self._token_only_warning.hide()
+        token_layout.addWidget(self._token_only_warning)
+
         self._token_box.hide()
         layout.addWidget(self._token_box)
 
@@ -177,10 +193,31 @@ class VaultExportView(QWidget):
             and item.checkState() is Qt.CheckState.Checked
         ]
         self._vm.set_unlock_keys([fp for fp in fingerprints if fp])
+        # Dropping the passphrase is only offered while a token is ticked;
+        # un-ticking the last one silently re-arms the passphrase requirement
+        # so the form can never ask for a vault nothing can open.
+        has_token = bool(self._vm.unlock_keys)
+        self._token_only_check.setEnabled(has_token)
+        if not has_token and self._token_only_check.isChecked():
+            self._token_only_check.setChecked(False)
+        self._update_button()
+
+    def _on_token_only_toggled(self, checked: bool) -> None:
+        self._vm.set_token_only(checked)
+        self._token_only_warning.setVisible(checked)
+        self._pp_box.setEnabled(not checked)
+        if checked:
+            self._master_pp.clear()
+            self._confirm_pp.clear()
+            self._vm.set_master_passphrase("")
+            self._vm.set_confirm_passphrase("")
+            self._pp_mismatch.setText("")
+        self._update_button()
 
     def _connect_signals(self) -> None:
         self._vm.keys_loaded.connect(self._on_keys_loaded)
         self._token_list.itemChanged.connect(lambda _item: self._on_token_selection_changed())
+        self._token_only_check.toggled.connect(self._on_token_only_toggled)
         self._vm.loading_changed.connect(self._on_loading)
         self._vm.operation_succeeded.connect(self._on_success)
         self._vm.operation_failed.connect(self._on_error)

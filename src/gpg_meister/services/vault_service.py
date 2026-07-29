@@ -548,7 +548,7 @@ def _encrypt_payload(
 
 def _encrypt_payload_with_slots(
     plaintext: bytearray,
-    master_passphrase: SecureBytes,
+    master_passphrase: SecureBytes | None,
     *,
     params: KDFParams,
     cipher: CipherAlgorithm,
@@ -556,19 +556,24 @@ def _encrypt_payload_with_slots(
 ) -> bytes:
     """Encrypt ``plaintext`` under a random file key wrapped into several slots.
 
-    The passphrase slot is always written first: it is the fallback that keeps a
-    lost or broken token from taking the backup with it. ``wrap_for_keys`` adds
-    the OpenPGP slots (one per smartcard key) and is injected so this function
-    stays free of the GPG subprocess.
+    The passphrase slot comes first when there is one: it is the fallback that
+    keeps a lost or broken token from taking the backup with it. Omitting it
+    yields a token-only vault, which the caller must have had confirmed.
+    ``wrap_for_keys`` adds the OpenPGP slots (one per smartcard key) and is
+    injected so this function stays free of the GPG subprocess.
 
     ``plaintext`` is zeroed as soon as the ciphertext exists.
     """
     nonce = generate_nonce()
     with generate_file_key() as file_key:
-        slots = (
-            wrap_with_passphrase(file_key, master_passphrase, params=params, cipher=cipher),
-            *wrap_for_keys(file_key),
+        passphrase_slots = (
+            ()
+            if master_passphrase is None
+            else (wrap_with_passphrase(file_key, master_passphrase, params=params, cipher=cipher),)
         )
+        slots = (*passphrase_slots, *wrap_for_keys(file_key))
+        if not slots:  # pragma: no cover - callers reject this earlier
+            raise VaultServiceError("a vault needs at least one unlock method")
         if len(slots) > MAX_VAULT_KEY_SLOTS:
             raise VaultServiceError("too many unlock methods for one vault")
         header = VaultHeader(
@@ -678,7 +683,7 @@ class VaultService:
         self,
         *,
         target_path: Path,
-        master_passphrase: SecureBytes,
+        master_passphrase: SecureBytes | None = None,
         gpg_passphrases: dict[str, SecureBytes],
         fingerprints: Iterable[str],
         description: str = "",
@@ -696,8 +701,13 @@ class VaultService:
         `unlock_key_fingerprints` names GPG keys — typically the encryption key
         on a YubiKey — that may open the finished vault in addition to the master
         passphrase. Supplying any switches the file to format version 3, where a
-        random payload key is wrapped once per unlock method. The master
-        passphrase always stays valid so a lost token cannot orphan the backup.
+        random payload key is wrapped once per unlock method.
+
+        `master_passphrase` may be omitted *only* when unlock keys are given, and
+        the result is a vault whose sole key is on those tokens: lose them all
+        and the backup is gone for good. Callers must confirm that with the user
+        first — the normal path passes both, so the passphrase keeps working if
+        a token is lost.
 
         Order of operations (planv2.md §4.6):
           1. Acquire an exclusive file lock on the target.
@@ -714,6 +724,10 @@ class VaultService:
         if not fps:
             raise VaultServiceError("at least one key fingerprint is required")
         unlock_fps = tuple(validate_fingerprint(fp) for fp in unlock_key_fingerprints)
+        if master_passphrase is None and not unlock_fps:
+            raise VaultServiceError(
+                "a vault needs a master passphrase, an unlock key, or both"
+            )
 
         params = kdf_params or high_memory_params()
         target_path = Path(target_path)
@@ -742,10 +756,12 @@ class VaultService:
                     cipher=cipher,
                     wrap_for_keys=lambda file_key: self._wrap_for_keys(file_key, unlock_fps),
                 )
-            else:
+            elif master_passphrase is not None:
                 frame = _encrypt_payload(
                     plaintext, master_passphrase, params=params, cipher=cipher
                 )
+            else:  # pragma: no cover - rejected above
+                raise VaultServiceError("no unlock method for this vault")
             sha = _write_vault_files(target_path, frame)
 
             self._audit.emit(

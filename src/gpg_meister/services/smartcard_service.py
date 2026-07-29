@@ -13,6 +13,11 @@ part the application needs on top:
 - **Inventory.** :meth:`SmartcardService.card_keys` lists the keys in the keyring
   whose private half lives on a token, which drives the storage labels and the
   "enter your PIN, not a passphrase" hints.
+- **Administration.** PIN changes, unblocking, moving a key onto the card, and
+  generating one there. These drive GnuPG's interactive editors through scripted
+  answers (see ``card_scripts``) and are the only operations here that can
+  destroy key material, so each one refuses to touch an occupied card slot
+  unless the caller passes an explicit overwrite flag.
 
 Unlocking itself needs nothing special: with loopback pinentry the card PIN is
 answered from the same ``--passphrase-fd`` pipe as a normal key passphrase (see
@@ -25,9 +30,24 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from gpg_meister.models.key_info import KeyInfo
-from gpg_meister.models.smartcard import CardInfo, parse_card_status
-from gpg_meister.services.errors import GPGCardError, GPGServiceError
+from gpg_meister.models.smartcard import CardInfo, CardPin, CardSlot, parse_card_status
+from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.services.card_scripts import (
+    PromptScript,
+    card_operation_failed,
+    change_pin_script,
+    generate_on_card_script,
+    keytocard_script,
+    unblock_pin_script,
+)
+from gpg_meister.services.errors import GPGCardError, GPGCardPinError, GPGServiceError
 from gpg_meister.services.gpg_service import GPGService
+from gpg_meister.services.validation import (
+    validate_email,
+    validate_expiry,
+    validate_fingerprint,
+    validate_user_name,
+)
 from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
 
 
@@ -122,6 +142,174 @@ class SmartcardService:
             linked_fingerprints=linked,
             missing_fingerprints=missing,
             keys=tuple(keys),
+        )
+
+    # ----------------------------------------------------------- card admin
+
+    def change_pin(self, pin: CardPin, *, current: SecureBytes, new: SecureBytes) -> None:
+        """Change the card's user or admin PIN.
+
+        Wrong attempts count against the card's retry counter, so the caller
+        should show the remaining attempts before letting the user try again.
+        """
+        self._run_card_script(
+            ["--card-edit"],
+            change_pin_script(pin, current=current, new=new),
+            operation=f"{pin.value} PIN change",
+            event="smartcard_pin_changed",
+        )
+
+    def unblock_user_pin(self, *, admin_pin: SecureBytes, new_user_pin: SecureBytes) -> None:
+        """Reset a blocked user PIN with the admin PIN."""
+        self._run_card_script(
+            ["--card-edit"],
+            unblock_pin_script(admin_pin=admin_pin, new_user_pin=new_user_pin),
+            operation="PIN unblock",
+            event="smartcard_pin_changed",
+        )
+
+    def move_key_to_card(
+        self,
+        fingerprint: str,
+        slot: CardSlot,
+        *,
+        key_passphrase: SecureBytes,
+        admin_pin: SecureBytes,
+        key_index: int = 0,
+        allow_overwrite: bool = False,
+    ) -> None:
+        """Move a local key onto the card. **The local secret key is replaced.**
+
+        GnuPG turns the on-disk secret key into a stub pointing at the card, so
+        the only remaining copy is the one on the token (and whatever backup the
+        user made beforehand). Refuses to overwrite a populated slot unless
+        ``allow_overwrite`` says the user was told what is in it.
+        """
+        fp = validate_fingerprint(fingerprint)
+        if key_index < 0:
+            raise GPGCardError("invalid subkey selection")
+        self._require_free_slot(slot, allow_overwrite=allow_overwrite)
+        self._run_card_script(
+            ["--edit-key", fp],
+            keytocard_script(
+                slot,
+                key_index=key_index,
+                key_passphrase=key_passphrase,
+                admin_pin=admin_pin,
+            ),
+            operation="moving the key onto the card",
+            event="smartcard_key_moved",
+            fingerprint=fp,
+            slot=slot.value,
+        )
+
+    def generate_key_on_card(
+        self,
+        *,
+        admin_pin: SecureBytes,
+        user_pin: SecureBytes,
+        name: str,
+        email: str,
+        expiry: str = "0",
+        off_card_backup: bool = True,
+        allow_overwrite: bool = False,
+    ) -> None:
+        """Generate a new key set on the card itself.
+
+        The private keys are created on the device and can never be read back,
+        so ``off_card_backup`` (GnuPG's off-card backup of the *encryption* key)
+        is on by default: without it, a lost card means encrypted data is gone.
+        Overwriting a populated card needs ``allow_overwrite``.
+        """
+        clean_name = validate_user_name(name)
+        clean_email = validate_email(email)
+        # "0" is GnuPG's own answer for "does not expire"; every other form goes
+        # through the shared validator.
+        if expiry != "0":
+            validate_expiry(expiry)
+        if not allow_overwrite:
+            card = self.detect()
+            if card is not None and card.occupied_slots():
+                raise GPGCardError(
+                    "this card already holds keys — generating new ones would destroy them"
+                )
+        self._run_card_script(
+            ["--card-edit"],
+            generate_on_card_script(
+                admin_pin=admin_pin,
+                user_pin=user_pin,
+                name=clean_name,
+                email=clean_email,
+                expiry=expiry,
+                off_card_backup=off_card_backup,
+                replace_existing=allow_overwrite,
+            ),
+            operation="generating keys on the card",
+            event="smartcard_key_generated",
+        )
+
+    def _require_free_slot(self, slot: CardSlot, *, allow_overwrite: bool) -> None:
+        if allow_overwrite:
+            return
+        card = self.detect()
+        if card is None:
+            raise GPGCardError("no smartcard is available — insert your token and try again")
+        if card.slot_fingerprint(slot):
+            raise GPGCardError(
+                f"the {slot.slot_name.lower()} slot already holds a key; "
+                "overwriting it would destroy that key"
+            )
+
+    def _run_card_script(
+        self,
+        args: list[str],
+        script: PromptScript,
+        *,
+        operation: str,
+        event: str,
+        **payload: object,
+    ) -> None:
+        """Execute a scripted editor session and translate its outcome.
+
+        The script is wiped whatever happens, so the PINs it carries do not
+        outlive the call.
+        """
+        try:
+            result = self._gpg.run_prompt_script(args, script)
+            leftover = script.pending()
+        finally:
+            script.wipe()
+
+        if result.unanswered_prompt is not None:
+            self._emit(event, outcome=OUTCOME_FAILED, reason="unexpected_prompt", **payload)
+            # Deliberately not "nothing was changed": the run was cut off part
+            # way through a menu, and only the card itself can say how far it
+            # got. Point at the refresh instead of making a promise.
+            raise GPGCardError(
+                f"{operation} was stopped: this GnuPG version asked something unexpected "
+                f"({result.unanswered_prompt}). Check the card status before retrying, and "
+                "use `gpg --card-edit` in a terminal for this operation."
+            )
+
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        failure = card_operation_failed(result.status_records())
+        if failure is not None or result.returncode != 0:
+            self._emit(event, outcome=OUTCOME_FAILED, reason=failure or "process", **payload)
+            lowered = stderr.lower()
+            if "pin" in lowered and ("bad" in lowered or "wrong" in lowered or "block" in lowered):
+                raise GPGCardPinError(f"{operation} failed: the card rejected the PIN")
+            raise GPGCardError(f"{operation} failed: {stderr[:200] or failure}")
+
+        # Leftover answers mean GnuPG asked fewer questions than scripted — it
+        # skipped a submenu, say. That is *not* treated as failure: GnuPG
+        # reported no error, and crying failure over a change that may well have
+        # happened would push the user into a retry that burns PIN attempts with
+        # a PIN that is no longer current. It is recorded instead.
+        self._emit(
+            event,
+            outcome=OUTCOME_OK,
+            unused_answers=len(leftover),
+            **payload,
         )
 
     def _emit(self, event: str, *, outcome: str = OUTCOME_OK, **payload: object) -> None:

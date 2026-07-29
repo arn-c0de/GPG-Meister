@@ -132,6 +132,25 @@ class SmartcardDialog(QDialog):
         button_row.addStretch()
         layout.addLayout(button_row)
 
+        # Everything that writes to the card. Disabled until one is detected,
+        # since all of it needs a card present to mean anything.
+        admin_row = QHBoxLayout()
+        self._btn_pin = QPushButton("PIN…")
+        self._btn_pin.setToolTip("Change the user or admin PIN, or unblock a locked PIN")
+        self._btn_pin.clicked.connect(self._open_pin_dialog)
+        self._btn_move = QPushButton("Move key to card…")
+        self._btn_move.setToolTip("Move a private key from this computer onto the card")
+        self._btn_move.clicked.connect(self._open_move_dialog)
+        self._btn_move.setVisible(self._key_svc is not None)
+        self._btn_generate = QPushButton("Generate on card…")
+        self._btn_generate.setToolTip("Create a new key set on the card itself")
+        self._btn_generate.clicked.connect(self._open_generate_dialog)
+        for button in (self._btn_pin, self._btn_move, self._btn_generate):
+            button.setEnabled(False)
+            admin_row.addWidget(button)
+        admin_row.addStretch()
+        layout.addLayout(admin_row)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -172,6 +191,39 @@ class SmartcardDialog(QDialog):
         self.keyring_changed.emit()
         self._link_keys()
 
+    # ------------------------------------------------------------ card admin
+
+    def _card(self) -> CardInfo | None:
+        return self._last_result.card if self._last_result else None
+
+    def _open_pin_dialog(self) -> None:
+        from gpg_meister.ui.keys.card_admin_view import ChangePinDialog
+
+        dialog = ChangePinDialog(self._svc, self._card(), parent=self)
+        # A PIN change moves the retry counters, which this panel displays.
+        dialog.completed.connect(self.refresh)
+        dialog.exec()
+        self.refresh()
+
+    def _open_move_dialog(self) -> None:
+        if self._key_svc is None:
+            return
+        from gpg_meister.ui.keys.card_admin_view import MoveKeyToCardDialog
+
+        dialog = MoveKeyToCardDialog(self._svc, self._key_svc, self._card(), parent=self)
+        # The moved key becomes a stub, so the key list has to be re-read.
+        dialog.completed.connect(self.keyring_changed)
+        dialog.exec()
+        self._link_keys()
+
+    def _open_generate_dialog(self) -> None:
+        from gpg_meister.ui.keys.card_admin_view import GenerateOnCardDialog
+
+        dialog = GenerateOnCardDialog(self._svc, self._card(), parent=self)
+        dialog.completed.connect(self.keyring_changed)
+        dialog.exec()
+        self._link_keys()
+
     # ----------------------------------------------------------------- results
 
     def _on_result(self, result: object, *, notify_keyring: bool) -> None:
@@ -198,6 +250,8 @@ class SmartcardDialog(QDialog):
         _clear_layout(self._keys_layout)
 
         card = result.card
+        for button in (self._btn_pin, self._btn_move, self._btn_generate):
+            button.setEnabled(card is not None)
         if card is None:
             self._headline.setText("No smartcard detected")
             self._headline.setStyleSheet(_COLOR_WARN)

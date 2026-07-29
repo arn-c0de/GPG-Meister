@@ -20,6 +20,7 @@ The AID layout (OpenPGP card spec §4.2.1) is 16 bytes / 32 hex characters::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from urllib.parse import unquote
 
 # Registered application provider identifier of the OpenPGP card application.
@@ -61,6 +62,34 @@ _MANUFACTURERS: dict[str, str] = {
 YUBICO_MANUFACTURER = "0006"
 GENERIC_CARD_NAME = "Smartcard"
 YUBIKEY_NAME = "YubiKey"
+
+
+class CardSlot(StrEnum):
+    """The three key slots of an OpenPGP card, in GnuPG's own menu order."""
+
+    SIGNATURE = "1"
+    ENCRYPTION = "2"
+    AUTHENTICATION = "3"
+
+    @property
+    def slot_index(self) -> int:
+        """Position in ``CardInfo.slot_fingerprints``."""
+        return int(self.value) - 1
+
+    @property
+    def slot_name(self) -> str:
+        return {
+            CardSlot.SIGNATURE: "Signature key",
+            CardSlot.ENCRYPTION: "Encryption key",
+            CardSlot.AUTHENTICATION: "Authentication key",
+        }[self]
+
+
+class CardPin(StrEnum):
+    """Which PIN a change/unblock operation targets."""
+
+    USER = "user"
+    ADMIN = "admin"
 
 
 @dataclass(frozen=True)
@@ -183,6 +212,15 @@ class CardInfo:
     @property
     def is_pin_blocked(self) -> bool:
         return self.user_pin_retries == 0
+
+    def slot_fingerprint(self, slot: CardSlot) -> str:
+        """The key in one slot, or "" when the slot is empty."""
+        index = slot.slot_index
+        return self.slot_fingerprints[index] if index < len(self.slot_fingerprints) else ""
+
+    def occupied_slots(self) -> tuple[CardSlot, ...]:
+        """Slots that already hold a key — overwriting one destroys that key."""
+        return tuple(slot for slot in CardSlot if self.slot_fingerprint(slot))
 
     @property
     def key_fingerprints(self) -> tuple[str, ...]:

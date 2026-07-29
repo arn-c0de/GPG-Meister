@@ -90,6 +90,42 @@ polled on every refresh, not an error.
 
 ---
 
+## Managing the card
+
+The smartcard panel also drives the operations that *write* to the card:
+changing or unblocking a PIN, moving an existing key onto the card, and
+generating a fresh key set on the device.
+
+Those live behind GnuPG's interactive editors (`gpg --card-edit`,
+`gpg --edit-key`), which are menu-driven programs rather than one-shot commands.
+GPG Meister drives them through `--command-fd`, and the way it does so is the
+safety property worth understanding:
+
+- GnuPG announces every prompt on the status stream as
+  `GET_LINE`/`GET_BOOL`/`GET_HIDDEN` followed by a **prompt keyword**. Answers are
+  keyed by that keyword, never supplied as a positional list of lines.
+- A positional script that drifted out of step would answer the *next* question
+  with the *previous* answer — and one of the questions is "Replace existing
+  keys?". Keyed answers cannot drift.
+- A prompt nothing was scripted for gets **no answer at all**: the command pipe
+  is closed, GnuPG aborts, and the UI reports which prompt was asked. If a GnuPG
+  version words its menus differently, the operation refuses to run rather than
+  guessing — run `gpg --card-edit` in a terminal in that case.
+- `--batch` is dropped for these runs (GnuPG refuses its editors under it), but
+  loopback pinentry is kept, so no external Pinentry is ever spawned and PINs
+  still travel an app-owned pipe.
+
+On top of that, destructive actions are gated twice: the service refuses to
+touch a slot that already holds a key unless the caller passes an explicit
+overwrite flag, and the dialog only passes it after the user has typed
+`REPLACE`. Moving a key additionally requires typing `MOVE`, because GnuPG
+replaces the on-disk secret key with a stub — after the move the token holds the
+only copy.
+
+When generating on the card, GnuPG's off-card backup of the *encryption* key is
+enabled by default. Without it, a lost or broken card makes everything encrypted
+to it unreadable for good.
+
 ## Vaults with a smartcard slot
 
 A vault has always been encrypted with a key derived from the master passphrase
@@ -109,8 +145,11 @@ payload = AEAD(manifest, key, aad = header bytes)
 
 Properties worth knowing:
 
-- **The master passphrase always stays valid.** The UI writes a passphrase slot
-  unconditionally, so losing the token never orphans a backup.
+- **The master passphrase stays valid by default.** A passphrase slot is written
+  unless the user explicitly ticks *Token only*, so losing the token normally
+  does not orphan a backup. A token-only vault has no fallback at all: if every
+  listed token is lost, the backup is unrecoverable, and the export view says so
+  before it lets the tick-box take effect.
 - **Slots are tamper-evident.** The whole header — key slots included — is the
   associated data of the payload's AEAD tag, so editing, adding, or removing a
   slot breaks decryption through *any* slot.
@@ -128,9 +167,13 @@ a vault does not require the token to be present — only opening it does.
 
 ## Limits
 
-- Generating a key directly on a card, moving an existing key onto one, and
-  changing or unblocking PINs are **not** implemented. Use `gpg --card-edit` for
-  those; GPG Meister will pick up the result on the next refresh.
+- The card-management flows are driven by scripted answers to GnuPG's menus and
+  have **not** been verified against physical hardware — the prompt keywords come
+  from GnuPG's sources, and the protocol layer is covered by tests, but no
+  YubiKey has run them end to end. They fail closed (see above) rather than
+  guess, and `gpg --card-edit` in a terminal remains the fallback.
+- Setting a card's reset code, changing its URL/login attributes, and factory
+  resetting a card are not exposed.
 - A key on a token cannot be exported into a vault as private key material —
   that is the point of a token. Such keys are backed up as public keys only, and
   the vault views label them accordingly.
