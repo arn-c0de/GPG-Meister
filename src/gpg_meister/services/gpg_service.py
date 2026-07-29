@@ -567,6 +567,14 @@ class _GPGPipes:
         self.pass_read = self.pass_write = self.status_read = self.status_write = None
 
 
+@dataclass(frozen=True)
+class CardStatusOutput:
+    """What ``gpg --card-status`` said, and what it complained about."""
+
+    colons: str
+    diagnostics: str
+
+
 @dataclass
 class PromptRun:
     """Result of an interactive editor run driven by a :class:`PromptScript`."""
@@ -969,21 +977,25 @@ class GPGService:
             if responder is not None and responder.is_alive():
                 responder.join(timeout=1.0)
 
-    def card_status(self) -> str:
-        """Return raw ``gpg --card-status --with-colons`` output for the token.
+    def card_status(self) -> CardStatusOutput:
+        """Return ``gpg --card-status --with-colons`` output plus its diagnostics.
 
         Running this also makes GnuPG "learn" the inserted card: it creates the
         secret-key stubs in our own homedir for every card key whose public key
         is already in the keyring, which is what makes decrypt/sign work here.
+
+        GnuPG reports "there is no usable card" in two different ways — a
+        non-zero exit, or exit 0 with an empty card record and the real reason on
+        stderr — so the diagnostics are returned rather than dropped. They are
+        what lets the UI say *why* nothing was found instead of only *that*.
         """
         proc = self._run_gpg(["--card-status", "--with-colons"], status_fd=True)
+        diagnostics = _decode_output(proc.stderr)
         if proc.returncode != 0:
-            combined = _decode_output(proc.status) + "\n" + _decode_output(proc.stderr)
+            combined = _decode_output(proc.status) + "\n" + diagnostics
             _raise_for_card_failure(_parse_status(proc.status), combined, operation="card status")
-            raise GPGCardError(
-                f"could not read the smartcard: {_decode_output(proc.stderr)[:200]}"
-            )
-        return _decode_output(proc.stdout)
+            raise GPGCardError(f"could not read the smartcard: {diagnostics[:200]}")
+        return CardStatusOutput(colons=_decode_output(proc.stdout), diagnostics=diagnostics)
 
     def find_key(self, fingerprint: str) -> KeyInfo:
         fp = validate_fingerprint(fingerprint)

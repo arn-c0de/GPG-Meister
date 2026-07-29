@@ -255,15 +255,22 @@ class SmartcardDialog(QDialog):
         if card is None:
             self._headline.setText("No smartcard detected")
             self._headline.setStyleSheet(_COLOR_WARN)
-            self._details_form.addRow(
-                "",
-                _plain_label(
-                    "Insert your YubiKey or OpenPGP card, then press Refresh. "
-                    "If it is plugged in and still not found, check that a smartcard "
-                    "daemon (scdaemon / pcscd) is installed and running.",
-                    style=_COLOR_MUTED,
-                ),
-            )
+            if result.unavailable_reason:
+                # GnuPG said something specific — show that instead of a generic
+                # "not found", because the fixes are entirely different.
+                self._details_form.addRow(
+                    "Reason:", _plain_label(result.unavailable_reason, style=_COLOR_WARN)
+                )
+            else:
+                self._details_form.addRow(
+                    "",
+                    _plain_label(
+                        "Insert your YubiKey or OpenPGP card, then press Refresh. "
+                        "If it is plugged in and still not found, check that a smartcard "
+                        "daemon (scdaemon / pcscd) is installed and running.",
+                        style=_COLOR_MUTED,
+                    ),
+                )
             self._btn_import.setEnabled(False)
             self._render_known_card_keys(result)
             return

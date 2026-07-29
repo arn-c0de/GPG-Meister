@@ -50,6 +50,45 @@ from gpg_meister.services.validation import (
 )
 from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
 
+# Why GnuPG found no card, in the order the checks have to run: the daemon
+# message also mentions "not available", so it must be matched first. Each entry
+# maps a fragment of gpg's stderr to something the user can act on.
+_UNAVAILABLE_REASONS: tuple[tuple[str, str], ...] = (
+    (
+        "no smartcard daemon",
+        "GnuPG's smartcard daemon is missing. Install the 'scdaemon' package "
+        "(on Debian/Ubuntu: sudo apt install scdaemon), then plug the token in again.",
+    ),
+    (
+        "no card reader",
+        "No smartcard reader was found. If the token is plugged in, its smartcard "
+        "interface may be switched off — check with 'ykman info'.",
+    ),
+    (
+        "no such device",
+        "A reader is present but no card responded. If this is a YubiKey, its CCID "
+        "(smartcard) interface may be disabled — check with 'ykman info'.",
+    ),
+    (
+        "selecting card failed",
+        "The card could not be selected. Another program may be holding it — close "
+        "other GnuPG or smartcard applications and try again.",
+    ),
+    (
+        "card error",
+        "The reader reported a card error. Re-insert the token and try again.",
+    ),
+)
+
+
+def _unavailable_reason(diagnostics: str) -> str:
+    """Translate gpg's complaint into something the user can act on."""
+    lowered = diagnostics.lower()
+    for marker, reason in _UNAVAILABLE_REASONS:
+        if marker in lowered:
+            return reason
+    return ""
+
 
 @dataclass(frozen=True)
 class CardSyncResult:
@@ -62,6 +101,8 @@ class CardSyncResult:
     # stub for them. The user has to import the public key first.
     missing_fingerprints: tuple[str, ...] = ()
     keys: tuple[KeyInfo, ...] = field(default_factory=tuple)
+    # Why no card was found, when GnuPG said something useful about it.
+    unavailable_reason: str = ""
 
     @property
     def card_present(self) -> bool:
@@ -80,19 +121,29 @@ class SmartcardService:
     # ------------------------------------------------------------------ presence
 
     def detect(self) -> CardInfo | None:
-        """Return the inserted card, or ``None`` when no token is reachable.
+        """Return the inserted card, or ``None`` when no token is reachable."""
+        return self.probe()[0]
+
+    def probe(self) -> tuple[CardInfo | None, str]:
+        """Return the inserted card and, when there is none, why not.
 
         Never raises for "there is no card": absence is the common case and the
-        UI polls this on every refresh.
+        UI polls this on every refresh. The reason matters because the causes
+        look identical from the outside — a missing ``scdaemon`` package, a
+        token whose smartcard interface is switched off, and an empty reader all
+        produce "no card" while needing completely different fixes.
         """
         try:
             output = self._gpg.card_status()
-        except GPGCardError:
-            return None
+        except GPGCardError as exc:
+            return None, _unavailable_reason(str(exc))
         except GPGServiceError:
             # A broken reader/scdaemon setup must not take the Keys tab down.
-            return None
-        return parse_card_status(output)
+            return None, ""
+        card = parse_card_status(output.colons)
+        if card is None:
+            return None, _unavailable_reason(output.diagnostics)
+        return card, ""
 
     # ----------------------------------------------------------------- inventory
 
@@ -114,7 +165,7 @@ class SmartcardService:
         the public-key import (the card's ``url`` often points at it).
         """
         try:
-            card = self.detect()
+            card, reason = self.probe()
             keys = self.card_keys()
         except Exception as exc:
             self._emit("smartcard_keys_synced", outcome=OUTCOME_FAILED, reason=type(exc).__name__)
@@ -122,7 +173,7 @@ class SmartcardService:
 
         if card is None:
             self._emit("smartcard_detected", outcome=OUTCOME_OK, card_present="False")
-            return CardSyncResult(keys=tuple(keys))
+            return CardSyncResult(keys=tuple(keys), unavailable_reason=reason)
 
         # A card names the key in each slot by *its own* fingerprint, which for
         # the usual layout is a subkey — so the keyring is indexed by primary and

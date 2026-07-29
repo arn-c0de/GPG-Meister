@@ -10,7 +10,7 @@ from gpg_meister.models.smartcard import CardPin, CardSlot
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.card_scripts import PromptScript
 from gpg_meister.services.errors import GPGCardError, GPGCardPinError
-from gpg_meister.services.gpg_service import PromptRun
+from gpg_meister.services.gpg_service import CardStatusOutput, PromptRun
 from gpg_meister.services.smartcard_service import SmartcardService
 
 YUBIKEY_AID = "D2760001240103040006123456780000"
@@ -35,13 +35,20 @@ fpr:{SLOT_FPR}:{SLOT_FPR}::
 class _FakeGPG:
     """Records what would have been run and replays a canned outcome."""
 
-    def __init__(self, *, card_status: str = EMPTY_CARD, run: PromptRun | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        card_status: str = EMPTY_CARD,
+        run: PromptRun | None = None,
+        diagnostics: str = "",
+    ) -> None:
         self._card_status = card_status
+        self._diagnostics = diagnostics
         self._run = run or PromptRun(returncode=0, stdout=b"", stderr=b"", status=b"")
         self.calls: list[tuple[tuple[str, ...], PromptScript]] = []
 
-    def card_status(self) -> str:
-        return self._card_status
+    def card_status(self) -> CardStatusOutput:
+        return CardStatusOutput(colons=self._card_status, diagnostics=self._diagnostics)
 
     def list_keys(self, *, secret: bool = False) -> list[object]:
         return []
@@ -57,6 +64,78 @@ def _service(gpg: _FakeGPG) -> SmartcardService:
 
 def _secret(value: bytes = b"123456") -> SecureBytes:
     return SecureBytes.from_bytes(value)
+
+
+# --------------------------------------------------------- why no card
+
+
+def test_a_missing_scdaemon_package_is_named_as_the_reason() -> None:
+    """The real-world case: GnuPG installed, `scdaemon` package not.
+
+    gpg exits 0, prints an empty card record, and puts the actual cause on
+    stderr — so dropping stderr would leave the user with "no card" and a
+    perfectly working, plugged-in token.
+    """
+    gpg = _FakeGPG(
+        card_status="AID:::\n",
+        diagnostics=(
+            "gpg: error getting version from 'scdaemon': No SmartCard daemon\n"
+            "gpg: OpenPGP card not available: No SmartCard daemon\n"
+        ),
+    )
+
+    card, reason = _service(gpg).probe()
+
+    assert card is None
+    assert "scdaemon" in reason
+    assert "apt install scdaemon" in reason
+
+
+def test_a_token_without_a_smartcard_interface_is_explained() -> None:
+    gpg = _FakeGPG(
+        card_status="",
+        diagnostics="gpg: selecting card failed: No such device\n",
+    )
+
+    _card, reason = _service(gpg).probe()
+
+    assert "ykman info" in reason
+
+
+def test_a_card_held_by_another_program_is_explained() -> None:
+    gpg = _FakeGPG(card_status="", diagnostics="gpg: selecting card failed\n")
+
+    _card, reason = _service(gpg).probe()
+
+    assert "Another program" in reason
+
+
+def test_no_reason_is_invented_when_gpg_said_nothing_useful() -> None:
+    gpg = _FakeGPG(card_status="", diagnostics="")
+
+    card, reason = _service(gpg).probe()
+
+    assert card is None
+    assert reason == ""
+
+
+def test_the_reason_reaches_the_sync_result() -> None:
+    gpg = _FakeGPG(
+        card_status="",
+        diagnostics="gpg: OpenPGP card not available: No SmartCard daemon\n",
+    )
+
+    result = _service(gpg).sync()
+
+    assert result.card is None
+    assert "scdaemon" in result.unavailable_reason
+
+
+def test_a_present_card_reports_no_reason() -> None:
+    result = _service(_FakeGPG(card_status=EMPTY_CARD)).sync()
+
+    assert result.card is not None
+    assert result.unavailable_reason == ""
 
 
 # ------------------------------------------------------------ happy paths

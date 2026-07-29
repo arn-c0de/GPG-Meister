@@ -249,7 +249,10 @@ class KeyListView(QWidget):
             return
         if result.card is None:
             self._card_status.setText("No smartcard")
-            self._card_status.setToolTip("No YubiKey or OpenPGP card is currently readable.")
+            self._card_status.setToolTip(
+                result.unavailable_reason
+                or "No YubiKey or OpenPGP card is currently readable."
+            )
             self._card_status.setStyleSheet("color: #666666;")
             return
         self._card_status.setText(f"{result.card.display_name} connected")
