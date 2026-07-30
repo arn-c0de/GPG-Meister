@@ -136,7 +136,10 @@ class SmartcardService:
         try:
             output = self._gpg.card_status()
         except GPGCardError as exc:
-            return None, _unavailable_reason(str(exc))
+            # Match on GnuPG's own diagnostics, not on the exception message: by
+            # the time it is raised the message has been normalised to "no
+            # smartcard is available", which every marker below would miss.
+            return None, _unavailable_reason(exc.diagnostics or str(exc))
         except GPGServiceError:
             # A broken reader/scdaemon setup must not take the Keys tab down.
             return None, ""

@@ -12,9 +12,37 @@ card — in two independent ways:
 2. as an extra **unlock method for a vault backup**, alongside the master
    passphrase.
 
-Neither needs an extra dependency: GnuPG already talks to the card through
-`scdaemon`, and GPG Meister drives it the same way it drives every other GPG
-operation.
+Neither adds a dependency to GPG Meister itself: GnuPG already talks to the card
+through `scdaemon`, and GPG Meister drives it the same way it drives every other
+GPG operation.
+
+---
+
+## Which tokens work, and what has to be installed
+
+The token needs the **OpenPGP applet**, reached over the card (CCID) interface.
+That rules out FIDO-only devices, whatever the packaging suggests:
+
+| Device | Works |
+| --- | --- |
+| YubiKey 5 series, YubiKey NEO/4 | Yes — OpenPGP applet present |
+| Nitrokey, and other OpenPGP cards | Yes |
+| **Security Key Series by Yubico** ("YubiKey FIDO", blue) | **No** — FIDO2/U2F only, no OpenPGP applet, no CCID interface |
+
+A FIDO-only key cannot be converted: the applet is absent from the hardware, not
+switched off. `lsusb -v` showing a single HID interface, or `ykman info` listing
+no `OpenPGP` line, means this device is not usable here.
+
+Two things are needed on the host as well, and on Debian/Ubuntu neither ships
+with `gnupg` by default:
+
+```sh
+sudo apt install scdaemon pcscd
+```
+
+Without `scdaemon` GnuPG reports `No SmartCard daemon` and every token looks
+absent. The smartcard panel names the missing package rather than reporting a
+bare "no card".
 
 ---
 

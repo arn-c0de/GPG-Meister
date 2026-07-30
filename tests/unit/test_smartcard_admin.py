@@ -41,13 +41,17 @@ class _FakeGPG:
         card_status: str = EMPTY_CARD,
         run: PromptRun | None = None,
         diagnostics: str = "",
+        card_error: GPGCardError | None = None,
     ) -> None:
         self._card_status = card_status
         self._diagnostics = diagnostics
+        self._card_error = card_error
         self._run = run or PromptRun(returncode=0, stdout=b"", stderr=b"", status=b"")
         self.calls: list[tuple[tuple[str, ...], PromptScript]] = []
 
     def card_status(self) -> CardStatusOutput:
+        if self._card_error is not None:
+            raise self._card_error
         return CardStatusOutput(colons=self._card_status, diagnostics=self._diagnostics)
 
     def list_keys(self, *, secret: bool = False) -> list[object]:
@@ -89,6 +93,40 @@ def test_a_missing_scdaemon_package_is_named_as_the_reason() -> None:
     assert card is None
     assert "scdaemon" in reason
     assert "apt install scdaemon" in reason
+
+
+def test_the_reason_survives_gpg_exiting_non_zero() -> None:
+    """The same missing package, on the path GnuPG actually takes here.
+
+    ``gpg --card-status`` exits 2 for this, so the diagnostics arrive as a
+    ``GPGCardError`` whose message has already been normalised to "no smartcard
+    is available" — a string none of the reason markers match. Matching on the
+    message alone left the most common first-run failure with no explanation at
+    all, which is what the fixtures above missed by only ever exiting 0.
+    """
+    gpg = _FakeGPG(
+        card_error=GPGCardError(
+            "card status failed: no smartcard is available — insert your token and try again",
+            diagnostics=(
+                "gpg: error getting version from 'scdaemon': No SmartCard daemon\n"
+                "gpg: OpenPGP card not available: No SmartCard daemon\n"
+            ),
+        ),
+    )
+
+    card, reason = _service(gpg).probe()
+
+    assert card is None
+    assert "apt install scdaemon" in reason
+
+
+def test_a_card_error_without_diagnostics_invents_no_reason() -> None:
+    gpg = _FakeGPG(card_error=GPGCardError("card status failed: something went wrong"))
+
+    card, reason = _service(gpg).probe()
+
+    assert card is None
+    assert reason == ""
 
 
 def test_a_token_without_a_smartcard_interface_is_explained() -> None:

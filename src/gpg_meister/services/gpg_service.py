@@ -427,7 +427,9 @@ def _raise_for_card_failure(
     if diagnosis is None:
         return
     error_type, reason = diagnosis
-    raise error_type(f"{operation} failed: {reason}")
+    # GnuPG's own text rides along: the normalised reason cannot tell a missing
+    # scdaemon from a switched-off card interface, and those need different fixes.
+    raise error_type(f"{operation} failed: {reason}", diagnostics=combined_text)
 
 
 def _decryption_fingerprint(records: Iterable[Sequence[str]]) -> str | None:
@@ -994,7 +996,9 @@ class GPGService:
         if proc.returncode != 0:
             combined = _decode_output(proc.status) + "\n" + diagnostics
             _raise_for_card_failure(_parse_status(proc.status), combined, operation="card status")
-            raise GPGCardError(f"could not read the smartcard: {diagnostics[:200]}")
+            raise GPGCardError(
+            f"could not read the smartcard: {diagnostics[:200]}", diagnostics=combined
+        )
         return CardStatusOutput(colons=_decode_output(proc.stdout), diagnostics=diagnostics)
 
     def find_key(self, fingerprint: str) -> KeyInfo:

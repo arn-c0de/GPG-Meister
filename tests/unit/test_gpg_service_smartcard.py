@@ -132,3 +132,18 @@ def test_ordinary_passphrase_failure_is_not_a_card_problem() -> None:
 def test_raise_for_card_failure_reports_the_operation() -> None:
     with pytest.raises(GPGCardError, match="decryption failed"):
         _raise_for_card_failure([["CARDCTRL", "1"]], "", operation="decryption")
+
+
+def test_the_raised_error_carries_gpgs_own_words() -> None:
+    """The message is normalised for display; the detail must not be lost with it.
+
+    "no smartcard is available" covers a missing scdaemon package, a token with
+    its CCID interface switched off, and an empty reader alike — and each needs
+    a different fix, so the caller needs the original text to tell them apart.
+    """
+    diagnostics = "gpg: OpenPGP card not available: No SmartCard daemon\n"
+
+    with pytest.raises(GPGCardError) as excinfo:
+        _raise_for_card_failure([], diagnostics, operation="card status")
+
+    assert excinfo.value.diagnostics == diagnostics

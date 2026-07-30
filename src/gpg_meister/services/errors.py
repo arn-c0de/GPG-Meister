@@ -38,7 +38,17 @@ class GPGCardError(GPGServiceError):
     Raised when the token is not plugged in, the reader is unavailable, or the
     card refused the PIN. Distinct from ``GPGPassphraseError`` because the fix
     is different: insert the token rather than retype a passphrase.
+
+    The message is already normalised for display, which loses the detail that
+    tells apart causes needing completely different fixes — a missing
+    ``scdaemon`` package, a token with its smartcard interface switched off, and
+    an empty reader all end up as "no smartcard is available". ``diagnostics``
+    keeps GnuPG's own words so callers can still say which one it was.
     """
+
+    def __init__(self, message: str, *, diagnostics: str = "") -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics
 
 
 class GPGCardPinError(GPGCardError):

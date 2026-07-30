@@ -74,6 +74,19 @@ unlock a vault backup.
   smartcard-backed keys are recognisable everywhere instead of only in the
   secret listing. A serial that appears on a subkey (the common layout: offline
   primary, encryption subkey on the card) is attributed to its primary key.
+- The smartcard panel explained why no token was found only when `gpg` happened
+  to exit successfully. On the path GnuPG actually takes — exit code 2 — the
+  cause was normalised to "no smartcard is available" before the panel saw it,
+  so every specific hint was unreachable and the most common first-run failure,
+  a missing `scdaemon` package, showed up as a bare "no token". GnuPG's own
+  diagnostics now travel with the error.
+
+### Documentation
+
+- `docs/smartcard.md` names the tokens that work and the host packages needed.
+  FIDO-only devices (the Security Key Series by Yubico) have no OpenPGP applet
+  and cannot be used, and on Debian/Ubuntu `scdaemon` and `pcscd` are separate
+  packages that `gnupg` does not pull in.
 
 ## [1.0.4] - 2026-05-29
 
