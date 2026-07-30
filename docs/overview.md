@@ -34,6 +34,7 @@ graph TD
 - [UI Layer](ui.md) explains the MVVM-style UI structure and background workers.
 - [Startup Checks and GPG Detection](startup.md) explains startup checks and GPG binary trust detection.
 - [Smartcards and YubiKeys](smartcard.md) explains card-held keys, PIN handling, and token-unlockable vaults.
+- [Security keys (FIDO2)](security-key.md) explains unlocking a local key with a FIDO-only token, for devices without the OpenPGP applet.
 - [Plan vs Current Code](plan-vs-code.md) compares `planv2.md` with the current implementation.
 
 ## Architecture Map

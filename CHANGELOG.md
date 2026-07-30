@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+**Unlock a key with a FIDO2 security key**
+
+Hardware tokens without the OpenPGP applet — the Security Key Series and other
+FIDO-only devices — can now take the place of a key passphrase. Enter the
+token's PIN, touch it, and the key opens. This needs no `scdaemon`, no `pcscd`,
+and no card reader; the only new dependency is `fido2`.
+
+- A GPG key has one passphrase, so the token does not become it. The passphrase
+  is a random secret, and each unlock method stores its own AEAD-wrapped copy:
+  one slot sealed under the 32 bytes the token derives through the WebAuthn
+  `prf` extension, one under `Argon2id(emergency passphrase)`. Both yield the
+  same secret, so enrolling a second token or retiring a lost one never
+  rewrites the key. Same construction as version 3 vault key slots.
+- Key creation offers *Unlock this key with a security key*. The passphrase is
+  generated and never shown. An emergency passphrase is kept by default;
+  dropping it produces a key only that token can ever open, and the dialog says
+  so before the tick-box takes effect. Un-ticking the option re-arms the
+  passphrase requirement, so the form cannot submit a key nothing can open.
+- Existing keys can be bound to a token without being modified at all: the slot
+  seals the passphrase the key already has. The passphrase is verified against
+  the key first, so a slot can never hand back something GnuPG rejects.
+- The Decrypt tab offers *Decrypt with security key…* once any key is enrolled.
+  Derivation runs on a worker thread, because touching blocks for up to thirty
+  seconds and a frozen window invites the user to unplug the token mid-operation.
+- Recovered passphrases travel the existing hardened path — `SecureBytes` to an
+  app-owned pipe to `--passphrase-fd`, never in `argv` — so no code in the
+  encrypt, decrypt, or sign paths changed.
+- Failures are separated by what the user must do about them: a missed touch (a
+  YubiKey reports it with the same code as a refusal), a wrong PIN, a blocked
+  PIN, a token that does not hold this key's credential, and missing Linux udev
+  rules each say something different. A wrong PIN or missed touch stops
+  immediately rather than trying the next enrolled token, because each retry
+  spends another of the few attempts the token allows.
+- Creating a key is ordered so it cannot leave one behind that nobody can open:
+  if the slots cannot be stored after generation, the key — whose passphrase
+  exists nowhere else — is deleted again rather than left in the keyring.
+
+Documented in [docs/security-key.md](docs/security-key.md), including what this
+does *not* protect against: the private key stays on disk, so an OpenPGP card
+remains the stronger option where the hardware supports one.
+
 ## [1.0.5] - 2026-07-29
 
 Smartcard release: hardware tokens (YubiKey, Nitrokey, and other OpenPGP cards)

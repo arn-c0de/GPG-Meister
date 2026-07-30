@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QHideEvent, QShowEvent
 from PySide6.QtWidgets import (
+    QDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -14,12 +15,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.models.message import DecryptResult
+from gpg_meister.services.key_service import KeyService
+from gpg_meister.services.key_unlock_service import KeyUnlockService
 from gpg_meister.services.smartcard_service import CardSyncResult
 from gpg_meister.ui.clipboard import copy_text
 from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
 from gpg_meister.ui.qt_helpers import busy_bar, error_label
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
+from gpg_meister.ui.widgets.token_unlock_dialog import TokenUnlockDialog, token_backed_keys
 
 
 class DecryptView(QWidget):
@@ -30,11 +35,18 @@ class DecryptView(QWidget):
         viewmodel: DecryptViewModel,
         *,
         clipboard_clear_seconds: int = 60,
+        unlock: KeyUnlockService | None = None,
+        key_service: KeyService | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._vm = viewmodel
         self._clipboard_clear_seconds = clipboard_clear_seconds
+        # Both are needed to offer the security-key route: one to know which
+        # keys are enrolled, the other to list them. Without either, the button
+        # simply never appears.
+        self._unlock = unlock
+        self._key_service = key_service
         self._build_ui()
         self._connect_signals()
         # Auto-clear the revealed plaintext after the same delay used for the
@@ -80,8 +92,12 @@ class DecryptView(QWidget):
         btn_row = QHBoxLayout()
         self._btn_decrypt = QPushButton("Decrypt")
         self._btn_decrypt.setEnabled(False)
+        self._btn_token = QPushButton("Decrypt with security key…")
+        self._btn_token.setEnabled(False)
+        self._btn_token.setVisible(False)
         self._btn_clear = QPushButton("Clear")
         btn_row.addWidget(self._btn_decrypt)
+        btn_row.addWidget(self._btn_token)
         btn_row.addWidget(self._btn_clear)
         btn_row.addStretch()
         layout.addLayout(btn_row)
@@ -116,6 +132,7 @@ class DecryptView(QWidget):
         self._ciphertext.textChanged.connect(self._on_input_changed)
         self._passphrase.passphrase_changed.connect(self._on_passphrase_changed)
         self._btn_decrypt.clicked.connect(self._submit)
+        self._btn_token.clicked.connect(self._submit_with_token)
         self._btn_clear.clicked.connect(self._clear)
         self._btn_copy_output.clicked.connect(self._copy_output)
 
@@ -129,10 +146,39 @@ class DecryptView(QWidget):
 
     def _update_button(self) -> None:
         self._btn_decrypt.setEnabled(self._vm.can_submit())
+        self._btn_token.setEnabled(self._vm.can_submit())
 
     def _on_loading(self, loading: bool) -> None:
         self._progress.setVisible(loading)
         self._btn_decrypt.setEnabled(not loading and self._vm.can_submit())
+        self._btn_token.setEnabled(not loading and self._vm.can_submit())
+
+    def _token_backed_keys(self) -> list[KeyInfo]:
+        if self._unlock is None or self._key_service is None:
+            return []
+        return token_backed_keys(self._unlock, self._key_service.list_keys())
+
+    def _refresh_token_button(self) -> None:
+        """Offer the security-key route only when a key is actually enrolled."""
+        self._btn_token.setVisible(bool(self._token_backed_keys()))
+
+    def _submit_with_token(self) -> None:
+        if self._unlock is None:
+            return
+        keys = self._token_backed_keys()
+        if not keys:
+            self._refresh_token_button()
+            return
+        dialog = TokenUnlockDialog(self._unlock, keys, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        secret = dialog.take_secret()
+        if secret is None:  # pragma: no cover - accepted implies a secret
+            return
+        self._error_label.hide()
+        # Ownership moves to the viewmodel, which closes it once the attempt
+        # is over — successful or not.
+        self._vm.submit_with_secret(secret)
 
     def _on_success(self, result: object) -> None:
         if not isinstance(result, DecryptResult):
@@ -213,6 +259,7 @@ class DecryptView(QWidget):
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
         self._vm.refresh_card()
+        self._refresh_token_button()
 
     def _clear(self) -> None:
         self._ciphertext.clear()

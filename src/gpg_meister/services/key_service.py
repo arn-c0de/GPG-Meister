@@ -8,7 +8,7 @@ Sits between the UI layer and `gpg_service`, adding:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -16,6 +16,7 @@ from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.errors import GPGKeyNotFoundError, ServiceError
 from gpg_meister.services.gpg_service import GPGService
+from gpg_meister.services.key_unlock_service import KeyUnlockService
 from gpg_meister.services.validation import validate_fingerprint
 from gpg_meister.storage.audit_log import (
     OUTCOME_FAILED,
@@ -53,10 +54,18 @@ class KeyService:
         gpg: GPGService,
         audit: AuditLog,
         metadata: MetadataStore | None = None,
+        unlock: KeyUnlockService | None = None,
     ) -> None:
         self._gpg = gpg
         self._audit = audit
         self._metadata = metadata
+        # Absent when no FIDO stack is available; the token-backed paths then
+        # simply do not offer themselves, rather than failing at the last step.
+        self._unlock = unlock
+
+    @property
+    def supports_token_unlock(self) -> bool:
+        return self._unlock is not None
 
     # ------------------------------------------------------------------ listing
 
@@ -140,6 +149,74 @@ class KeyService:
             algorithm=algorithm.value,
             length=length,
         )
+        return self._record_new_key(
+            fp, label=label, purpose=purpose, platform=platform, notes=notes
+        )
+
+    def create_with_token(
+        self,
+        *,
+        name: str,
+        email: str,
+        algorithm: KeyAlgorithm,
+        length: int,
+        expiry: str,
+        pin: SecureBytes,
+        emergency_passphrase: SecureBytes | None,
+        on_touch: Callable[[], None] = lambda: None,
+        label: str | None = None,
+        purpose: str | None = None,
+        platform: str | None = None,
+        notes: str | None = None,
+    ) -> KeyInfo:
+        """Create a key whose passphrase is held by a hardware token.
+
+        The passphrase is generated and never shown: the token reproduces it on
+        demand, and ``emergency_passphrase`` — when given — is the only other
+        way back to it.
+        """
+        if self._unlock is None:
+            raise ServiceError("hardware-token unlock is not available")
+        try:
+            fp = self._unlock.create_key_with_token(
+                name=name,
+                email=email,
+                algorithm=algorithm,
+                length=length,
+                expiry=expiry,
+                pin=pin,
+                emergency_passphrase=emergency_passphrase,
+                on_touch=on_touch,
+            )
+        except Exception as exc:
+            self._audit.emit(
+                "key_generated",
+                outcome=OUTCOME_FAILED,
+                algorithm=algorithm.value,
+                reason=type(exc).__name__,
+            )
+            raise
+        self._audit.emit(
+            "key_generated",
+            outcome=OUTCOME_OK,
+            fingerprint=fp,
+            algorithm=algorithm.value,
+            length=length,
+            unlock="token",
+        )
+        return self._record_new_key(
+            fp, label=label, purpose=purpose, platform=platform, notes=notes
+        )
+
+    def _record_new_key(
+        self,
+        fp: str,
+        *,
+        label: str | None,
+        purpose: str | None,
+        platform: str | None,
+        notes: str | None,
+    ) -> KeyInfo:
         if self._metadata is not None and any(
             value is not None and value.strip()
             for value in (label, purpose, platform, notes)
@@ -183,6 +260,12 @@ class KeyService:
         )
         if self._metadata is not None:
             self._metadata.delete_key(fp)
+        if self._unlock is not None and including_secret:
+            # The unlock slots describe a secret key that no longer exists.
+            # Only dropped when the secret half went: deleting just the public
+            # key leaves the private one usable elsewhere, and with it the
+            # passphrase those slots hold.
+            self._unlock.forget_key(fp)
 
     # -------------------------------------------------------------------- import
 

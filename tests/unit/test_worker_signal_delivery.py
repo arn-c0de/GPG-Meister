@@ -53,6 +53,10 @@ def _key(fingerprint: str = "A" * 40) -> KeyInfo:
 
 
 class _FakeKeyService:
+    # No FIDO stack in these tests: the security-key option stays hidden and the
+    # dialog behaves exactly as it did before hardware unlock existed.
+    supports_token_unlock = False
+
     def create(self, **_: object) -> KeyInfo:
         return _key()
 

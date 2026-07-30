@@ -84,3 +84,22 @@ class DecryptViewModel(OperationViewModel):
         # secure_result: pull the plaintext via take_result() so it is never
         # carried across threads inside a Qt signal payload.
         self._run(_do, expect=DecryptResult, secure_result=True)
+
+    def submit_with_secret(self, secret: SecureBytes) -> None:
+        """Decrypt with a passphrase a security key produced, not a typed one.
+
+        Takes ownership of ``secret`` and closes it once the attempt is over —
+        including when the ciphertext turns out to be unusable, so a passphrase
+        recovered from a token never outlives the operation it was fetched for.
+        """
+        if not self.can_submit():
+            secret.close()
+            return
+        self.loading_changed.emit(True)
+        ciphertext_bytes = self._ciphertext.encode()
+
+        def _do() -> DecryptResult:
+            with secret:
+                return self._svc.decrypt(ciphertext_bytes, passphrase=secret)
+
+        self._run(_do, expect=DecryptResult, secure_result=True)

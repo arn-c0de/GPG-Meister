@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from gpg_meister.models.config import AppConfig
     from gpg_meister.services.gpg_service import GPGService
     from gpg_meister.services.key_service import KeyService
+    from gpg_meister.services.key_unlock_service import KeyUnlockService
     from gpg_meister.services.message_service import MessageService
     from gpg_meister.services.smartcard_service import SmartcardService
     from gpg_meister.services.vault_service import VaultService
@@ -293,12 +294,15 @@ class _Services:
     messages: MessageService
     vault: VaultService
     smartcard: SmartcardService
+    unlock: KeyUnlockService
     metadata: MetadataStore
 
 
 def _build_services(paths: AppPaths, gpg: DetectedGPG, audit: AuditLog) -> _Services:
+    from gpg_meister.services.fido_service import FidoService
     from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
     from gpg_meister.services.key_service import KeyService
+    from gpg_meister.services.key_unlock_service import KeyUnlockService
     from gpg_meister.services.message_service import MessageService
     from gpg_meister.services.smartcard_service import SmartcardService
     from gpg_meister.services.vault_service import VaultService
@@ -314,12 +318,19 @@ def _build_services(paths: AppPaths, gpg: DetectedGPG, audit: AuditLog) -> _Serv
             trusted_inode=gpg.inode if not gpg.is_whitelisted else None,
         )
     )
+    unlock = KeyUnlockService(
+        gpg=gpg_svc,
+        fido=FidoService(audit=audit),
+        store=metadata,
+        audit=audit,
+    )
     return _Services(
         gpg=gpg_svc,
-        keys=KeyService(gpg=gpg_svc, audit=audit, metadata=metadata),
+        keys=KeyService(gpg=gpg_svc, audit=audit, metadata=metadata, unlock=unlock),
         messages=MessageService(gpg=gpg_svc, audit=audit),
         vault=VaultService(gpg=gpg_svc, audit=audit, metadata=metadata),
         smartcard=SmartcardService(gpg=gpg_svc, audit=audit),
+        unlock=unlock,
         metadata=metadata,
     )
 
@@ -366,6 +377,7 @@ def _build_main_window(
         VerifyViewModel(services.messages),
         services.keys,
         clipboard_clear_seconds=config.clipboard_clear_seconds,
+        unlock=services.unlock,
     )
     window.install_tab(AppPage.MESSAGES, messages_view)
 

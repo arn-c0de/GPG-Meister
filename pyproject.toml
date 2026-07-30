@@ -8,7 +8,7 @@ license = { text = "MIT" }
 authors = [{ name = "GPG Meister Contributors" }]
 
 # Crypto-critical dependencies (upgrades require explicit security sign-off):
-#   cryptography, argon2-cffi, pydantic
+#   cryptography, argon2-cffi, pydantic, fido2
 dependencies = [
     "PySide6>=6.11.1",
     "cryptography>=48.0.1",
@@ -16,6 +16,10 @@ dependencies = [
     "pydantic>=2.13.4",
     "msgpack>=1.2.1",
     "structlog>=25.5.0",
+    # Hardware-token unlock (FIDO2 prf). Pure Python on top of `cryptography`,
+    # which is already required — it pulls in no smartcard stack, unlike the
+    # OpenPGP-card path, which needs scdaemon and pcscd on the host.
+    "fido2>=2.0.0",
 ]
 
 [project.optional-dependencies]

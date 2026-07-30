@@ -16,6 +16,10 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
+from gpg_meister.models.key_info import normalise_fingerprint
+from gpg_meister.models.key_unlock import MAX_KEY_UNLOCK_SLOTS, KeyUnlockSlot
 from gpg_meister.storage.permissions import _fchmod_nofollow, ensure_dir, reject_symlink
 
 
@@ -55,6 +59,20 @@ CREATE TABLE IF NOT EXISTS app_preferences (
     key     TEXT PRIMARY KEY,
     value   TEXT NOT NULL
 );
+
+-- How a key's passphrase can be recovered: one row per unlock method, each
+-- holding an AEAD-wrapped copy of the same secret (models/key_unlock.py).
+-- Nothing here is a secret by itself, but it is irreplaceable: delete a key's
+-- rows and the key is as locked as if its passphrase had been forgotten.
+CREATE TABLE IF NOT EXISTS key_unlock_slot (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint        TEXT NOT NULL,
+    slot_type          TEXT NOT NULL,
+    slot_json          TEXT NOT NULL,
+    creation_timestamp TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_key_unlock_slot_fpr ON key_unlock_slot(fingerprint);
 """
 
 
@@ -211,6 +229,74 @@ class MetadataStore:
                 "SELECT creation_timestamp FROM vault_record ORDER BY creation_timestamp DESC LIMIT 1"
             ).fetchone()
         return row["creation_timestamp"] if row else None
+
+    # ------------------------------------------------------------------
+    # key_unlock_slot
+    # ------------------------------------------------------------------
+
+    def add_unlock_slot(self, fingerprint: str, slot: KeyUnlockSlot) -> int:
+        """Store one unlock method for a key and return its row id.
+
+        The cap is enforced here rather than only in the UI: every slot is work
+        the unlock path may have to try, and a store that grew without bound
+        would turn a wrong passphrase into an arbitrarily long stall.
+        """
+        fpr = normalise_fingerprint(fingerprint)
+        with self._tx() as conn:
+            existing = conn.execute(
+                "SELECT COUNT(*) AS n FROM key_unlock_slot WHERE fingerprint = ?", (fpr,)
+            ).fetchone()["n"]
+            if existing >= MAX_KEY_UNLOCK_SLOTS:
+                raise MetadataStoreError(
+                    f"a key cannot have more than {MAX_KEY_UNLOCK_SLOTS} unlock methods"
+                )
+            cursor = conn.execute(
+                "INSERT INTO key_unlock_slot"
+                " (fingerprint, slot_type, slot_json, creation_timestamp)"
+                " VALUES (?, ?, ?, ?)",
+                (fpr, slot.type.value, slot.model_dump_json(), _utc_now()),
+            )
+            return cursor.lastrowid  # type: ignore[return-value]
+
+    def unlock_slots(self, fingerprint: str) -> list[tuple[int, KeyUnlockSlot]]:
+        """Every stored unlock method for a key, oldest first.
+
+        A row that no longer parses is skipped rather than raised: one corrupted
+        slot must not make the remaining, working unlock methods unreachable.
+        """
+        fpr = normalise_fingerprint(fingerprint)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, slot_json FROM key_unlock_slot WHERE fingerprint = ? ORDER BY id",
+                (fpr,),
+            ).fetchall()
+        slots: list[tuple[int, KeyUnlockSlot]] = []
+        for row in rows:
+            try:
+                slots.append((int(row["id"]), KeyUnlockSlot.model_validate_json(row["slot_json"])))
+            except ValidationError:
+                continue
+        return slots
+
+    def has_unlock_slots(self, fingerprint: str) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM key_unlock_slot WHERE fingerprint = ? LIMIT 1",
+                (normalise_fingerprint(fingerprint),),
+            ).fetchone()
+        return row is not None
+
+    def delete_unlock_slot(self, slot_id: int) -> None:
+        with self._tx() as conn:
+            conn.execute("DELETE FROM key_unlock_slot WHERE id = ?", (slot_id,))
+
+    def delete_unlock_slots(self, fingerprint: str) -> None:
+        """Drop every unlock method for a key — used when the key itself goes."""
+        with self._tx() as conn:
+            conn.execute(
+                "DELETE FROM key_unlock_slot WHERE fingerprint = ?",
+                (normalise_fingerprint(fingerprint),),
+            )
 
     # ------------------------------------------------------------------
     # app_preferences

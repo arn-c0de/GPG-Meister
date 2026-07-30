@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -58,6 +59,7 @@ class KeyCreateDialog(QDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.addLayout(self._build_identity_form())
+        self._add_token_fields(layout)
         self._add_passphrase_fields(layout)
         self._add_status_widgets(layout)
 
@@ -104,13 +106,52 @@ class KeyCreateDialog(QDialog):
         form.addRow("Expires:", self._expiry_combo)
         return form
 
+    def _add_token_fields(self, layout: QVBoxLayout) -> None:
+        """The security-key option, and the two follow-up choices it unlocks."""
+        self._use_token = QCheckBox("Unlock this key with a security key instead of typing a passphrase")
+        self._use_token.setVisible(self._vm.supports_token)
+        layout.addWidget(self._use_token)
+
+        self._token_hint = QLabel(
+            "The key's passphrase is generated and never shown. Your security key "
+            "reproduces it on demand — you enter its PIN and touch it. Enrolling "
+            "asks for two touches."
+        )
+        self._token_hint.setWordWrap(True)
+        self._token_hint.setVisible(False)
+        layout.addWidget(self._token_hint)
+
+        self._pin_label = QLabel("Security key PIN:")
+        self._pin_label.setVisible(False)
+        layout.addWidget(self._pin_label)
+        self._pin_field = PassphraseField(show_strength=False)
+        self._pin_field.setPlaceholderText("PIN of your security key…")
+        self._pin_field.setVisible(False)
+        layout.addWidget(self._pin_field)
+
+        self._token_only = QCheckBox("No emergency passphrase — only this security key can open it")
+        self._token_only.setVisible(False)
+        layout.addWidget(self._token_only)
+
+        self._token_only_warning = QLabel(
+            "If this security key is lost or breaks, the key is gone for good. "
+            "Nothing in this application, and no backup of this computer, can "
+            "bring it back."
+        )
+        self._token_only_warning.setStyleSheet("color: #cc0000;")
+        self._token_only_warning.setWordWrap(True)
+        self._token_only_warning.setVisible(False)
+        layout.addWidget(self._token_only_warning)
+
     def _add_passphrase_fields(self, layout: QVBoxLayout) -> None:
-        layout.addWidget(QLabel("Passphrase:"))
+        self._passphrase_label = QLabel("Passphrase:")
+        layout.addWidget(self._passphrase_label)
         self._passphrase_field = PassphraseField(show_strength=True)
         self._passphrase_field.setPlaceholderText("New key passphrase…")
         layout.addWidget(self._passphrase_field)
 
-        layout.addWidget(QLabel("Confirm passphrase:"))
+        self._confirm_label = QLabel("Confirm passphrase:")
+        layout.addWidget(self._confirm_label)
         self._confirm_field = PassphraseField(show_strength=False)
         self._confirm_field.setPlaceholderText("Repeat passphrase…")
         layout.addWidget(self._confirm_field)
@@ -152,6 +193,13 @@ class KeyCreateDialog(QDialog):
         )
         self._confirm_field.passphrase_changed.connect(self._check_mismatch)
 
+        self._use_token.toggled.connect(self._on_use_token_toggled)
+        self._token_only.toggled.connect(self._on_token_only_toggled)
+        self._pin_field.passphrase_changed.connect(
+            lambda: self._vm.set_pin(self._pin_field.text())
+        )
+        self._vm.touch_requested.connect(self._on_touch_requested)
+
         self._vm.form_valid_changed.connect(
             lambda ok: self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(ok)
         )
@@ -166,6 +214,44 @@ class KeyCreateDialog(QDialog):
     def _on_expiry_changed(self, index: int) -> None:
         _, value = _EXPIRY_CHOICES[index]
         self._vm.set_expiry(value)
+
+    def _on_use_token_toggled(self, checked: bool) -> None:
+        self._vm.set_use_token(checked)
+        self._token_hint.setVisible(checked)
+        self._pin_label.setVisible(checked)
+        self._pin_field.setVisible(checked)
+        self._token_only.setVisible(checked)
+        if not checked:
+            # Un-ticking must not leave a token-only form behind, or the next
+            # submit would create a key with no unlock method at all.
+            self._token_only.setChecked(False)
+            self._pin_field.clear()
+        self._update_passphrase_visibility()
+
+    def _on_token_only_toggled(self, checked: bool) -> None:
+        self._vm.set_token_only(checked)
+        self._token_only_warning.setVisible(checked)
+        self._update_passphrase_visibility()
+
+    def _update_passphrase_visibility(self) -> None:
+        """Hide the passphrase fields only when nothing will be done with them."""
+        wanted = not (self._use_token.isChecked() and self._token_only.isChecked())
+        for widget in (
+            self._passphrase_label,
+            self._passphrase_field,
+            self._confirm_label,
+            self._confirm_field,
+        ):
+            widget.setVisible(wanted)
+        self._passphrase_label.setText(
+            "Emergency passphrase:" if self._use_token.isChecked() else "Passphrase:"
+        )
+        if not wanted:
+            self._passphrase_field.clear()
+            self._confirm_field.clear()
+
+    def _on_touch_requested(self) -> None:
+        self._token_hint.setText("Touch your security key now — it is waiting.")
 
     def _check_mismatch(self) -> None:
         pp = self._passphrase_field.text()
