@@ -52,6 +52,12 @@ from gpg_meister.services.fido_service import (
     FidoUnavailableError,
 )
 from gpg_meister.services.gpg_service import GPGService
+from gpg_meister.services.validation import (
+    validate_email,
+    validate_expiry,
+    validate_key_algorithm_and_length,
+    validate_user_name,
+)
 from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
 from gpg_meister.storage.metadata_store import MetadataStore
 
@@ -143,6 +149,15 @@ class KeyUnlockService:
 
         Costs two touches — one to create the credential, one to derive from it.
         """
+        # Validated before the token is touched. GnuPG checks these itself, but
+        # only inside generate_key — which runs *after* enrolment, so a typo in
+        # the email would cost two touches and strand a credential on the token
+        # with no key to go with it.
+        validate_user_name(name)
+        validate_email(email)
+        validate_key_algorithm_and_length(algorithm, length)
+        validate_expiry(expiry)
+
         credential, token_secret = self._fido.enroll(
             pin=pin, user_label=f"{name} <{email}>", on_touch=on_touch
         )

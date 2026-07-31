@@ -109,10 +109,19 @@ def test_key_algorithm_length_rejected(algo: KeyAlgorithm, length: int) -> None:
 
 
 @pytest.mark.parametrize(
-    "good", ["2y", "30d", "1w", "12m", "2026-12-31"]
+    "good", ["0", "2y", "30d", "1w", "12m", "2026-12-31"]
 )
 def test_expiry_accepted(good: str) -> None:
     assert validate_expiry(good) == good
+
+
+def test_never_expires_is_accepted() -> None:
+    """The key creation dialog's *Never* option sends "0".
+
+    It was rejected here, so choosing *Never* produced a validation error
+    instead of a key. GnuPG spells "no expiry date" exactly this way.
+    """
+    assert validate_expiry("0") == "0"
 
 
 @pytest.mark.parametrize(

@@ -27,6 +27,9 @@ _EMAIL_RE: Final[re.Pattern[str]] = re.compile(
 _USER_NAME_RE: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$")
 _EXPIRY_OFFSET_RE: Final[re.Pattern[str]] = re.compile(r"^[1-9][0-9]*[ymwd]$")
 
+# What GnuPG accepts for "no expiry date", and what the UI's *Never* option sends.
+NO_EXPIRY: Final[str] = "0"
+
 # Allowed key lengths per algorithm.
 _ALLOWED_KEY_LENGTHS: Final[dict[KeyAlgorithm, frozenset[int]]] = {
     KeyAlgorithm.RSA: frozenset({2048, 3072, 4096}),
@@ -74,7 +77,14 @@ def validate_key_algorithm_and_length(algorithm: KeyAlgorithm, length: int) -> N
 
 
 def validate_expiry(value: str) -> str:
-    """Either an ISO 8601 date `YYYY-MM-DD` or a positive offset `Ny`/`Nm`/`Nw`/`Nd`."""
+    """`0` for "never", an ISO 8601 date `YYYY-MM-DD`, or an offset `Ny`/`Nm`/`Nw`/`Nd`.
+
+    ``0`` is GnuPG's own spelling of "does not expire" and is what the key
+    creation dialog sends for its *Never* option — which this function used to
+    reject, so choosing *Never* produced a validation error instead of a key.
+    """
+    if value == NO_EXPIRY:
+        return value
     if _EXPIRY_OFFSET_RE.match(value):
         return value
     try:

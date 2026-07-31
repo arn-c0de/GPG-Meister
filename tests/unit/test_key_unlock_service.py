@@ -17,7 +17,7 @@ from gpg_meister.models.key_info import KeyAlgorithm
 from gpg_meister.models.key_unlock import FidoCredential
 from gpg_meister.security.key_unlock import TOKEN_SECRET_LEN
 from gpg_meister.security.secure_bytes import SecureBytes
-from gpg_meister.services.errors import GPGProcessError
+from gpg_meister.services.errors import GPGProcessError, GPGValidationError
 from gpg_meister.services.fido_service import FidoPinError, FidoTouchError
 from gpg_meister.services.key_unlock_service import (
     KeyUnlockError,
@@ -133,7 +133,7 @@ def test_a_new_key_is_created_with_a_secret_only_the_token_holds(
             name="Alice",
             email="alice@example.org",
             algorithm=KeyAlgorithm.EDDSA,
-            length=0,
+            length=255,
             expiry="0",
             pin=pin,
             emergency_passphrase=fallback,
@@ -159,7 +159,7 @@ def test_the_token_recovers_exactly_the_generated_passphrase(store: MetadataStor
             name="Alice",
             email="alice@example.org",
             algorithm=KeyAlgorithm.EDDSA,
-            length=0,
+            length=255,
             expiry="0",
             pin=pin,
             emergency_passphrase=None,
@@ -177,7 +177,7 @@ def test_the_emergency_passphrase_recovers_the_same_secret(store: MetadataStore)
             name="Alice",
             email="alice@example.org",
             algorithm=KeyAlgorithm.EDDSA,
-            length=0,
+            length=255,
             expiry="0",
             pin=pin,
             emergency_passphrase=fallback,
@@ -199,7 +199,7 @@ def test_a_token_only_key_has_no_passphrase_way_in(store: MetadataStore) -> None
             name="Alice",
             email="alice@example.org",
             algorithm=KeyAlgorithm.EDDSA,
-            length=0,
+            length=255,
             expiry="0",
             pin=pin,
             emergency_passphrase=None,
@@ -208,6 +208,44 @@ def test_a_token_only_key_has_no_passphrase_way_in(store: MetadataStore) -> None
     assert service.methods_for(FPR).is_token_only
     with SecureBytes.from_bytes(b"guess") as guess, pytest.raises(NoUnlockMethodError):
         service.unlock_with_passphrase(FPR, guess)
+
+
+def test_bad_input_is_rejected_before_the_token_is_touched(store: MetadataStore) -> None:
+    """Found on real hardware: a rejected key length cost two touches.
+
+    GnuPG validates these itself, but only inside generate_key — which runs
+    after enrolment. The token had already created a credential, which then had
+    no key to belong to and stayed on the device.
+    """
+    gpg, fido = _FakeGPG(), _FakeFido()
+    fido.enroll_error = AssertionError("enrolment must not be reached")
+
+    with _pin() as pin, pytest.raises(GPGValidationError, match="length"):
+        _service(store, gpg, fido).create_key_with_token(
+            name="Alice",
+            email="alice@example.org",
+            algorithm=KeyAlgorithm.EDDSA,
+            length=0,  # Ed25519 allows only 255
+            expiry="0",
+            pin=pin,
+            emergency_passphrase=None,
+        )
+
+
+def test_a_bad_email_is_caught_before_enrolment(store: MetadataStore) -> None:
+    gpg, fido = _FakeGPG(), _FakeFido()
+    fido.enroll_error = AssertionError("enrolment must not be reached")
+
+    with _pin() as pin, pytest.raises(GPGValidationError):
+        _service(store, gpg, fido).create_key_with_token(
+            name="Alice",
+            email="not-an-email",
+            algorithm=KeyAlgorithm.EDDSA,
+            length=255,
+            expiry="0",
+            pin=pin,
+            emergency_passphrase=None,
+        )
 
 
 def test_a_key_whose_slots_cannot_be_stored_is_deleted_again(
@@ -230,7 +268,7 @@ def test_a_key_whose_slots_cannot_be_stored_is_deleted_again(
             name="Alice",
             email="alice@example.org",
             algorithm=KeyAlgorithm.EDDSA,
-            length=0,
+            length=255,
             expiry="0",
             pin=pin,
             emergency_passphrase=None,
@@ -260,7 +298,7 @@ def test_a_partly_written_slot_set_is_rolled_back(
             name="Alice",
             email="alice@example.org",
             algorithm=KeyAlgorithm.EDDSA,
-            length=0,
+            length=255,
             expiry="0",
             pin=pin,
             emergency_passphrase=fallback,
