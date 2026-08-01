@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, QThreadPool, Signal
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.key_service import KeyService
+from gpg_meister.services.key_unlock_service import KeyUnlockService
 from gpg_meister.services.vault_service import VaultDescriptor, VaultService
 from gpg_meister.ui.worker import Worker
 
@@ -37,10 +38,16 @@ class VaultExportViewModel(QObject):
         vault_service: VaultService,
         key_service: KeyService,
         parent: QObject | None = None,
+        *,
+        unlock: KeyUnlockService | None = None,
     ) -> None:
         super().__init__(parent)
         self._vault_svc = vault_service
         self._key_svc = key_service
+        # Present when security-key unlocking is wired up. Without it the token
+        # route simply never appears, and a key whose passphrase only its token
+        # knows cannot be exported — which is what it was before.
+        self._unlock = unlock
         self._pool = QThreadPool.globalInstance()
 
         self._selected_fps: list[str] = []
@@ -51,6 +58,11 @@ class VaultExportViewModel(QObject):
 
         # Per-key state: fp → plaintext passphrase (cleared before worker starts).
         self._key_passphrases: dict[str, str] = {}
+        # fp → passphrase a security key derived. Kept apart from the typed ones
+        # because it arrives already in a wiped buffer and must never be turned
+        # back into a str, and because this view owns it until submit hands it
+        # over: dropping the reference without closing it leaks the passphrase.
+        self._key_secrets: dict[str, SecureBytes] = {}
         # fps that have been explicitly unlocked by the user.
         self._unlocked_fps: set[str] = set()
         # Loaded key info for stub detection (fp → KeyInfo).
@@ -86,6 +98,7 @@ class VaultExportViewModel(QObject):
         # Clear stored passphrases for keys that were deselected.
         for fp in removed:
             self._key_passphrases.pop(fp, None)
+            self._discard_secret(fp)
             if fp in self._unlocked_fps:
                 self._unlocked_fps.discard(fp)
                 self.key_unlock_state_changed.emit(fp, False)
@@ -145,8 +158,50 @@ class VaultExportViewModel(QObject):
         self.key_unlock_state_changed.emit(fp, True)
         return True
 
+    def is_token_backed(self, fp: str) -> bool:
+        """Whether a security key can supply this key's passphrase.
+
+        The interesting case is a key created with a token and no emergency
+        passphrase: its passphrase was generated, never shown, and sealed under
+        the token. There is nothing for the user to type, so without this route
+        such a key can never go into a vault.
+        """
+        if self._unlock is None:
+            return False
+        key = self._key_map.get(fp)
+        if key is not None and key.is_stub:
+            return False
+        return self._unlock.methods_for(fp).has_token
+
+    @property
+    def unlock_service(self) -> KeyUnlockService | None:
+        """The service the view needs to drive the token dialog itself."""
+        return self._unlock
+
+    def key_info(self, fp: str) -> KeyInfo | None:
+        return self._key_map.get(fp)
+
+    def set_key_secret(self, fp: str, secret: SecureBytes) -> None:
+        """Take ownership of a passphrase a security key derived, and unlock.
+
+        The caller hands over the buffer and must not touch it afterwards: it
+        is closed here when it is replaced, dropped, or the form is reset, and
+        on submit it travels into the worker that closes it there.
+        """
+        self._discard_secret(fp)
+        self._key_secrets[fp] = secret
+        self._key_passphrases.pop(fp, None)
+        self._unlocked_fps.add(fp)
+        self.key_unlock_state_changed.emit(fp, True)
+
+    def _discard_secret(self, fp: str) -> None:
+        secret = self._key_secrets.pop(fp, None)
+        if secret is not None:
+            secret.close()
+
     def lock_key(self, fp: str) -> None:
         self._key_passphrases.pop(fp, None)
+        self._discard_secret(fp)
         if fp in self._unlocked_fps:
             self._unlocked_fps.discard(fp)
             self.key_unlock_state_changed.emit(fp, False)
@@ -156,11 +211,14 @@ class VaultExportViewModel(QObject):
 
         The per-key unlock UX needs candidate passphrases held until submit;
         this clears them when the form is abandoned or finished so they do not
-        outlive the operation. Plain ``str`` cannot be truly zeroed in CPython.
+        outlive the operation. Plain ``str`` cannot be truly zeroed in CPython;
+        the token-derived buffers can be, and are.
         """
         self._master_passphrase = ""
         self._confirm_passphrase = ""
         self._key_passphrases.clear()
+        for fp in list(self._key_secrets):
+            self._discard_secret(fp)
         self._unlocked_fps.clear()
 
     def is_key_unlocked(self, fp: str) -> bool:
@@ -207,6 +265,13 @@ class VaultExportViewModel(QObject):
                 _raw = normalise_passphrase(self._key_passphrases[fp].strip()).encode()
                 gpg_secure[fp] = SecureBytes.from_bytes(_raw)
                 _zero_bytes_object(_raw)
+        # Token-derived passphrases are moved, not copied and not normalised:
+        # they are the key's passphrase byte for byte, generated rather than
+        # typed, and nothing about them survives here once the worker owns them.
+        for fp in fps:
+            secret = self._key_secrets.pop(fp, None)
+            if secret is not None:
+                gpg_secure[fp] = secret
         for fp in fps:
             self._key_passphrases.pop(fp, None)
         self._unlocked_fps.difference_update(fps)

@@ -381,7 +381,7 @@ def _build_main_window(
     )
     window.install_tab(AppPage.MESSAGES, messages_view)
 
-    export_vm = VaultExportViewModel(services.vault, services.keys)
+    export_vm = VaultExportViewModel(services.vault, services.keys, unlock=services.unlock)
     _wire_key_inventory_updates(key_vm, encrypt_vm, sign_vm, export_vm, messages_view)
     window.install_tab(AppPage.VAULT, VaultTabView(export_vm, services.vault))
 

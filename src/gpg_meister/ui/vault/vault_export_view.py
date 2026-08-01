@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDialog,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -25,6 +26,7 @@ from gpg_meister.services.vault_service import VaultDescriptor
 from gpg_meister.ui.qt_helpers import busy_bar, error_label
 from gpg_meister.ui.vault.vault_export_viewmodel import VaultExportViewModel
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
+from gpg_meister.ui.widgets.token_unlock_dialog import TokenUnlockDialog
 
 _COLOR_UNLOCKED = QColor("#1a7a1a")
 _COLOR_LOCKED = QColor("#8a4a00")
@@ -93,8 +95,14 @@ class VaultExportView(QWidget):
         self._unlock_pp.setEnabled(False)
         self._btn_unlock = QPushButton("Unlock")
         self._btn_unlock.setEnabled(False)
+        # Shown only for a key a security key is enrolled for. Such a key may
+        # have no passphrase the user could type at all, so this is not a
+        # convenience — it is the only way it gets into a vault.
+        self._btn_token_unlock = QPushButton("Unlock with security key…")
+        self._btn_token_unlock.hide()
         unlock_row.addWidget(self._unlock_pp, stretch=1)
         unlock_row.addWidget(self._btn_unlock)
+        unlock_row.addWidget(self._btn_token_unlock)
         unlock_layout.addLayout(unlock_row)
         stub_hint = QLabel(
             "Smartcard keys (YubiKey etc.) are included as public-key only — no passphrase needed."
@@ -232,6 +240,7 @@ class VaultExportView(QWidget):
         self._confirm_pp.passphrase_changed.connect(self._on_confirm_changed)
         self._unlock_pp.passphrase_changed.connect(self._on_unlock_pp_changed)
         self._btn_unlock.clicked.connect(self._on_unlock_clicked)
+        self._btn_token_unlock.clicked.connect(self._on_token_unlock_clicked)
         self._btn_export.clicked.connect(self._submit)
 
     # ------------------------------------------------------------------ keys
@@ -314,6 +323,8 @@ class VaultExportView(QWidget):
         is_stub = bool(item.data(Qt.ItemDataRole.UserRole + 1))
         self._active_fp = fp
         uid_text = item.text()[2:]  # strip prefix
+        token_backed = not is_stub and self._vm.is_token_backed(fp)
+        self._btn_token_unlock.setVisible(token_backed)
         if is_stub:
             device = item.data(self._STORAGE_ROLE) or "a smartcard"
             self._unlock_label.setText(
@@ -321,6 +332,16 @@ class VaultExportView(QWidget):
                 "public part only, so no passphrase is needed.)"
             )
             self._unlock_pp.setEnabled(False)
+            self._btn_unlock.setEnabled(False)
+        elif token_backed:
+            # The passphrase field stays usable: a key enrolled with a token may
+            # still have an emergency passphrase, and someone who knows it
+            # should not have to go and find the token.
+            self._unlock_label.setText(
+                f"Unlock with your security key, or type the passphrase, for:\n{uid_text}"
+            )
+            self._unlock_pp.setEnabled(True)
+            self._unlock_pp.clear()
             self._btn_unlock.setEnabled(False)
         else:
             self._unlock_label.setText(f"Enter passphrase for:\n{uid_text}")
@@ -351,6 +372,37 @@ class VaultExportView(QWidget):
             self._unlock_pp.setEnabled(False)
             self._btn_unlock.setEnabled(False)
             self._unlock_label.setText("✓ Unlocked — click another key to continue.")
+            self._btn_token_unlock.hide()
+
+    def _on_token_unlock_clicked(self) -> None:
+        """Let the token hand over the passphrase the user never had.
+
+        The dialog does the PIN, the touch and the derivation on a worker
+        thread; what comes back is the key's real passphrase, so from here on
+        this key is unlocked exactly like a typed one.
+        """
+        unlock = self._vm.unlock_service
+        fp = self._active_fp
+        if unlock is None or not fp:
+            return
+        key = self._vm.key_info(fp)
+        if key is None:  # pragma: no cover - the list is built from these
+            return
+        dialog = TokenUnlockDialog(unlock, [key], parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        secret = dialog.take_secret()
+        if secret is None:  # pragma: no cover - accepted implies a secret
+            return
+        # Null active_fp before clearing the field, for the same reason the
+        # typed path does: clear() fires passphrase_changed.
+        self._active_fp = None
+        self._vm.set_key_secret(fp, secret)
+        self._unlock_pp.clear()
+        self._unlock_pp.setEnabled(False)
+        self._btn_unlock.setEnabled(False)
+        self._btn_token_unlock.hide()
+        self._unlock_label.setText("✓ Unlocked with your security key — click another key.")
 
     # ------------------------------------------------------------------ path
 
@@ -415,6 +467,7 @@ class VaultExportView(QWidget):
         self._result_label.setStyleSheet("color: #006600;")
         self._result_label.show()
         self._unlock_label.setText("Click a key above to enter its passphrase.")
+        self._btn_token_unlock.hide()
         self._active_fp = None
 
     def _on_error(self, msg: str) -> None:
