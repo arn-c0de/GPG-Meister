@@ -48,7 +48,12 @@ from gpg_meister.services.validation import (
     validate_fingerprint,
     validate_user_name,
 )
-from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
+from gpg_meister.storage.audit_log import (
+    OUTCOME_FAILED,
+    OUTCOME_OK,
+    AuditLog,
+    emit_best_effort,
+)
 
 # Why GnuPG found no card, in the order the checks have to run: the daemon
 # message also mentions "not available", so it must be matched first. Each entry
@@ -367,5 +372,6 @@ class SmartcardService:
         )
 
     def _emit(self, event: str, *, outcome: str = OUTCOME_OK, **payload: object) -> None:
-        if self._audit is not None:
-            self._audit.emit(event, outcome=outcome, **payload)
+        # Best-effort: a PIN change or a key move on the card cannot be undone
+        # by failing to write the line that says it happened.
+        emit_best_effort(self._audit, event, outcome=outcome, **payload)

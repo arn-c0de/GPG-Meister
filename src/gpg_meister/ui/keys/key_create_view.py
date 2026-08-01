@@ -121,11 +121,14 @@ class KeyCreateDialog(QDialog):
         self._token_hint.setVisible(False)
         layout.addWidget(self._token_hint)
 
-        self._pin_label = QLabel("Security key PIN:")
+        # "FIDO2" is spelled out because a YubiKey 5 carries two unrelated PINs,
+        # and the OpenPGP one — the PIN most users have already set — is not the
+        # one asked for here.
+        self._pin_label = QLabel("Security key FIDO2 PIN:")
         self._pin_label.setVisible(False)
         layout.addWidget(self._pin_label)
         self._pin_field = PassphraseField(show_strength=False)
-        self._pin_field.setPlaceholderText("PIN of your security key…")
+        self._pin_field.setPlaceholderText("FIDO2 PIN of your security key…")
         self._pin_field.setVisible(False)
         layout.addWidget(self._pin_field)
 

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+
 import pytest
+from fido2.client import ClientError
 from fido2.ctap import CtapError
 
+from gpg_meister.models.key_unlock import PRF_SALT_LEN, FidoCredential
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services import fido_service
 from gpg_meister.services.fido_service import (
@@ -148,8 +152,91 @@ def test_a_missed_touch_is_not_reported_as_a_hardware_fault() -> None:
     assert "not touched" in str(translated)
 
 
-def test_a_blocked_pin_says_what_to_do() -> None:
-    assert "reset" in str(_translate(CtapError(CtapError.ERR.PIN_AUTH_BLOCKED)))
+def test_the_two_blocked_pin_states_say_what_each_one_needs() -> None:
+    """A re-plug clears one of them and does nothing at all for the other."""
+    recoverable = str(_translate(CtapError(CtapError.ERR.PIN_AUTH_BLOCKED)))
+    final = str(_translate(CtapError(CtapError.ERR.PIN_BLOCKED)))
+
+    assert "plug it back in" in recoverable
+    assert "reset" not in recoverable
+    assert "reset" in final
+
+
+def test_a_rejected_pin_names_which_pin_was_meant() -> None:
+    """A YubiKey 5 has two PINs and only one of them belongs here."""
+    assert "FIDO2 PIN" in str(_translate(CtapError(CtapError.ERR.PIN_INVALID)))
+
+
+# ------------------------------------------------- errors from the client layer
+
+
+class _FailingClient:
+    """A Fido2Client that fails the way the real one does — wrapped."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    def make_credential(self, _options: object) -> object:
+        raise self._exc
+
+    def get_assertion(self, _options: object) -> object:
+        raise self._exc
+
+
+def _install_failing_client(monkeypatch: pytest.MonkeyPatch, exc: Exception) -> None:
+    monkeypatch.setattr(
+        fido_service, "Fido2Client", lambda *_args, **_kwargs: _FailingClient(exc)
+    )
+
+
+def _credential() -> FidoCredential:
+    return FidoCredential(
+        credential_id_b64=base64.b64encode(b"\x02" * 32).decode(),
+        salt_b64=base64.b64encode(b"\x03" * PRF_SALT_LEN).decode(),
+        rp_id=fido_service.RP_ID,
+    )
+
+
+@pytest.mark.parametrize(
+    ("wrapped", "expected"),
+    [
+        (CtapError.ERR.PIN_INVALID, FidoPinError),
+        (CtapError.ERR.PIN_BLOCKED, FidoPinError),
+        (CtapError.ERR.OPERATION_DENIED, FidoTouchError),
+        (CtapError.ERR.NO_CREDENTIALS, FidoCredentialError),
+    ],
+)
+def test_a_ctap_status_wrapped_by_the_client_still_reaches_the_user(
+    monkeypatch: pytest.MonkeyPatch, wrapped: int, expected: type[Exception]
+) -> None:
+    """Fido2Client re-raises every CTAP status as ClientError.
+
+    Catching only CtapError around a client call therefore catches nothing, and
+    a mistyped PIN surfaced as an unhandled crash rather than as "wrong PIN".
+    """
+    _install_device(monkeypatch, _FakeDevice(), _FakeInfo(prf=True, pin=True))
+    _install_failing_client(monkeypatch, ClientError.ERR.BAD_REQUEST(CtapError(wrapped)))
+
+    with SecureBytes.from_bytes(b"1234") as pin:
+        with pytest.raises(expected):
+            FidoService().enroll(pin=pin, user_label="test")
+        with pytest.raises(expected):
+            FidoService().derive(_credential(), pin=pin)
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (ClientError.ERR.TIMEOUT, FidoTouchError),
+        (ClientError.ERR.DEVICE_INELIGIBLE, FidoCredentialError),
+        (ClientError.ERR.CONFIGURATION_UNSUPPORTED, FidoServiceError),
+        (ClientError.ERR.OTHER_ERROR, FidoServiceError),
+    ],
+)
+def test_client_errors_without_a_ctap_cause_are_translated_too(
+    code: int, expected: type[Exception]
+) -> None:
+    assert isinstance(_translate(ClientError(code)), expected)
 
 
 # ------------------------------------------------------------------ plumbing

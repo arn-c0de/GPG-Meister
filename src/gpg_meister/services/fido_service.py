@@ -33,7 +33,12 @@ import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from fido2.client import DefaultClientDataCollector, Fido2Client, UserInteraction
+from fido2.client import (
+    ClientError,
+    DefaultClientDataCollector,
+    Fido2Client,
+    UserInteraction,
+)
 from fido2.ctap import CtapError
 from fido2.ctap2.base import Ctap2
 from fido2.hid import CtapHidDevice
@@ -54,7 +59,12 @@ from gpg_meister.models.key_unlock import PRF_SALT_LEN, FidoCredential
 from gpg_meister.security.key_unlock import TOKEN_SECRET_LEN
 from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.errors import ServiceError
-from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
+from gpg_meister.storage.audit_log import (
+    OUTCOME_FAILED,
+    OUTCOME_OK,
+    AuditLog,
+    emit_best_effort,
+)
 
 # The relying-party id every credential is bound to. It is never resolved over
 # the network — it exists only to scope credentials to this application. It must
@@ -119,21 +129,44 @@ _NO_PRF = (
 )
 
 
-def _translate(exc: CtapError) -> FidoServiceError:
+def _translate(exc: CtapError | ClientError) -> FidoServiceError:
     """Turn a CTAP status into something the user can act on.
 
     ``OPERATION_DENIED`` is the one worth spelling out: a YubiKey reports "you
     never touched me" with the same code it uses for a genuine refusal, so
     without this mapping a missed touch reads as a hardware fault.
+
+    ``ClientError`` is accepted alongside ``CtapError`` because that is what
+    actually comes out of ``Fido2Client``: it catches every CTAP status and
+    re-raises it wrapped, so the status is one level down in ``cause``. Catching
+    only ``CtapError`` around a client call therefore catches nothing at all.
     """
+    if isinstance(exc, ClientError):
+        return _translate(exc.cause) if isinstance(exc.cause, CtapError) else _client_error(exc)
     code = exc.code
     err = CtapError.ERR
     if code in (err.PIN_INVALID, err.PIN_AUTH_INVALID):
-        return FidoPinError("the token rejected the PIN")
-    if code in (err.PIN_BLOCKED, err.PIN_AUTH_BLOCKED):
+        # Named explicitly: a YubiKey 5 has an OpenPGP PIN *and* a FIDO2 PIN,
+        # they are set separately, and typing the wrong one here is by far the
+        # likeliest way to reach this code.
         return FidoPinError(
-            "the token has locked its PIN after too many wrong attempts — "
-            "unplug and re-insert it, or reset its FIDO application"
+            "the token rejected the PIN — this is the token's FIDO2 PIN, which is "
+            "not the OpenPGP card PIN"
+        )
+    # The two blocked states are a power cycle apart and must not be conflated:
+    # 0x34 is the three-in-a-row lockout that a re-plug clears, 0x32 is the
+    # final one, which nothing but a FIDO reset clears — and that reset destroys
+    # every credential on the token, including the one holding this key.
+    if code is err.PIN_AUTH_BLOCKED:
+        return FidoPinError(
+            "the token locked its PIN after three wrong attempts in a row — "
+            "unplug it, plug it back in, and try again with the correct PIN"
+        )
+    if code is err.PIN_BLOCKED:
+        return FidoPinError(
+            "the token has used up every PIN attempt and will not accept the PIN "
+            "again until its FIDO application is reset — which erases the "
+            "credentials on it, including any this application enrolled"
         )
     if code is err.PIN_NOT_SET:
         return FidoPinError("this token has no FIDO2 PIN set yet")
@@ -147,6 +180,27 @@ def _translate(exc: CtapError) -> FidoServiceError:
             "it may be a different token"
         )
     return FidoServiceError(f"the token reported an error (CTAP 0x{code:02x})")
+
+
+def _client_error(exc: ClientError) -> FidoServiceError:
+    """Translate the few client failures that carry no CTAP status of their own.
+
+    These come from the library's own checks — a timeout it enforced itself, a
+    token it ruled out before asking it anything — so there is nothing further
+    down to inspect.
+    """
+    code = exc.code
+    err = ClientError.ERR
+    if code is err.TIMEOUT:
+        return FidoTouchError("the token was not touched in time")
+    if code is err.DEVICE_INELIGIBLE:
+        return FidoCredentialError(
+            "this token does not hold the credential this key was enrolled with — "
+            "it may be a different token"
+        )
+    if code is err.CONFIGURATION_UNSUPPORTED:
+        return FidoServiceError("this token does not support what this operation needs")
+    return FidoServiceError(f"the token could not complete the request (client error {code:d})")
 
 
 class _Interaction(UserInteraction):
@@ -294,7 +348,7 @@ class FidoService:
                     extensions={"prf": {}},
                 )
             )
-        except CtapError as exc:
+        except (CtapError, ClientError) as exc:
             self._emit("fido_enrolled", outcome=OUTCOME_FAILED, reason="ctap")
             raise _translate(exc) from exc
 
@@ -346,7 +400,7 @@ class FidoService:
                 )
             )
             assertion = selection.get_response(0)
-        except CtapError as exc:
+        except (CtapError, ClientError) as exc:
             self._emit("fido_derived", outcome=OUTCOME_FAILED, reason="ctap")
             raise _translate(exc) from exc
 
@@ -384,8 +438,10 @@ class FidoService:
         return field(field(results, outer), inner)
 
     def _emit(self, event: str, *, outcome: str = OUTCOME_OK, **payload: object) -> None:
-        if self._audit is not None:
-            self._audit.emit(event, outcome=outcome, **payload)
+        # Best-effort by necessity: every failure path here logs on its way to
+        # raising the error the user needs to see, so an audit sink that raises
+        # would replace "wrong PIN" with its own complaint.
+        emit_best_effort(self._audit, event, outcome=outcome, **payload)
 
 
 def _b64(raw: bytes) -> str:

@@ -67,6 +67,13 @@ ALLOWED_EVENTS: Final[frozenset[str]] = frozenset(
         "smartcard_pin_changed",
         "smartcard_key_moved",
         "smartcard_key_generated",
+        "fido_enrolled",
+        "fido_derived",
+        "key_created_with_token",
+        "key_bound_to_token",
+        "key_unlocked_with_token",
+        "key_unlocked_with_passphrase",
+        "key_unlock_forgotten",
         "vault_created",
         "vault_imported",
         "vault_import_failed",
@@ -78,7 +85,13 @@ ALLOWED_EVENTS: Final[frozenset[str]] = frozenset(
 # The deny-list of sensitive key names lives in `secret_keys` so the audit and
 # diagnostic sinks share one source of truth. Re-exported here for callers and
 # tests that historically imported it from this module.
-__all__ = ["FORBIDDEN_KEYS", "AuditLog", "AuditLogError", "verify_chain"]
+__all__ = [
+    "FORBIDDEN_KEYS",
+    "AuditLog",
+    "AuditLogError",
+    "emit_best_effort",
+    "verify_chain",
+]
 
 # Maximum bytes read from the file tail when looking for the last hash chain entry.
 # A single audit record is well under 4 KB; 64 KB guarantees we always find one.
@@ -304,6 +317,35 @@ class AuditLog:
         if last is None:
             return None, 0
         return hashlib.sha256(last).hexdigest(), _seq_after(last)
+
+
+def emit_best_effort(
+    audit: AuditLog | None,
+    event: str,
+    *,
+    outcome: str = OUTCOME_OK,
+    **payload: Any,
+) -> None:
+    """Record an event that has already happened, and never raise doing so.
+
+    ``emit`` is strict on purpose: an event outside the whitelist or a payload
+    carrying a secret is a programming error, and tests must see it. In a
+    running application it is the wrong moment to be strict. The services call
+    this after the operation they describe has completed — a key generated, a
+    card PIN changed, a token enrolled — so a refused *record* cannot mean the
+    *operation* failed. Raising there is worse than losing the line: callers
+    that read an exception as "this did not happen" undo work that did (see
+    ``key_unlock_service._persist``, which deletes the key it just created).
+
+    The loss is written to the diagnostic log rather than swallowed, which is
+    the same treatment ``_write_record`` already gives an unwritable log file.
+    """
+    if audit is None:
+        return
+    try:
+        audit.emit(event, outcome=outcome, **payload)
+    except Exception:
+        _log.exception("audit event %r was not recorded", event)
 
 
 def verify_chain(path: Path) -> tuple[bool, int]:

@@ -58,7 +58,12 @@ from gpg_meister.services.validation import (
     validate_key_algorithm_and_length,
     validate_user_name,
 )
-from gpg_meister.storage.audit_log import OUTCOME_FAILED, OUTCOME_OK, AuditLog
+from gpg_meister.storage.audit_log import (
+    OUTCOME_FAILED,
+    OUTCOME_OK,
+    AuditLog,
+    emit_best_effort,
+)
 from gpg_meister.storage.metadata_store import MetadataStore
 
 # Signed during verification. Never leaves the process; only the fact that
@@ -345,8 +350,9 @@ class KeyUnlockService:
         self._emit("key_unlock_forgotten", outcome=OUTCOME_OK)
 
     def _emit(self, event: str, *, outcome: str = OUTCOME_OK, **payload: object) -> None:
-        if self._audit is not None:
-            self._audit.emit(event, outcome=outcome, **payload)
+        # Best-effort by necessity: `_persist` reads any exception from here as
+        # "the slots were never stored" and deletes the key it just created.
+        emit_best_effort(self._audit, event, outcome=outcome, **payload)
 
 
 def _is_fatal_token_error(exc: ServiceError) -> bool:

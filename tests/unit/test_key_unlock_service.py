@@ -24,6 +24,7 @@ from gpg_meister.services.key_unlock_service import (
     KeyUnlockService,
     NoUnlockMethodError,
 )
+from gpg_meister.storage.audit_log import AuditLogError
 from gpg_meister.storage.metadata_store import MetadataStore
 
 FPR = "A" * 40
@@ -396,3 +397,46 @@ def test_an_unmanaged_key_reports_no_methods(store: MetadataStore) -> None:
     assert not methods.is_managed
     assert not methods.has_token
     assert not methods.has_passphrase
+
+
+class _RefusingAudit:
+    """An audit sink that rejects everything, the way an unknown event does."""
+
+    def emit(self, event: str, **_payload: object) -> None:
+        raise AuditLogError(f"event {event!r} is not in the audit whitelist")
+
+
+def test_an_unwritable_audit_record_does_not_cost_the_user_the_key(
+    store: MetadataStore,
+) -> None:
+    """1.0.5 shipped with the token events missing from the audit whitelist.
+
+    The record is written after the slots are stored, so the exception arrived
+    where the caller reads it as "the slots were never stored" — and the key
+    that had just been generated was deleted to avoid stranding an unopenable
+    one. The audit line is expendable; the key is not.
+    """
+    gpg, fido = _FakeGPG(), _FakeFido()
+    service = KeyUnlockService(
+        gpg=gpg,  # type: ignore[arg-type]
+        fido=fido,  # type: ignore[arg-type]
+        store=store,
+        audit=_RefusingAudit(),  # type: ignore[arg-type]
+        kdf_params=CHEAP,
+    )
+
+    with _pin() as pin:
+        fingerprint = service.create_key_with_token(
+            name="Alice",
+            email="alice@example.org",
+            algorithm=KeyAlgorithm.EDDSA,
+            length=255,
+            expiry="0",
+            pin=pin,
+            emergency_passphrase=None,
+        )
+
+        assert fingerprint == FPR
+        assert gpg.deleted == []
+        with service.unlock_with_token(FPR, pin=pin) as recovered:
+            assert recovered.to_bytes() == gpg.generated_passphrase

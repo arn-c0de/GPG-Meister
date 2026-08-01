@@ -198,6 +198,26 @@ _ENTRIES: tuple[CatalogEntry, ...] = (
 
 _CATALOG: dict[str, CatalogEntry] = {entry.code: entry for entry in _ENTRIES}
 
+# Errors whose message is already written for the user and is shown verbatim.
+# The security-key paths are the exception to the catalog rule because their
+# failures differ only in what the user must do next — re-plug the token, retype
+# the FIDO2 PIN, touch it in time, use the other token — and a curated entry per
+# case would be the same sentence one indirection away. Some of them cannot be
+# reconstructed here at all: which package ships the missing udev rules is known
+# to the service and nowhere else. These messages are held to the same rule as
+# any entry below: no paths, no key ids, no subprocess output.
+_VERBATIM_ERRORS = frozenset(
+    {
+        "FidoServiceError",
+        "FidoUnavailableError",
+        "FidoPinError",
+        "FidoTouchError",
+        "FidoCredentialError",
+        "KeyUnlockError",
+        "NoUnlockMethodError",
+    }
+)
+
 
 def lookup(code: str) -> CatalogEntry | None:
     """Return the catalog entry for a given error code, or None."""
@@ -215,10 +235,22 @@ def format_message(code: str, **kwargs: str) -> str:
         return entry.message
 
 
+def _as_sentence(text: str) -> str:
+    """Present a service-layer message as one, without rewriting it.
+
+    Service messages are phrased as clauses ("the token rejected the PIN") so
+    they read correctly wherever they are embedded; on their own in an error
+    label they need the capital and the full stop.
+    """
+    text = text.strip()
+    return text[0].upper() + text[1:] + ("" if text[-1] in ".!?" else ".")
+
+
 def message_for_exception(exc: BaseException) -> str:
     """Map internal exceptions to a user-facing message.
 
-    Known exception types map to curated catalog entries. ``ValueError`` carries
+    Known exception types map to curated catalog entries; the security-key
+    errors in ``_VERBATIM_ERRORS`` supply their own. ``ValueError`` carries
     intentional, user-facing validation text (raised throughout the services
     layer) and is shown as-is. Every other exception is treated as unexpected:
     rather than echo ``str(exc)`` — which can leak file paths, key ids or raw
@@ -240,6 +272,8 @@ def message_for_exception(exc: BaseException) -> str:
     }.get(name)
     if code is not None:
         return format_message(code)
+    if name in _VERBATIM_ERRORS and str(exc).strip():
+        return _as_sentence(str(exc))
     if isinstance(exc, ValueError):
         return str(exc)
 

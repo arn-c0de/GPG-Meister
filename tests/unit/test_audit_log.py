@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from gpg_meister.storage.audit_log import (
+    ALLOWED_EVENTS,
     OUTCOME_FAILED,
     OUTCOME_OK,
     AuditLog,
@@ -328,3 +330,45 @@ def test_metadata_flags_mentioning_secrets_are_allowed(tmp_path: Path) -> None:
     # redacted as if they held the secret itself.
     with AuditLog(tmp_path / "audit.log") as log:
         log.emit("key_deleted", fingerprint="A", including_secret=True, has_private_key=False)
+
+
+def _emitted_event_names() -> dict[str, str]:
+    """Every event name the source emits as a literal, mapped to where.
+
+    Two call shapes carry one: the first positional argument of ``emit`` or a
+    service's ``_emit`` wrapper, and an ``event=`` keyword, which is how the
+    helpers that log on behalf of a caller are told what to record.
+    """
+    names: dict[str, str] = {}
+    for path in (Path(__file__).parents[2] / "src").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            candidates = []
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in {"emit", "_emit"} and node.args:
+                candidates.append(node.args[0])
+            candidates += [kw.value for kw in node.keywords if kw.arg == "event"]
+            for value in candidates:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    names.setdefault(value.value, f"{path.name}:{value.lineno}")
+    return names
+
+
+def test_every_emitted_event_is_whitelisted() -> None:
+    """A name missing here is not a logging gap — it aborts the operation.
+
+    ``emit`` raises on an unknown event, and the callers that log a *completed*
+    action do so after the fact: the security-key enrolment shipped in 1.0.5
+    with none of its events whitelisted, so every enrolment ended in an
+    AuditLogError instead of a key. Nothing else catches this, because the
+    services stub the audit log out.
+    """
+    missing = {
+        name: where
+        for name, where in _emitted_event_names().items()
+        if name not in ALLOWED_EVENTS
+    }
+
+    assert not missing, f"events emitted but not in ALLOWED_EVENTS: {missing}"
