@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- Raised the `cryptography` floor to 50.0.0 for CVE-2026-69247
+  (GHSA-g6cj-pr64-35w5): PKCS#7 `EnvelopedData` decryption reported
+  `RecipientInfo` failures in distinguishable ways, giving an application that
+  reflects the outcome a Bleichenbacher oracle against the content-encryption
+  key. GPG Meister does not decrypt PKCS#7 — `cryptography` is used only for
+  AES-GCM and ChaCha20-Poly1305 in `security/aead.py` — so no released version
+  was exposed. The bump keeps the dependency floor out of the affected range.
+
 ### Added
 
 **Unlock a key with a FIDO2 security key**

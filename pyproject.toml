@@ -11,7 +11,7 @@ authors = [{ name = "GPG Meister Contributors" }]
 #   cryptography, argon2-cffi, pydantic, fido2
 dependencies = [
     "PySide6>=6.11.1",
-    "cryptography>=48.0.1",
+    "cryptography>=50.0.0",
     "argon2-cffi>=25.1",
     "pydantic>=2.13.4",
     "msgpack>=1.2.1",
