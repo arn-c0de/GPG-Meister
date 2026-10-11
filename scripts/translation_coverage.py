@@ -52,7 +52,7 @@ def _language_name(code: str) -> str:
 
 def _parse(ts_path: Path) -> tuple[set[Key], set[Key]]:
     """Return (all_keys, translated_keys) for a .ts file."""
-    root = ET.parse(ts_path).getroot()
+    root = ET.parse(ts_path).getroot()  # noqa: S314 - parses the repo's own .ts catalogs
     all_keys: set[Key] = set()
     translated: set[Key] = set()
     for context in root.findall("context"):
