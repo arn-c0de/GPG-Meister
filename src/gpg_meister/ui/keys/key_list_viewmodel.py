@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
-from gpg_meister.models.key_info import KeyInfo
+from gpg_meister.models.key_info import KeyInfo, KeyStorage
 from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.smartcard_service import CardSyncResult, SmartcardService
@@ -37,11 +39,13 @@ class KeyListViewModel(QObject):
         *,
         require_delete_text_confirmation: bool = True,
         smartcard_service: SmartcardService | None = None,
+        keyring_dir: Path | None = None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._svc = key_service
         self._smartcard = smartcard_service
+        self._keyring_dir = keyring_dir
         self._pool = QThreadPool.globalInstance()
         self._keys: list[KeyInfo] = []
         self._require_delete_text_confirmation = require_delete_text_confirmation
@@ -78,6 +82,22 @@ class KeyListViewModel(QObject):
     def _on_card_result(self, result: object) -> None:
         if isinstance(result, CardSyncResult):
             self.card_changed.emit(result)
+
+    def storage_location(self, key: KeyInfo) -> Path | None:
+        """The folder on this computer that holds ``key``, or None when there is none.
+
+        GnuPG keeps every public key in one keybox file in the keyring folder and
+        each secret key (or card/offline stub) as its own file under
+        ``private-keys-v1.d``. A smartcard key's material is on the token, so it
+        has no meaningful local location.
+        """
+        if self._keyring_dir is None or key.storage is KeyStorage.SMARTCARD:
+            return None
+        if key.storage is not KeyStorage.PUBLIC_ONLY:
+            secret_dir = self._keyring_dir / "private-keys-v1.d"
+            if secret_dir.is_dir():
+                return secret_dir
+        return self._keyring_dir
 
     @property
     def require_delete_text_confirmation(self) -> bool:

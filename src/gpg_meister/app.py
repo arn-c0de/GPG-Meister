@@ -365,6 +365,7 @@ def _build_main_window(
         services.keys,
         require_delete_text_confirmation=config.require_delete_text_confirmation,
         smartcard_service=services.smartcard,
+        keyring_dir=paths.gnupg_home,
     )
     window.install_tab(AppPage.KEYS, KeyListView(key_vm))
 

@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QPoint, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QMouseEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -118,6 +120,7 @@ class KeyListView(QWidget):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         hh = self._table.horizontalHeader()
         hh.setSectionResizeMode(_COL_FAV, QHeaderView.ResizeMode.Fixed)
         hh.resizeSection(_COL_FAV, 28)
@@ -148,6 +151,7 @@ class KeyListView(QWidget):
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
         self._table.doubleClicked.connect(self._open_detail)
         self._table.cellClicked.connect(self._on_cell_clicked)
+        self._table.customContextMenuRequested.connect(self._show_context_menu)
 
     def _on_keys_changed(self, keys: list[KeyInfo]) -> None:
         self._keys = keys
@@ -207,6 +211,32 @@ class KeyListView(QWidget):
             return
         if 0 <= row < len(self._keys):
             self._vm.toggle_favorite(self._keys[row].fingerprint)
+
+    def _show_context_menu(self, pos: QPoint) -> None:
+        # The table reports viewport coordinates for its context-menu position.
+        row = self._table.rowAt(pos.y())
+        if not 0 <= row < len(self._keys):
+            return
+        self._table.selectRow(row)
+        key = self._keys[row]
+
+        menu = QMenu(self)
+        menu.addAction("Details…", self._open_detail)
+        location = self._vm.storage_location(key)
+        if key.is_on_smartcard:
+            on_card = menu.addAction(f"Stored on {key.storage_label} — no local file")
+            on_card.setEnabled(False)
+        elif location is not None:
+            menu.addAction("Open Storage Location", lambda: self._open_location(location))
+        menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def _open_location(self, location: Path) -> None:
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(location))):
+            QMessageBox.warning(
+                self,
+                "Open storage location",
+                f"Could not open a file manager. The key is stored in:\n{location}",
+            )
 
     def _selected_key(self) -> KeyInfo | None:
         rows = self._table.selectedItems()

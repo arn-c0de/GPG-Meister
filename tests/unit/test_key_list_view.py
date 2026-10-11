@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo, TrustLevel
@@ -204,3 +205,35 @@ def test_delete_private_key_shows_simple_confirmation_when_text_disabled(monkeyp
     app.processEvents()
 
     assert deleted == [(key.fingerprint, True)]
+
+
+def test_storage_location_points_at_secret_key_folder(tmp_path) -> None:
+    (tmp_path / "private-keys-v1.d").mkdir()
+    vm = KeyListViewModel(_FakeKeyService(), keyring_dir=tmp_path)
+
+    assert vm.storage_location(_key(has_private_key=True)) == tmp_path / "private-keys-v1.d"
+    assert vm.storage_location(_key(has_private_key=False)) == tmp_path
+
+
+def test_storage_location_none_for_smartcard_key_or_unknown_keyring(tmp_path) -> None:
+    card_key = _key(has_private_key=True).model_copy(
+        update={"card_serial": "D2760001240100000006123456780000"}
+    )
+
+    assert (
+        KeyListViewModel(_FakeKeyService(), keyring_dir=tmp_path).storage_location(card_key) is None
+    )
+    assert KeyListViewModel(_FakeKeyService()).storage_location(_key(has_private_key=True)) is None
+
+
+def test_open_location_warns_when_no_file_manager(monkeypatch, tmp_path) -> None:
+    QApplication.instance() or QApplication([])
+    view = KeyListView(KeyListViewModel(_FakeKeyService(), keyring_dir=tmp_path))
+    warnings: list[str] = []
+
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda _url: False)
+    monkeypatch.setattr(QMessageBox, "warning", lambda _parent, _title, text: warnings.append(text))
+
+    view._open_location(tmp_path)
+
+    assert warnings and str(tmp_path) in warnings[0]
