@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.services.key_service import KeyService
-from gpg_meister.ui.qt_helpers import monospace_font
+from gpg_meister.ui.qt_helpers import error_label, monospace_font
 from gpg_meister.ui.worker import Worker
 
 
@@ -63,10 +63,7 @@ class ShareKeyView(QWidget):
         self._armor_output.setPlaceholderText("Select a key above to show its public key…")
         root.addWidget(self._armor_output, stretch=1)
 
-        self._error_label = QLabel()
-        self._error_label.setStyleSheet("color: #cc0000;")
-        self._error_label.setWordWrap(True)
-        self._error_label.hide()
+        self._error_label = error_label()
         root.addWidget(self._error_label)
 
         btn_row = QHBoxLayout()

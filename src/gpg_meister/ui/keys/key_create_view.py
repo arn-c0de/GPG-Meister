@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
-    QProgressBar,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -20,6 +19,7 @@ from PySide6.QtWidgets import (
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.ui.keys.key_create_viewmodel import KeyCreateViewModel
+from gpg_meister.ui.qt_helpers import busy_bar, error_label
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 
 _ALGO_CHOICES: list[tuple[str, KeyAlgorithm, int]] = [
@@ -164,16 +164,10 @@ class KeyCreateDialog(QDialog):
         layout.addWidget(self._mismatch_label)
 
     def _add_status_widgets(self, layout: QVBoxLayout) -> None:
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
-        self._progress.setFixedHeight(6)
-        self._progress.hide()
+        self._progress = busy_bar()
         layout.addWidget(self._progress)
 
-        self._error_label = QLabel("")
-        self._error_label.setStyleSheet("color: #cc0000;")
-        self._error_label.setWordWrap(True)
-        self._error_label.hide()
+        self._error_label = error_label()
         layout.addWidget(self._error_label)
 
     def _connect_signals(self) -> None:
