@@ -16,6 +16,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+**Encrypt and decrypt whole folders**
+
+A new *Folders* sub-tab under Messages encrypts a complete folder, either to a
+recipient key or with a passphrase, into a single `*.tar.gpg` file, and
+decrypts such a file back into a folder.
+
+- The folder is packed into a tar archive and encrypted by GnuPG; passphrase
+  mode uses AES-256 and `--no-symkey-cache`, so gpg-agent does not remember
+  the passphrase. Passphrases must pass the same strength policy as keys.
+- Symlinks and special files are skipped when packing. Unpacking accepts only
+  regular files and directories under one top-level folder and never
+  overwrites an existing folder.
+- Audit events: `folder_encrypted`, `folder_decrypted`, `folder_decrypt_failed`.
+
 **Unlock a key with a FIDO2 security key**
 
 Hardware tokens without the OpenPGP applet — the Security Key Series and other

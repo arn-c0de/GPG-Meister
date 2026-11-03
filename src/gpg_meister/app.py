@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 if TYPE_CHECKING:
     from gpg_meister.models.config import AppConfig
+    from gpg_meister.services.folder_service import FolderService
     from gpg_meister.services.gpg_service import GPGService
     from gpg_meister.services.key_service import KeyService
     from gpg_meister.services.key_unlock_service import KeyUnlockService
@@ -292,6 +293,7 @@ class _Services:
     gpg: GPGService
     keys: KeyService
     messages: MessageService
+    folders: FolderService
     vault: VaultService
     smartcard: SmartcardService
     unlock: KeyUnlockService
@@ -300,6 +302,7 @@ class _Services:
 
 def _build_services(paths: AppPaths, gpg: DetectedGPG, audit: AuditLog) -> _Services:
     from gpg_meister.services.fido_service import FidoService
+    from gpg_meister.services.folder_service import FolderService
     from gpg_meister.services.gpg_service import GPGService, GPGServiceConfig
     from gpg_meister.services.key_service import KeyService
     from gpg_meister.services.key_unlock_service import KeyUnlockService
@@ -328,6 +331,7 @@ def _build_services(paths: AppPaths, gpg: DetectedGPG, audit: AuditLog) -> _Serv
         gpg=gpg_svc,
         keys=KeyService(gpg=gpg_svc, audit=audit, metadata=metadata, unlock=unlock),
         messages=MessageService(gpg=gpg_svc, audit=audit),
+        folders=FolderService(gpg=gpg_svc, audit=audit),
         vault=VaultService(gpg=gpg_svc, audit=audit, metadata=metadata),
         smartcard=SmartcardService(gpg=gpg_svc, audit=audit),
         unlock=unlock,
@@ -350,6 +354,7 @@ def _build_main_window(
     from gpg_meister.ui.main_window import MainWindow
     from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
     from gpg_meister.ui.messages.encrypt_viewmodel import EncryptViewModel
+    from gpg_meister.ui.messages.folder_viewmodel import FolderViewModel
     from gpg_meister.ui.messages.messages_tab import MessagesTabView
     from gpg_meister.ui.messages.sign_viewmodel import SignViewModel
     from gpg_meister.ui.messages.verify_viewmodel import VerifyViewModel
@@ -377,6 +382,7 @@ def _build_main_window(
         sign_vm,
         VerifyViewModel(services.messages),
         services.keys,
+        folder_vm=FolderViewModel(services.folders, services.keys),
         clipboard_clear_seconds=config.clipboard_clear_seconds,
         unlock=services.unlock,
     )
@@ -440,7 +446,7 @@ def _wire_key_inventory_updates(
             if vm is not None:
                 vm.load_keys()
         if messages_view is not None:
-            messages_view.refresh_share_keys()
+            messages_view.refresh_keys()
 
     key_vm.keys_changed.connect(_refresh_dependents)
 

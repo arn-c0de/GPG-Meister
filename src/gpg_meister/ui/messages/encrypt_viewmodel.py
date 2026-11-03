@@ -7,10 +7,9 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, Signal
 
 from gpg_meister.models.message import EncryptResult
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.message_service import MessageService
-from gpg_meister.ui.operation_viewmodel import OperationViewModel
+from gpg_meister.ui.operation_viewmodel import OperationViewModel, read_passphrase
 from gpg_meister.ui.worker import Worker
 
 
@@ -78,18 +77,8 @@ class EncryptViewModel(OperationViewModel):
         plaintext_bytes = self._plaintext.encode()
         fps = list(self._recipient_fps)
         sign_with = self._sign_with
-        # Read the signing passphrase once, here on the UI thread, and convert
-        # it to SecureBytes immediately — it is never stored on the ViewModel,
-        # mirroring DecryptViewModel so a plaintext copy does not linger (L7).
-        pp_str = get_passphrase().strip() if get_passphrase is not None else ""
-        if pp_str:
-            from gpg_meister.security.password_policy import normalise_passphrase
-            _pp_raw = normalise_passphrase(pp_str).encode()
-            pp_secure = SecureBytes.from_bytes(_pp_raw)
-            _zero_bytes_object(_pp_raw)
-        else:
-            pp_secure = None
-        del pp_str
+        # Read the signing passphrase once, here on the UI thread (L7).
+        pp_secure = read_passphrase(get_passphrase)
         trust = self._trust_confirmed
         self._trust_confirmed = False
 
