@@ -7,10 +7,10 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, Signal
 
 from gpg_meister.models.message import DecryptResult
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
+from gpg_meister.security.secure_bytes import SecureBytes
 from gpg_meister.services.message_service import MessageService
 from gpg_meister.services.smartcard_service import CardSyncResult, SmartcardService
-from gpg_meister.ui.operation_viewmodel import OperationViewModel
+from gpg_meister.ui.operation_viewmodel import OperationViewModel, read_passphrase
 from gpg_meister.ui.worker import Worker
 
 
@@ -63,17 +63,7 @@ class DecryptViewModel(OperationViewModel):
             return
         self.loading_changed.emit(True)
         ciphertext_bytes = self._ciphertext.encode()
-        pp_str = get_passphrase().strip()
-        # Convert to SecureBytes on the UI thread and drop the plain-string
-        # reference immediately so it is not captured by the closure below.
-        if pp_str:
-            from gpg_meister.security.password_policy import normalise_passphrase
-            _pp_raw = normalise_passphrase(pp_str).encode()
-            pp_secure = SecureBytes.from_bytes(_pp_raw)
-            _zero_bytes_object(_pp_raw)
-        else:
-            pp_secure = None
-        del pp_str
+        pp_secure = read_passphrase(get_passphrase)
 
         def _do() -> DecryptResult:
             if pp_secure is not None:

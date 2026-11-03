@@ -54,6 +54,15 @@ It mainly adds audit logging and a stable result model for the UI.
 
 The service remains intentionally thin because sensitive subprocess handling is concentrated inside `GPGService`.
 
+## `folder_service.py`
+
+This module encrypts and decrypts whole folders:
+
+- `encrypt_folder()` packs the folder into a tar archive and encrypts it with GPG, either to a recipient key (same recipient checks as messages) or symmetrically (AES-256) with a passphrase. The output is a binary `*.tar.gpg` file.
+- `decrypt_folder()` decrypts such a file (key or passphrase) and unpacks the folder into a destination directory.
+
+The plaintext archive exists only as a short-lived `0600` temp file next to the output. Symlinks and special files are skipped when packing. Unpacking accepts only regular files and directories under one top-level folder, refuses to overwrite an existing folder, and stages into a temp directory first, so a crafted archive cannot write outside the destination.
+
 ## `vault_service.py`
 
 This module orchestrates vault export and import workflows.

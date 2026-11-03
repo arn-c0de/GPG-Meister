@@ -44,7 +44,7 @@ class MessageService:
     ) -> EncryptResult:
         recipients = tuple(validate_fingerprint(fp) for fp in recipient_fingerprints)
         signer = validate_fingerprint(sign_with) if sign_with else None
-        self._enforce_recipient_policy(recipients, trust_confirmed=trust_confirmed)
+        enforce_recipient_policy(self._gpg, recipients, trust_confirmed=trust_confirmed)
         if always_trust and not trust_confirmed:
             raise ValueError("recipient trust must be confirmed before encryption")
 
@@ -80,27 +80,6 @@ class MessageService:
             signing_fingerprint=signer,
             created_at=datetime.now(UTC),
         )
-
-    def _enforce_recipient_policy(
-        self,
-        recipients: Sequence[str],
-        *,
-        trust_confirmed: bool,
-    ) -> None:
-        if not recipients:
-            raise ValueError("at least one recipient is required")
-        for fp in recipients:
-            key = self._gpg.find_key(fp)
-            if key.is_revoked:
-                raise ValueError("cannot encrypt to a revoked recipient key")
-            if key.is_expired:
-                raise ValueError("cannot encrypt to an expired recipient key")
-            if key.algorithm in (KeyAlgorithm.DSA, KeyAlgorithm.UNKNOWN):
-                raise ValueError("cannot encrypt to an unsupported recipient key algorithm")
-            if key.algorithm is KeyAlgorithm.RSA and key.length < 2048:
-                raise ValueError("cannot encrypt to an RSA key below 2048 bits")
-            if key.trust in (TrustLevel.UNKNOWN, TrustLevel.NEVER) and not trust_confirmed:
-                raise ValueError("recipient trust must be confirmed before encryption")
 
     # ----------------------------------------------------------------- decrypt
 
@@ -200,6 +179,29 @@ class MessageService:
             signed_at=signed_at,
             failure_reason=(None if signature_status.is_valid else signature_status.summary),
         )
+
+
+def enforce_recipient_policy(
+    gpg: GPGService,
+    recipients: Sequence[str],
+    *,
+    trust_confirmed: bool,
+) -> None:
+    """Reject recipients that must not be encrypted to (shared by text and folders)."""
+    if not recipients:
+        raise ValueError("at least one recipient is required")
+    for fp in recipients:
+        key = gpg.find_key(fp)
+        if key.is_revoked:
+            raise ValueError("cannot encrypt to a revoked recipient key")
+        if key.is_expired:
+            raise ValueError("cannot encrypt to an expired recipient key")
+        if key.algorithm in (KeyAlgorithm.DSA, KeyAlgorithm.UNKNOWN):
+            raise ValueError("cannot encrypt to an unsupported recipient key algorithm")
+        if key.algorithm is KeyAlgorithm.RSA and key.length < 2048:
+            raise ValueError("cannot encrypt to an RSA key below 2048 bits")
+        if key.trust in (TrustLevel.UNKNOWN, TrustLevel.NEVER) and not trust_confirmed:
+            raise ValueError("recipient trust must be confirmed before encryption")
 
 
 def _resolve_signer_trust(gpg: GPGService, signer: str | None) -> TrustLevel:

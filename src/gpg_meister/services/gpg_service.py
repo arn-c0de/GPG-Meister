@@ -67,6 +67,10 @@ from gpg_meister.services.validation import (
 )
 from gpg_meister.storage.permissions import ensure_dir
 
+# File operations work on whole folders, which can take far longer than the
+# default per-call timeout meant for short text messages.
+_FILE_TIMEOUT_SECONDS = 3600
+
 _REQUIRED_GPG_ARGS: tuple[str, ...] = (
     "--batch",
     "--pinentry-mode",
@@ -432,6 +436,23 @@ def _raise_for_card_failure(
     raise error_type(f"{operation} failed: {reason}", diagnostics=combined_text)
 
 
+def _require_decrypt_ok(proc: _GPGRun) -> None:
+    """Raise the matching error for a failed decryption run."""
+    if proc.returncode == 0:
+        return
+    status_text = _decode_output(proc.status)
+    stderr_text = _decode_output(proc.stderr)
+    combined = (status_text + "\n" + stderr_text).lower()
+    detail = (stderr_text or status_text)[:200]
+    # A smartcard-backed key fails with "no secret key" too when the
+    # token is simply unplugged; classify that before the passphrase
+    # branch so the user is told to insert it.
+    _raise_for_card_failure(_parse_status(proc.status), combined, operation="decryption")
+    if "bad_passphrase" in combined or "bad passphrase" in combined or "no secret key" in combined:
+        raise GPGPassphraseError(f"decryption failed: {detail}")
+    raise GPGProcessError(f"decryption failed: {detail}")
+
+
 def _decryption_fingerprint(records: Iterable[Sequence[str]]) -> str | None:
     """Return the secret-key fingerprint GPG used for a successful decrypt."""
     for record in records:
@@ -784,6 +805,7 @@ class GPGService:
         input_data: bytes | bytearray | memoryview | None = None,
         passphrase: SecureBytes | bytes | None = None,
         status_fd: bool = False,
+        timeout_seconds: int | None = None,
     ) -> _GPGRun:
         """Run GPG with optional byte-only passphrase pipe handling.
 
@@ -825,7 +847,7 @@ class GPGService:
             # backstop (idempotent).
             status_reader = _start_status_reader(pipes.take_status_read(), status_buf)
             pass_writer = _start_passphrase_writer(pipes.take_pass_write(), pass_bytes)
-            stdout, stderr = self._communicate(proc, input_data)
+            stdout, stderr = self._communicate(proc, input_data, timeout_seconds)
             if status_reader is not None:
                 status_reader.join(timeout=1.0)
             return _GPGRun(
@@ -848,18 +870,18 @@ class GPGService:
         self,
         proc: subprocess.Popen[bytes],
         input_data: bytes | bytearray | memoryview | None,
+        timeout_seconds: int | None = None,
     ) -> tuple[bytes, bytes]:
+        timeout_seconds = timeout_seconds or self._config.timeout_seconds
         try:
             return proc.communicate(
                 input=cast(bytes | None, input_data),
-                timeout=self._config.timeout_seconds,
+                timeout=timeout_seconds,
             )
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()
-            raise GPGProcessError(
-                f"GPG operation timed out after {self._config.timeout_seconds}s"
-            ) from None
+            raise GPGProcessError(f"GPG operation timed out after {timeout_seconds}s") from None
 
     # ------------------------------------------------------------------ inventory
 
@@ -1194,24 +1216,79 @@ class GPGService:
             passphrase=passphrase,
             status_fd=True,
         )
-        status_text = _decode_output(proc.status)
-        stderr_text = _decode_output(proc.stderr)
-        if proc.returncode != 0:
-            combined = (status_text + "\n" + stderr_text).lower()
-            detail = (stderr_text or status_text)[:200]
-            # A smartcard-backed key fails with "no secret key" too when the
-            # token is simply unplugged; classify that before the passphrase
-            # branch so the user is told to insert it.
-            _raise_for_card_failure(
-                _parse_status(proc.status), combined, operation="decryption"
-            )
-            if "bad_passphrase" in combined or "bad passphrase" in combined or "no secret key" in combined:
-                raise GPGPassphraseError(f"decryption failed: {detail}")
-            raise GPGProcessError(f"decryption failed: {detail}")
+        _require_decrypt_ok(proc)
         records = _parse_status(proc.status)
         status, signer, _ = _evaluate_signature(records)
         decrypted_with = _decryption_fingerprint(records)
         return bytes(proc.stdout or b""), signer, status, decrypted_with
+
+    # --------------------------------------------------------------------- files
+
+    def encrypt_file(
+        self,
+        source: Path,
+        target: Path,
+        *,
+        recipient_fingerprints: Sequence[str] = (),
+        passphrase: SecureBytes | None = None,
+        always_trust: bool = False,
+    ) -> None:
+        """Encrypt ``source`` into the binary OpenPGP file ``target``.
+
+        With recipients the file is encrypted to their public keys; without, it
+        is encrypted symmetrically (AES-256) with ``passphrase``. Exactly one of
+        the two must be given.
+        """
+        recipients = [validate_fingerprint(fp) for fp in recipient_fingerprints]
+        if bool(recipients) == (passphrase is not None):
+            raise GPGValidationError("give either recipients or a passphrase")
+        # Absolute paths can never be mistaken for a gpg option.
+        args = ["--yes", "--output", str(target.resolve())]
+        if recipients:
+            if always_trust:
+                args.extend(["--trust-model", "always"])
+            args.append("--encrypt")
+            for recipient in recipients:
+                args.extend(["--recipient", recipient])
+        else:
+            # --no-symkey-cache keeps gpg-agent from remembering the passphrase.
+            args.extend(["--no-symkey-cache", "--symmetric", "--cipher-algo", "AES256"])
+        args.append(str(source.resolve()))
+        proc = self._run_gpg(
+            args,
+            passphrase=passphrase,
+            status_fd=True,
+            timeout_seconds=_FILE_TIMEOUT_SECONDS,
+        )
+        _require_ok(proc, "file encryption failed")
+
+    def decrypt_file(
+        self,
+        source: Path,
+        target: Path,
+        *,
+        passphrase: SecureBytes | None = None,
+    ) -> str | None:
+        """Decrypt ``source`` into ``target``; return the decryption-key fingerprint.
+
+        Works for both key- and passphrase-encrypted files. The fingerprint is
+        None for a passphrase-encrypted file.
+        """
+        proc = self._run_gpg(
+            [
+                "--yes",
+                "--no-symkey-cache",
+                "--output",
+                str(target.resolve()),
+                "--decrypt",
+                str(source.resolve()),
+            ],
+            passphrase=passphrase,
+            status_fd=True,
+            timeout_seconds=_FILE_TIMEOUT_SECONDS,
+        )
+        _require_decrypt_ok(proc)
+        return _decryption_fingerprint(_parse_status(proc.status))
 
     def sign(
         self,

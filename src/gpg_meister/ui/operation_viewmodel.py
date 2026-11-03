@@ -14,7 +14,25 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
+from gpg_meister.security.password_policy import normalise_passphrase
+from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.ui.worker import Worker
+
+
+def read_passphrase(get_passphrase: Callable[[], str] | None) -> SecureBytes | None:
+    """Read a passphrase once on the UI thread and wrap it in ``SecureBytes``.
+
+    Returns None when nothing was typed. The plain-string copy is dropped right
+    away so it is never captured by a worker closure or kept on a viewmodel (L7).
+    """
+    pp_str = get_passphrase().strip() if get_passphrase is not None else ""
+    if not pp_str:
+        return None
+    raw = normalise_passphrase(pp_str).encode()
+    del pp_str
+    secure = SecureBytes.from_bytes(raw)
+    _zero_bytes_object(raw)
+    return secure
 
 
 class OperationViewModel(QObject):

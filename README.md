@@ -27,6 +27,7 @@ GPG Meister is a local-first desktop application built on GnuPG. It gives users 
 - **Key management**: Create, import, inspect, label, and manage GPG keys.
   <img src="images/GPG-MEISTER-keys-page.png" alt="Key Management" width="600">
 - **Message operations**: Encrypt, decrypt, sign, and verify text messages.
+- **Folder encryption**: Encrypt or decrypt a complete folder with a recipient key or a passphrase (Messages → Folders).
   <img src="images/GPG-MEISTER-encrypt-page.png" alt="Encryption" width="600">
   <img src="images/GPG-MEISTER-decrypt-page.png" alt="Decryption" width="600">
 - **Encrypted vault backups**: Export and import encrypted key vaults for backup or transfer.
