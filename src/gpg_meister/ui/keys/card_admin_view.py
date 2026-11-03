@@ -28,25 +28,12 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.models.smartcard import CardInfo, CardPin, CardSlot
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
+from gpg_meister.security.secure_bytes import secure_from_text
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.smartcard_service import SmartcardService
 from gpg_meister.ui.qt_helpers import busy_bar, error_label
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
 from gpg_meister.ui.worker import Worker
-
-
-def secure_from_field(field: PassphraseField) -> SecureBytes:
-    """Move a PIN out of a widget into a wiped-on-close buffer.
-
-    Card PINs are taken verbatim — no Unicode normalisation — because the card
-    compares the bytes it was programmed with, and a mangled PIN would cost one
-    of the few attempts before the card locks itself.
-    """
-    raw = field.text().encode("utf-8")
-    secure = SecureBytes.from_bytes(raw)
-    _zero_bytes_object(raw)
-    return secure
 
 
 class _CardActionDialog(QDialog):
@@ -178,8 +165,8 @@ class ChangePinDialog(_CardActionDialog):
             return
 
         mode = self._mode.currentText()
-        current = secure_from_field(self._current)
-        new = secure_from_field(self._new)
+        current = secure_from_text(self._current.text())
+        new = secure_from_text(self._new.text())
         self._current.clear()
         self._new.clear()
         self._confirm.clear()
@@ -296,8 +283,8 @@ class MoveKeyToCardDialog(_CardActionDialog):
         ):
             return
 
-        passphrase = secure_from_field(self._passphrase)
-        admin_pin = secure_from_field(self._admin_pin)
+        passphrase = secure_from_text(self._passphrase.text())
+        admin_pin = secure_from_text(self._admin_pin.text())
         self._passphrase.clear()
         self._admin_pin.clear()
         service = self._svc
@@ -383,8 +370,8 @@ class GenerateOnCardDialog(_CardActionDialog):
         ):
             return
 
-        admin_pin = secure_from_field(self._admin_pin)
-        user_pin = secure_from_field(self._user_pin)
+        admin_pin = secure_from_text(self._admin_pin.text())
+        user_pin = secure_from_text(self._user_pin.text())
         self._admin_pin.clear()
         self._user_pin.clear()
         service = self._svc

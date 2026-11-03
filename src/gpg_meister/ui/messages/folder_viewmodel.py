@@ -5,13 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject
 
 from gpg_meister.security.password_policy import assess, normalise_passphrase
 from gpg_meister.services.folder_service import FolderDecryptResult, FolderService
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.ui.operation_viewmodel import OperationViewModel, read_passphrase
-from gpg_meister.ui.worker import Worker
 
 
 class FolderViewModel(OperationViewModel):
@@ -20,8 +19,6 @@ class FolderViewModel(OperationViewModel):
     ``operation_succeeded`` carries the encrypted file's ``Path`` after
     encryption and a ``FolderDecryptResult`` after decryption.
     """
-
-    keys_loaded: Signal = Signal(list)
 
     def __init__(
         self,
@@ -34,14 +31,7 @@ class FolderViewModel(OperationViewModel):
         self._key_svc = key_service
 
     def load_keys(self) -> None:
-        worker = Worker(self._key_svc.list_keys)
-        worker.signals.result.connect(self._on_keys)
-        worker.signals.error.connect(self._on_error)
-        self._pool.start(worker)
-
-    def _on_keys(self, keys: object) -> None:
-        if isinstance(keys, list):
-            self.keys_loaded.emit(keys)
+        self._load_keys(self._key_svc)
 
     def encrypt(
         self,

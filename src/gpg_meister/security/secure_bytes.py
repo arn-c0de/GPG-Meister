@@ -206,6 +206,20 @@ def _zero_bytes_object(raw: bytes) -> bool:
     return True
 
 
+def secure_from_text(text: str) -> SecureBytes:
+    """Move a typed secret into a wiped-on-close buffer, verbatim.
+
+    The intermediate UTF-8 ``bytes`` is zeroed before returning. No Unicode
+    normalisation happens here: token PINs must reach the device byte for byte,
+    so callers that want a normalised passphrase normalise the text first.
+    """
+    raw = text.encode("utf-8")
+    try:
+        return SecureBytes.from_bytes(raw)
+    finally:
+        _zero_bytes_object(raw)
+
+
 def zero_mutable_buffer(raw: bytearray | memoryview) -> None:
     """Reliably zero a mutable Python-owned byte buffer in place."""
     raw[:] = b"\x00" * len(raw)

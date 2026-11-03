@@ -32,7 +32,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from gpg_meister.models.vault import NONCE_LEN, KDFFields
+from gpg_meister.models.vault import KDFFields, validate_nonce_b64
 
 # One key may reasonably carry an emergency passphrase plus a handful of tokens.
 # The bound exists so a corrupted store cannot make unlocking unbounded work.
@@ -143,16 +143,7 @@ class KeyUnlockSlot(BaseModel):
             raise ValueError("wrapped secret is too large")
         return value
 
-    @field_validator("nonce_b64")
-    @classmethod
-    def _validate_nonce(cls, value: str) -> str:
-        try:
-            raw = base64.b64decode(value, validate=True)
-        except ValueError as exc:
-            raise ValueError("nonce_b64 must be valid base64") from exc
-        if len(raw) != NONCE_LEN:
-            raise ValueError(f"nonce must decode to {NONCE_LEN} bytes")
-        return value
+    _validate_nonce = field_validator("nonce_b64")(validate_nonce_b64)
 
     @model_validator(mode="after")
     def _validate_slot_shape(self) -> KeyUnlockSlot:

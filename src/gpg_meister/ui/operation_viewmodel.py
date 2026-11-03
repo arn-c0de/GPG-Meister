@@ -14,8 +14,10 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
+from gpg_meister.models.key_info import KeyInfo
 from gpg_meister.security.password_policy import normalise_passphrase
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
+from gpg_meister.security.secure_bytes import SecureBytes, secure_from_text
+from gpg_meister.services.key_service import KeyService
 from gpg_meister.ui.worker import Worker
 
 
@@ -28,11 +30,7 @@ def read_passphrase(get_passphrase: Callable[[], str] | None) -> SecureBytes | N
     pp_str = get_passphrase().strip() if get_passphrase is not None else ""
     if not pp_str:
         return None
-    raw = normalise_passphrase(pp_str).encode()
-    del pp_str
-    secure = SecureBytes.from_bytes(raw)
-    _zero_bytes_object(raw)
-    return secure
+    return secure_from_text(normalise_passphrase(pp_str))
 
 
 class OperationViewModel(QObject):
@@ -43,11 +41,13 @@ class OperationViewModel(QObject):
     operation_succeeded   Carries the result object on success.
     operation_failed      Human-readable error string.
     loading_changed       True while the background worker is running.
+    keys_loaded           Keys listed by :meth:`_load_keys`.
     """
 
     operation_succeeded: Signal = Signal(object)
     operation_failed: Signal = Signal(str)
     loading_changed: Signal = Signal(bool)
+    keys_loaded: Signal = Signal(list)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -83,6 +83,22 @@ class OperationViewModel(QObject):
         worker.signals.error.connect(self._on_error)
         worker.signals.finished.connect(self._on_finished)
         self._pool.start(worker)
+
+    def _load_keys(self, key_service: KeyService, *, private_only: bool = False) -> None:
+        """List keys on a worker thread and emit them via ``keys_loaded``."""
+
+        def _list() -> list[KeyInfo]:
+            keys = key_service.list_keys()
+            return [k for k in keys if k.has_private_key] if private_only else keys
+
+        worker = Worker(_list)
+        worker.signals.result.connect(self._on_keys)
+        worker.signals.error.connect(self._on_error)
+        self._pool.start(worker)
+
+    def _on_keys(self, keys: object) -> None:
+        if isinstance(keys, list):
+            self.keys_loaded.emit(keys)
 
     def _emit_success(self, result: object, expect: type | tuple[type, ...]) -> None:
         if isinstance(result, expect):

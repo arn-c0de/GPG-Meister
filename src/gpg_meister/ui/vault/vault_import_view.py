@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from gpg_meister.models.vault import VaultKeyEntry
 from gpg_meister.security.errors import DecryptionError
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
+from gpg_meister.security.secure_bytes import SecureBytes, secure_from_text
 from gpg_meister.security.vault_format import MAGIC
 from gpg_meister.services.vault_service import VaultPreview, VaultService
 from gpg_meister.ui.qt_helpers import read_only_cell
@@ -37,20 +37,6 @@ _PAGE_SELECT = 2
 _PAGE_RESULT = 3
 
 
-def _secure_from_text(raw: str) -> SecureBytes:
-    """Move a credential into a wiped-on-close buffer, verbatim.
-
-    Card PINs go through this rather than ``_make_passphrase_pair``: the card
-    compares the bytes it was programmed with, so Unicode normalisation would
-    only risk turning a correct PIN into a failed attempt against a counter that
-    locks the token after three tries.
-    """
-    raw_bytes = raw.encode("utf-8")
-    secure = SecureBytes.from_bytes(raw_bytes)
-    _zero_bytes_object(raw_bytes)
-    return secure
-
-
 def _make_passphrase_pair(raw: str) -> tuple[SecureBytes, SecureBytes | None]:
     """Return (normalised_secure, raw_secure_or_None) for vault operations.
 
@@ -59,15 +45,8 @@ def _make_passphrase_pair(raw: str) -> tuple[SecureBytes, SecureBytes | None]:
     """
     from gpg_meister.security.password_policy import normalise_passphrase
     norm = normalise_passphrase(raw)
-    norm_bytes = norm.encode("utf-8")
-    norm_secure = SecureBytes.from_bytes(norm_bytes)
-    _zero_bytes_object(norm_bytes)
-    raw_secure: SecureBytes | None = None
-    if norm != raw:
-        raw_bytes = raw.encode("utf-8")
-        raw_secure = SecureBytes.from_bytes(raw_bytes)
-        _zero_bytes_object(raw_bytes)
-    return norm_secure, raw_secure
+    raw_secure = secure_from_text(raw) if norm != raw else None
+    return secure_from_text(norm), raw_secure
 
 
 class _FilePage(QWizardPage):
@@ -296,7 +275,7 @@ class _PassphrasePage(QWizardPage):
 
     def _start_card_preview(self, vault_path: Path, pin_text: str) -> None:
         """Open the vault through its token slot instead of the passphrase slot."""
-        pin_secure = _secure_from_text(pin_text)
+        pin_secure = secure_from_text(pin_text)
 
         def _do() -> VaultPreview:
             with pin_secure as pin:
@@ -351,7 +330,7 @@ class _PassphrasePage(QWizardPage):
         self._working = True
 
         if self.uses_smartcard():
-            pin_secure = _secure_from_text(pp_text)
+            pin_secure = secure_from_text(pp_text)
 
             def _do_card() -> VaultPreview:
                 with pin_secure as pin:
@@ -492,7 +471,7 @@ class _ResultPage(QWizardPage):
         pp_raw_text = pp_page.passphrase().strip()
         uses_card = pp_page.uses_smartcard()
         pp_norm_secure, pp_raw_secure = _make_passphrase_pair(pp_raw_text)
-        pin_secure = _secure_from_text(pp_raw_text) if uses_card else None
+        pin_secure = secure_from_text(pp_raw_text) if uses_card else None
         # The passphrase is now held in SecureBytes; clear the input field
         # immediately rather than from a worker callback, which could fire
         # after the wizard (and the field) has been destroyed.

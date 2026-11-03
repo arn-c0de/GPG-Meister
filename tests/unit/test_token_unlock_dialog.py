@@ -11,13 +11,12 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo, TrustLevel
-from gpg_meister.security.secure_bytes import SecureBytes
+from gpg_meister.security.secure_bytes import SecureBytes, secure_from_text
 from gpg_meister.services.key_unlock_service import UnlockMethods
 from gpg_meister.ui.messages.decrypt_view import DecryptView
 from gpg_meister.ui.messages.decrypt_viewmodel import DecryptViewModel
 from gpg_meister.ui.widgets.token_unlock_dialog import (
     TokenUnlockDialog,
-    secure_pin_from,
     token_backed_keys,
 )
 
@@ -136,7 +135,7 @@ def test_the_pin_is_taken_verbatim() -> None:
     # A PIN that Unicode normalisation would alter.
     dialog._pin._field.setText("Ünïcode")
 
-    with secure_pin_from(dialog._pin) as pin:
+    with secure_from_text(dialog._pin.text()) as pin:
         assert pin.to_bytes() == "Ünïcode".encode()
 
 

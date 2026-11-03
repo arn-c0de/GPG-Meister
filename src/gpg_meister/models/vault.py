@@ -48,6 +48,17 @@ MAX_VAULT_CREATED_BY_LENGTH = 256
 MAX_VAULT_ARMOR_LENGTH = 8 * 1024 * 1024  # 8 MB — accommodates large keyblocks with many certifications
 
 
+def validate_nonce_b64(value: str) -> str:
+    """Pydantic field check: ``value`` is base64 for exactly ``NONCE_LEN`` bytes."""
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except ValueError as exc:
+        raise ValueError("nonce_b64 must be valid base64") from exc
+    if len(raw) != NONCE_LEN:
+        raise ValueError(f"nonce must decode to {NONCE_LEN} bytes")
+    return value
+
+
 class CipherAlgorithm(StrEnum):
     CHACHA20_POLY1305 = "chacha20-poly1305"
     AES_256_GCM = "aes-256-gcm"
@@ -59,16 +70,7 @@ class CipherParams(BaseModel):
     algorithm: CipherAlgorithm
     nonce_b64: str
 
-    @field_validator("nonce_b64")
-    @classmethod
-    def _validate_nonce(cls, value: str) -> str:
-        try:
-            raw = base64.b64decode(value, validate=True)
-        except ValueError as exc:
-            raise ValueError("nonce_b64 must be valid base64") from exc
-        if len(raw) != NONCE_LEN:
-            raise ValueError(f"nonce must decode to {NONCE_LEN} bytes")
-        return value
+    _validate_nonce = field_validator("nonce_b64")(validate_nonce_b64)
 
     @property
     def nonce(self) -> bytes:
@@ -109,6 +111,18 @@ class KDFFields(BaseModel):
     @property
     def salt(self) -> bytes:
         return base64.b64decode(self.salt_b64, validate=True)
+
+    @classmethod
+    def from_params(cls, params: KDFParams, salt: bytes) -> KDFFields:
+        """Header fields for ``params`` and the salt the key was derived with."""
+        return cls(
+            algorithm=params.algorithm,
+            salt_b64=base64.b64encode(salt).decode("ascii"),
+            time_cost=params.time_cost,
+            memory_cost=params.memory_cost,
+            parallelism=params.parallelism,
+            hash_len=params.hash_len,
+        )
 
     def to_params(self) -> KDFParams:
         return KDFParams(

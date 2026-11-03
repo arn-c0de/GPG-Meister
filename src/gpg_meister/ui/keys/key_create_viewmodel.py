@@ -8,7 +8,7 @@ from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo
 from gpg_meister.security.password_policy import assess
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
+from gpg_meister.security.secure_bytes import SecureBytes, secure_from_text
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.ui.worker import Worker
 
@@ -165,13 +165,10 @@ class KeyCreateViewModel(QObject):
         """
         from gpg_meister.security.password_policy import normalise_passphrase
 
-        raw = normalise_passphrase(self._passphrase.strip()).encode()
+        secure = secure_from_text(normalise_passphrase(self._passphrase.strip()))
         self._passphrase = ""
         self._confirm = ""
-        try:
-            return SecureBytes.from_bytes(raw)
-        finally:
-            _zero_bytes_object(raw)
+        return secure
 
     def _passphrase_job(self) -> Callable[[], KeyInfo]:
         pp_secure = self._secure_passphrase()
@@ -196,10 +193,8 @@ class KeyCreateViewModel(QObject):
     def _token_job(self) -> Callable[[], KeyInfo]:
         # The PIN is taken verbatim — normalising it could cost one of the few
         # attempts the token allows before it locks itself.
-        pin_raw = self._pin.encode()
+        pin_secure = secure_from_text(self._pin)
         self._pin = ""
-        pin_secure = SecureBytes.from_bytes(pin_raw)
-        _zero_bytes_object(pin_raw)
         fallback = None if self._token_only else self._secure_passphrase()
 
         def _do() -> KeyInfo:
