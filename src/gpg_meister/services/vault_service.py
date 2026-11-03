@@ -33,7 +33,6 @@ from gpg_meister.models.kdf_params import (
     MAX_IMPORT_TIME_COST,
     MIN_MEMORY_COST_KB,
     MIN_TIME_COST,
-    KDFAlgorithm,
     KDFParams,
     high_memory_params,
 )
@@ -211,14 +210,7 @@ def _build_header(
     params: KDFParams,
 ) -> VaultHeader:
     return VaultHeader(
-        kdf=KDFFields(
-            algorithm=KDFAlgorithm.ARGON2ID,
-            salt_b64=base64.b64encode(salt).decode("ascii"),
-            time_cost=params.time_cost,
-            memory_cost=params.memory_cost,
-            parallelism=params.parallelism,
-            hash_len=params.hash_len,
-        ),
+        kdf=KDFFields.from_params(params, salt),
         cipher=CipherParams(
             algorithm=cipher,
             nonce_b64=base64.b64encode(nonce).decode("ascii"),

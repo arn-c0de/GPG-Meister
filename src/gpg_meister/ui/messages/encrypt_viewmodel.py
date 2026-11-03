@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject
 
 from gpg_meister.models.message import EncryptResult
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.message_service import MessageService
 from gpg_meister.ui.operation_viewmodel import OperationViewModel, read_passphrase
-from gpg_meister.ui.worker import Worker
 
 
 class EncryptViewModel(OperationViewModel):
@@ -23,8 +22,6 @@ class EncryptViewModel(OperationViewModel):
     loading_changed       True while the background worker is running.
     keys_loaded           Available keys for recipient / signer selection.
     """
-
-    keys_loaded: Signal = Signal(list)
 
     def __init__(
         self,
@@ -42,14 +39,7 @@ class EncryptViewModel(OperationViewModel):
         self._trust_confirmed: bool = False
 
     def load_keys(self) -> None:
-        w = Worker(self._key_svc.list_keys)
-        w.signals.result.connect(self._on_keys)
-        w.signals.error.connect(self._on_error)
-        self._pool.start(w)
-
-    def _on_keys(self, keys: object) -> None:
-        if isinstance(keys, list):
-            self.keys_loaded.emit(keys)
+        self._load_keys(self._key_svc)
 
     def set_plaintext(self, text: str) -> None:
         self._plaintext = text

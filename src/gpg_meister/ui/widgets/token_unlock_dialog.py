@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from gpg_meister.models.key_info import KeyInfo
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
+from gpg_meister.security.secure_bytes import SecureBytes, secure_from_text
 from gpg_meister.services.key_unlock_service import KeyUnlockService
 from gpg_meister.ui.qt_helpers import busy_bar, error_label
 from gpg_meister.ui.widgets.passphrase_field import PassphraseField
@@ -37,20 +37,6 @@ from gpg_meister.ui.worker import Worker
 
 _TOUCH_HINT = "Touch your security key now — it is waiting and will time out."
 _IDLE_HINT = "Enter the PIN of your security key, then touch it when asked."
-
-
-def secure_pin_from(field: PassphraseField) -> SecureBytes:
-    """Move a PIN out of a widget, verbatim.
-
-    No Unicode normalisation: the token compares the bytes its PIN was set with,
-    and an altered PIN would spend one of the handful of attempts it allows
-    before locking itself.
-    """
-    raw = field.text().encode("utf-8")
-    try:
-        return SecureBytes.from_bytes(raw)
-    finally:
-        _zero_bytes_object(raw)
 
 
 class TokenUnlockDialog(QDialog):
@@ -141,7 +127,7 @@ class TokenUnlockDialog(QDialog):
         if not self._pin.text():
             return
         fingerprint = self._selected_fingerprint()
-        pin = secure_pin_from(self._pin)
+        pin = secure_from_text(self._pin.text())
         # Cleared before the worker runs: the attempt owns the PIN from here.
         self._pin.clear()
         self._set_running(True)

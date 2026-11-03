@@ -134,7 +134,7 @@ class SignView(QWidget):
         self._card_hint.show()
 
     def _on_passphrase_changed(self) -> None:
-        self._vm.set_passphrase_non_empty(bool(self._passphrase.text()))
+        self._vm.set_passphrase_non_empty(bool(self._passphrase.text().strip()))
         self._update_button()
 
     def _on_data_changed(self) -> None:

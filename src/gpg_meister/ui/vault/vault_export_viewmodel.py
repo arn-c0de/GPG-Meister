@@ -5,17 +5,17 @@ from __future__ import annotations
 import contextlib
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThreadPool, Signal
+from PySide6.QtCore import QObject, Signal
 
 from gpg_meister.models.key_info import KeyInfo
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
+from gpg_meister.security.secure_bytes import SecureBytes, secure_from_text
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.key_unlock_service import KeyUnlockService
 from gpg_meister.services.vault_service import VaultDescriptor, VaultService
-from gpg_meister.ui.worker import Worker
+from gpg_meister.ui.operation_viewmodel import OperationViewModel
 
 
-class VaultExportViewModel(QObject):
+class VaultExportViewModel(OperationViewModel):
     """Manages vault-export tab state with per-key passphrase unlocking.
 
     Signals
@@ -27,10 +27,6 @@ class VaultExportViewModel(QObject):
     key_unlock_state_changed  (fingerprint, is_unlocked) when a key is locked/unlocked.
     """
 
-    operation_succeeded: Signal = Signal(object)
-    operation_failed: Signal = Signal(str)
-    loading_changed: Signal = Signal(bool)
-    keys_loaded: Signal = Signal(list)
     key_unlock_state_changed: Signal = Signal(str, bool)
 
     def __init__(
@@ -48,7 +44,6 @@ class VaultExportViewModel(QObject):
         # route simply never appears, and a key whose passphrase only its token
         # knows cannot be exported — which is what it was before.
         self._unlock = unlock
-        self._pool = QThreadPool.globalInstance()
 
         self._selected_fps: list[str] = []
         self._target_path: Path | None = None
@@ -77,18 +72,12 @@ class VaultExportViewModel(QObject):
     # ------------------------------------------------------------------ loading
 
     def load_keys(self) -> None:
-        def _list_private() -> list[object]:
-            return [k for k in self._key_svc.list_keys() if k.has_private_key]
-
-        w = Worker(_list_private)
-        w.signals.result.connect(self._on_keys)
-        w.signals.error.connect(self._on_error)
-        self._pool.start(w)
+        self._load_keys(self._key_svc, private_only=True)
 
     def _on_keys(self, keys: object) -> None:
         if isinstance(keys, list):
             self._key_map = {k.fingerprint: k for k in keys if isinstance(k, KeyInfo)}
-            self.keys_loaded.emit(keys)
+        super()._on_keys(keys)
 
     # ---------------------------------------------------------------- selection
 
@@ -252,9 +241,7 @@ class VaultExportViewModel(QObject):
 
         master_secure: SecureBytes | None = None
         if not self.token_only:
-            _master_raw = normalise_passphrase(self._master_passphrase.strip()).encode()
-            master_secure = SecureBytes.from_bytes(_master_raw)
-            _zero_bytes_object(_master_raw)
+            master_secure = secure_from_text(normalise_passphrase(self._master_passphrase.strip()))
         self._master_passphrase = ""
         self._confirm_passphrase = ""
 
@@ -262,9 +249,9 @@ class VaultExportViewModel(QObject):
         gpg_secure: dict[str, SecureBytes] = {}
         for fp in fps:
             if fp in self._key_passphrases:
-                _raw = normalise_passphrase(self._key_passphrases[fp].strip()).encode()
-                gpg_secure[fp] = SecureBytes.from_bytes(_raw)
-                _zero_bytes_object(_raw)
+                gpg_secure[fp] = secure_from_text(
+                    normalise_passphrase(self._key_passphrases[fp].strip())
+                )
         # Token-derived passphrases are moved, not copied and not normalised:
         # they are the key's passphrase byte for byte, generated rather than
         # typed, and nothing about them survives here once the worker owns them.
@@ -292,19 +279,8 @@ class VaultExportViewModel(QObject):
                     unlock_key_fingerprints=unlock_fps,
                 )
 
-        w = Worker(_do)
-        w.signals.result.connect(self._on_success)
-        w.signals.error.connect(self._on_error)
-        w.signals.finished.connect(self._on_finished)
-        self._pool.start(w)
+        self._run(_do, expect=VaultDescriptor)
 
-    def _on_success(self, result: object) -> None:
+    def _emit_success(self, result: object, expect: type | tuple[type, ...]) -> None:
         self.reset_secrets()
-        if isinstance(result, VaultDescriptor):
-            self.operation_succeeded.emit(result)
-
-    def _on_error(self, msg: str) -> None:
-        self.operation_failed.emit(msg)
-
-    def _on_finished(self) -> None:
-        self.loading_changed.emit(False)
+        super()._emit_success(result, expect)

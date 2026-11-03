@@ -22,7 +22,7 @@ from __future__ import annotations
 import base64
 import secrets
 
-from gpg_meister.models.kdf_params import KDFAlgorithm, KDFParams
+from gpg_meister.models.kdf_params import KDFParams
 from gpg_meister.models.vault import (
     VAULT_FORMAT_TAG,
     CipherAlgorithm,
@@ -79,14 +79,7 @@ def wrap_with_passphrase(
     return VaultKeySlot(
         type=VaultSlotType.PASSPHRASE,
         wrapped_key_b64=base64.b64encode(wrapped).decode("ascii"),
-        kdf=KDFFields(
-            algorithm=KDFAlgorithm.ARGON2ID,
-            salt_b64=base64.b64encode(salt).decode("ascii"),
-            time_cost=params.time_cost,
-            memory_cost=params.memory_cost,
-            parallelism=params.parallelism,
-            hash_len=params.hash_len,
-        ),
+        kdf=KDFFields.from_params(params, salt),
         nonce_b64=base64.b64encode(nonce).decode("ascii"),
         label="Master passphrase",
     )

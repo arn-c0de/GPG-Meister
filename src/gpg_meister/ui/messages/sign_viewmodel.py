@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject
 
 from gpg_meister.models.message import SignResult
-from gpg_meister.security.secure_bytes import SecureBytes, _zero_bytes_object
 from gpg_meister.services.key_service import KeyService
 from gpg_meister.services.message_service import MessageService
-from gpg_meister.ui.operation_viewmodel import OperationViewModel
-from gpg_meister.ui.worker import Worker
+from gpg_meister.ui.operation_viewmodel import OperationViewModel, read_passphrase
 
 
 class SignViewModel(OperationViewModel):
@@ -24,8 +22,6 @@ class SignViewModel(OperationViewModel):
     loading_changed       True while the background worker is running.
     keys_loaded           Available private keys for signer selection.
     """
-
-    keys_loaded: Signal = Signal(list)
 
     def __init__(
         self,
@@ -42,17 +38,7 @@ class SignViewModel(OperationViewModel):
         self._detached = True
 
     def load_keys(self) -> None:
-        def _list_private() -> list[object]:
-            return [k for k in self._key_svc.list_keys() if k.has_private_key]
-
-        w = Worker(_list_private)
-        w.signals.result.connect(self._on_keys)
-        w.signals.error.connect(self._on_error)
-        self._pool.start(w)
-
-    def _on_keys(self, keys: object) -> None:
-        if isinstance(keys, list):
-            self.keys_loaded.emit(keys)
+        self._load_keys(self._key_svc, private_only=True)
 
     def set_data(self, text: str) -> None:
         self._data = text
@@ -72,15 +58,12 @@ class SignViewModel(OperationViewModel):
     def submit(self, get_passphrase: Callable[[], str]) -> None:
         if not self.can_submit():
             return
+        pp_secure = read_passphrase(get_passphrase)
+        if pp_secure is None:  # whitespace only; the view keeps submit disabled then
+            return
         self.loading_changed.emit(True)
         data_bytes = self._data.encode()
         fp = self._fingerprint
-        pp_str = get_passphrase().strip()
-        from gpg_meister.security.password_policy import normalise_passphrase
-        pp_bytes = normalise_passphrase(pp_str).encode()
-        del pp_str
-        pp_secure = SecureBytes.from_bytes(pp_bytes)
-        _zero_bytes_object(pp_bytes)
         detached = self._detached
 
         def _do() -> SignResult:
