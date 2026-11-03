@@ -25,7 +25,7 @@ from gpg_meister.services.key_service import (
     ImportPlanEntry,
     KeyService,
 )
-from gpg_meister.ui.qt_helpers import read_only_cell
+from gpg_meister.ui.qt_helpers import error_label, read_only_cell
 
 _CONFLICT_LABELS: dict[ImportConflict, str] = {
     ImportConflict.NEW: "New — will be imported",
@@ -76,10 +76,7 @@ class PublicKeyImportDialog(QDialog):
         self._plan_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self._plan_table, stretch=1)
 
-        self._error_label = QLabel("")
-        self._error_label.setStyleSheet("color: #cc0000;")
-        self._error_label.setWordWrap(True)
-        self._error_label.hide()
+        self._error_label = error_label()
         layout.addWidget(self._error_label)
 
         self._buttons = QDialogButtonBox(
