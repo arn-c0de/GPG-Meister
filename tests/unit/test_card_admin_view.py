@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QApplication, QInputDialog
 
 from gpg_meister.models.key_info import KeyAlgorithm, KeyInfo
@@ -110,6 +111,8 @@ def _app() -> QApplication:
 
 
 def _drain(app: QApplication) -> None:
+    # Let the worker thread finish first; only then are its signals queued.
+    QThreadPool.globalInstance().waitForDone(5000)
     for _ in range(30):
         app.processEvents()
 
